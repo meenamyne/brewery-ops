@@ -35,15 +35,21 @@
       BrokenLog:  ["id","date","keg_id","beer_name","reason","reported_by"],
       Batches:    ["id","batch_id","brew_day","beer_name","fermenter","volume","filled_litres","fermentation_days","condition_days","release_date","status"],
       BeerList:   ["name","style"],
-      BatchTasks: ["id","batch_id","task","day","assigned_to"],
-      Brewsheets: ["batch_id","data"],
+      BatchTasks:    ["id","batch_id","task","day","assigned_to"],
+      Brewsheets:    ["batch_id","data"],
+      BarKegIn:      ["id","stock_out_id","keg_id","size","beer_name","sent_by","received","received_date","received_by","note","remark"],
+      SupplierKegIn: ["id","supplier","keg_ref","size","beer_name","production_date","received","received_date","received_by","coupler_needed","note"],
+      TapLog:        ["id","source","supplier","keg_id","size","beer_name","received_date","received_by","ready","tap_line","date_tapped","date_untapped","status","note","price"],
     };
     const SHEET_NUMS = {
-      FillLog:    ["id","litres"],
-      StockOut:   ["id"],
-      BrokenLog:  ["id"],
-      BatchTasks: ["id","day"],
-      Batches:    ["id","volume","filled_litres","fermentation_days","condition_days"],
+      FillLog:       ["id","litres"],
+      StockOut:      ["id"],
+      BrokenLog:     ["id"],
+      BatchTasks:    ["id","day"],
+      Batches:       ["id","volume","filled_litres","fermentation_days","condition_days"],
+      BarKegIn:      ["id","stock_out_id"],
+      SupplierKegIn: ["id"],
+      TapLog:        ["id"],
     };
 
     let _gTok = null; // OAuth access token (module-level, set on auth)
@@ -407,6 +413,19 @@
       // ── Maintenance ────────────────────────────────────────────────────────
       { id:"broken-log", label:"Broken Log",
         icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>,
+        dividerAfter: true },
+      // ── Bar Team ───────────────────────────────────────────────────────────
+      { id:"bar-dashboard",  label:"Bar Dashboard",
+        icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>,
+        dividerAfter: false },
+      { id:"storage-inventory", label:"Storage View",
+        icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>,
+        dividerAfter: false },
+      { id:"keg-received",  label:"Keg Received",
+        icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>,
+        dividerAfter: false },
+      { id:"tap-management", label:"Tap Management",
+        icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>,
         dividerAfter: false },
     ];
 
@@ -469,9 +488,12 @@
               </div>
             </div>
           </div>
-          <nav className="flex-1 px-3 py-4 flex flex-col gap-1">
-            {NAV.map(n => (
+          <nav className="flex-1 px-3 py-4 flex flex-col gap-1 overflow-y-auto">
+            {NAV.map((n,i) => (
               <React.Fragment key={n.id}>
+                {n.id === "bar-dashboard" && (
+                  <p className="px-3 pt-1 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">Bar Team</p>
+                )}
                 <button
                   onClick={() => setPage(n.id)}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
@@ -3171,6 +3193,708 @@
       );
     }
 
+    // ─── HELPERS ──────────────────────────────────────────────────────────────
+    const today = () => new Date().toISOString().slice(0,10);
+
+    // ─── STORAGE INVENTORY PAGE ───────────────────────────────────────────────
+    function StorageInventoryPage({ kegStatus }) {
+      const inStorage = kegStatus.filter(k => k.status === "Filled" && k.location === "Brewery");
+      // group by beer_name + size
+      const grouped = {};
+      inStorage.forEach(k => {
+        const key = `${k.beer_name}||${k.size}`;
+        if (!grouped[key]) grouped[key] = { beer_name: k.beer_name, size: k.size, kegs: [] };
+        grouped[key].kegs.push(k.keg_id);
+      });
+      const rows = Object.values(grouped).sort((a,b) => a.beer_name.localeCompare(b.beer_name));
+      return (
+        <div>
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold text-gray-800">Storage Inventory</h1>
+            <p className="text-sm text-gray-400 mt-1">Filled kegs currently in Brewery storage — read-only view from Keg Status</p>
+          </div>
+          <div className="grid grid-cols-3 gap-4 mb-6">
+            {[
+              { label:"Total Kegs in Storage", value: inStorage.length, color:"amber" },
+              { label:"Unique Beers", value: rows.length, color:"sky" },
+              { label:"Ready to Dispatch", value: inStorage.length, color:"emerald" },
+            ].map(c => <StatCard key={c.label} label={c.label} value={c.value} color={c.color}/>)}
+          </div>
+          <div className="bg-white rounded-2xl border border-gray-100">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="font-semibold text-gray-800">Kegs in Storage</h2>
+              <span className="text-xs text-gray-400">{inStorage.length} kegs total</span>
+            </div>
+            {rows.length === 0 ? (
+              <div className="p-12 text-center text-gray-400">
+                <div className="text-4xl mb-3">📦</div>
+                <p className="font-medium">No filled kegs in storage</p>
+                <p className="text-xs mt-1">Kegs will appear here when status is "Filled" and location is "Brewery"</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead><tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+                    <th className="px-5 py-3 text-left">Beer Name</th>
+                    <th className="px-5 py-3 text-left">Size</th>
+                    <th className="px-5 py-3 text-center">Kegs</th>
+                    <th className="px-5 py-3 text-left">Keg IDs</th>
+                  </tr></thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {rows.map((r,i) => (
+                      <tr key={i} className="hover:bg-amber-50/30">
+                        <td className="px-5 py-3 font-medium text-gray-800">{r.beer_name}</td>
+                        <td className="px-5 py-3 text-gray-600">{r.size}</td>
+                        <td className="px-5 py-3 text-center">
+                          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-100 text-amber-700 font-bold text-xs">{r.kegs.length}</span>
+                        </td>
+                        <td className="px-5 py-3 text-gray-500 text-xs">{r.kegs.join(", ")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── KEG RECEIVED PAGE ────────────────────────────────────────────────────
+    function KegReceivedPage({ stockOut, barKegIn, setBarKegIn, supplierKegIn, setSupplierKegIn, tapLog, setTapLog, currentUser }) {
+      const [tab, setTab]               = useState("brewery");
+      const [receivedBy, setReceivedBy] = useState(currentUser?.name || "");
+      const [search, setSearch]         = useState("");
+      const [sortAsc, setSortAsc]       = useState(false); // newest first by default
+      const [confirmingId, setConfirmingId] = useState(null); // which row is showing date confirm
+      const [confirmDate, setConfirmDate]   = useState(today());
+      // Supplier form state
+      const [supForm, setSupForm]   = useState({ supplier:"", keg_ref:"", size:"20 L", beer_name:"", style:"", abv:"", note:"" });
+      const [supFormOpen, setSupFormOpen] = useState(false);
+      const SUPPLIERS = ["Group B","Guest Tap"];
+
+      // Kegs sent to UPB from brewery (destination="UPB")
+      const breweryAll = stockOut.filter(s => s.destination === "UPB" && !barKegIn.some(b => b.stock_out_id === s.id));
+      const breweryFiltered = breweryAll
+        .filter(s => !search || s.beer_name?.toLowerCase().includes(search.toLowerCase()) || s.keg_id?.toLowerCase().includes(search.toLowerCase()))
+        .sort((a,b) => { const d = (a.date_out||"").localeCompare(b.date_out||""); return sortAsc ? d : -d; });
+      const breweryReceived = barKegIn.filter(b => b.received === "true" || b.received === true);
+
+      function openConfirm(s) { setConfirmingId(s.id); setConfirmDate(today()); }
+
+      function confirmReceive(s) {
+        const newId = (barKegIn.length ? Math.max(...barKegIn.map(b=>b.id||0)) : 0) + 1;
+        const entry = { id: newId, stock_out_id: s.id, keg_id: s.keg_id, size: s.keg_size, beer_name: s.beer_name,
+          sent_by: s.recorded_by, received: "true", received_date: confirmDate, received_by: receivedBy, note: "", remark: "" };
+        setBarKegIn(prev => [...prev, entry]);
+        const tapId = (tapLog.length ? Math.max(...tapLog.map(t=>t.id||0)) : 0) + 1;
+        setTapLog(prev => [...prev, { id: tapId, source:"Brewery", supplier:"UPB", keg_id: s.keg_id, size: s.keg_size,
+          beer_name: s.beer_name, received_date: confirmDate, received_by: receivedBy,
+          ready:"false", tap_line:"", date_tapped:"", date_untapped:"", status:"Pending", note:"", price:"" }]);
+        setConfirmingId(null);
+      }
+
+      function addSupplierKeg() {
+        const newId = (supplierKegIn.length ? Math.max(...supplierKegIn.map(x=>x.id||0)) : 0) + 1;
+        const entry = { ...supForm, id: newId, received: "true", received_date: today(), received_by: receivedBy };
+        setSupplierKegIn(prev => [...prev, entry]);
+        const tapId = (tapLog.length ? Math.max(...tapLog.map(t=>t.id||0)) : 0) + 1;
+        setTapLog(prev => [...prev, { id: tapId, source:"Supplier", supplier: supForm.supplier, keg_id: supForm.keg_ref, size: supForm.size,
+          beer_name: supForm.beer_name, received_date: today(), received_by: receivedBy,
+          ready:"false", tap_line:"", date_tapped:"", date_untapped:"", status:"Pending", note:"", price:"" }]);
+        setSupForm({ supplier:"", keg_ref:"", size:"20 L", beer_name:"", style:"", abv:"", note:"" });
+        setSupFormOpen(false);
+      }
+
+      const tabBtn = (id, label, count) => (
+        <button onClick={()=>setTab(id)} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${tab===id?"bg-amber-500 text-white shadow-sm":"text-gray-500 hover:text-gray-700"}`}>
+          {label} {count > 0 && <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-xs ${tab===id?"bg-white/30":"bg-gray-100 text-gray-500"}`}>{count}</span>}
+        </button>
+      );
+
+      return (
+        <div>
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold text-gray-800">Keg Received</h1>
+            <p className="text-sm text-gray-400 mt-1">Verify incoming kegs from Brewery or external suppliers</p>
+          </div>
+
+          {/* Receive settings */}
+          <div className="bg-white rounded-2xl border border-gray-100 p-5 mb-5 flex flex-wrap gap-4 items-end">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1.5">Received By</label>
+              <input value={receivedBy} onChange={e=>setReceivedBy(e.target.value)} placeholder="Your name"
+                className={inputCls + " w-40"} />
+            </div>
+          </div>
+
+          <div className="flex gap-2 mb-5">{tabBtn("brewery","From Brewery",breweryAll.length)}{tabBtn("supplier","From Suppliers",0)}</div>
+
+          {tab === "brewery" && (
+            <div className="space-y-4">
+              <div className="bg-white rounded-2xl border border-gray-100">
+                <div className="px-6 py-4 border-b border-gray-100 flex flex-wrap items-center gap-3">
+                  <h2 className="font-semibold text-gray-800 mr-auto">Pending from Brewery</h2>
+                  {/* Search */}
+                  <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search beer or keg ID…"
+                    className="border border-gray-200 rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400 w-52"/>
+                  {/* Sort toggle */}
+                  <button onClick={()=>setSortAsc(v=>!v)}
+                    className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 rounded-xl px-3 py-1.5 hover:bg-gray-50 transition-colors">
+                    Date Out {sortAsc ? "↑ Oldest" : "↓ Newest"}
+                  </button>
+                  <span className="text-xs text-amber-600 font-medium">{breweryFiltered.length} awaiting</span>
+                </div>
+                {breweryFiltered.length === 0 ? (
+                  <div className="p-10 text-center text-gray-400"><div className="text-3xl mb-2">✅</div>
+                    <p>{search ? "No kegs match your search" : "All brewery kegs confirmed"}</p></div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead><tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+                        <th className="px-5 py-3 text-left">Keg ID</th><th className="px-5 py-3 text-left">Beer Name</th>
+                        <th className="px-5 py-3 text-left">Size</th><th className="px-5 py-3 text-left">Sent By</th>
+                        <th className="px-5 py-3 text-left cursor-pointer select-none" onClick={()=>setSortAsc(v=>!v)}>
+                          Date Out {sortAsc?"↑":"↓"}
+                        </th>
+                        <th className="px-5 py-3"></th>
+                      </tr></thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {breweryFiltered.map(s => (
+                          <React.Fragment key={s.id}>
+                            <tr className="hover:bg-amber-50/30">
+                              <td className="px-5 py-3 font-mono text-xs text-gray-700">{s.keg_id}</td>
+                              <td className="px-5 py-3 font-medium text-gray-800">{s.beer_name}</td>
+                              <td className="px-5 py-3 text-gray-500">{s.keg_size}</td>
+                              <td className="px-5 py-3 text-gray-500">{s.recorded_by}</td>
+                              <td className="px-5 py-3 text-gray-400 text-xs">{s.date_out}</td>
+                              <td className="px-5 py-3 text-right">
+                                {confirmingId === s.id ? (
+                                  <div className="flex items-center gap-2 justify-end flex-wrap">
+                                    <input type="date" value={confirmDate} onChange={e=>setConfirmDate(e.target.value)}
+                                      className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-400"/>
+                                    <button onClick={()=>confirmReceive(s)}
+                                      className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-semibold hover:bg-emerald-600 transition-colors">
+                                      Confirm
+                                    </button>
+                                    <button onClick={()=>setConfirmingId(null)} className="px-2 py-1.5 text-gray-400 hover:text-gray-600 text-xs">✕</button>
+                                  </div>
+                                ) : (
+                                  <button onClick={()=>openConfirm(s)}
+                                    className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-semibold hover:bg-emerald-600 transition-colors">
+                                    ✓ Received
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          </React.Fragment>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {breweryReceived.length > 0 && (
+                <div className="bg-white rounded-2xl border border-gray-100">
+                  <div className="px-6 py-4 border-b border-gray-100">
+                    <h2 className="font-semibold text-gray-700 text-sm">Received History</h2>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead><tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+                        <th className="px-5 py-3 text-left">Keg ID</th><th className="px-5 py-3 text-left">Beer Name</th>
+                        <th className="px-5 py-3 text-left">Size</th><th className="px-5 py-3 text-left">Received By</th>
+                        <th className="px-5 py-3 text-left">Received Date</th>
+                      </tr></thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {[...breweryReceived].reverse().map(b => (
+                          <tr key={b.id} className="hover:bg-gray-50">
+                            <td className="px-5 py-3 font-mono text-xs text-gray-700">{b.keg_id}</td>
+                            <td className="px-5 py-3 text-gray-700">{b.beer_name}</td>
+                            <td className="px-5 py-3 text-gray-500">{b.size}</td>
+                            <td className="px-5 py-3 text-gray-500">{b.received_by}</td>
+                            <td className="px-5 py-3 text-gray-400 text-xs">{b.received_date}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === "supplier" && (
+            <div className="space-y-4">
+              <div className="flex justify-end">
+                <button onClick={()=>setSupFormOpen(v=>!v)}
+                  className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-xl text-sm font-medium hover:bg-amber-600 transition-colors shadow-sm">
+                  + Add Supplier Keg
+                </button>
+              </div>
+              {supFormOpen && (
+                <div className="bg-white rounded-2xl border border-amber-200 p-6">
+                  <h3 className="font-semibold text-gray-800 mb-4">New Supplier Keg</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1.5">Supplier</label>
+                      <select value={supForm.supplier} onChange={e=>setSupForm(p=>({...p,supplier:e.target.value}))} className={inputCls}>
+                        <option value="">Select supplier…</option>
+                        {SUPPLIERS.map(s=><option key={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1.5">Brand Name</label>
+                      <input value={supForm.keg_ref} onChange={e=>setSupForm(p=>({...p,keg_ref:e.target.value}))} placeholder="e.g. Brainfill Osiris" className={inputCls}/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1.5">Beer Name</label>
+                      <input value={supForm.beer_name} onChange={e=>setSupForm(p=>({...p,beer_name:e.target.value}))} placeholder="Full beer name…" className={inputCls}/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1.5">Style</label>
+                      <input value={supForm.style} onChange={e=>setSupForm(p=>({...p,style:e.target.value}))} placeholder="e.g. IPA, Lager, Stout…" className={inputCls}/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1.5">ABV (%)</label>
+                      <input type="number" step="0.1" min="0" max="30" value={supForm.abv} onChange={e=>setSupForm(p=>({...p,abv:e.target.value}))} placeholder="5.5" className={inputCls}/>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1.5">Size</label>
+                      <select value={supForm.size} onChange={e=>setSupForm(p=>({...p,size:e.target.value}))} className={inputCls}>
+                        {KEG_SIZES.map(s=><option key={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-xs font-medium text-gray-500 mb-1.5">Note</label>
+                      <input value={supForm.note} onChange={e=>setSupForm(p=>({...p,note:e.target.value}))} placeholder="Optional…" className={inputCls}/>
+                    </div>
+                  </div>
+                  <div className="flex gap-3 mt-5">
+                    <button onClick={addSupplierKeg} disabled={!supForm.supplier||!supForm.keg_ref||!supForm.beer_name}
+                      className="px-5 py-2 bg-emerald-500 text-white rounded-xl text-sm font-semibold hover:bg-emerald-600 disabled:opacity-40 transition-colors">
+                      ✓ Add & Mark Received
+                    </button>
+                    <button onClick={()=>setSupFormOpen(false)} className="px-4 py-2 text-gray-500 hover:text-gray-700 text-sm">Cancel</button>
+                  </div>
+                </div>
+              )}
+              <div className="bg-white rounded-2xl border border-gray-100">
+                <div className="px-6 py-4 border-b border-gray-100"><h2 className="font-semibold text-gray-800">Supplier Keg Log</h2></div>
+                {supplierKegIn.length === 0 ? (
+                  <div className="p-10 text-center text-gray-400"><div className="text-3xl mb-2">🚚</div><p>No supplier kegs logged yet</p></div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead><tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+                        <th className="px-5 py-3 text-left">Supplier</th><th className="px-5 py-3 text-left">Brand Name</th>
+                        <th className="px-5 py-3 text-left">Beer Name</th><th className="px-5 py-3 text-left">Style</th>
+                        <th className="px-5 py-3 text-left">ABV</th><th className="px-5 py-3 text-left">Size</th>
+                        <th className="px-5 py-3 text-left">Received</th><th className="px-5 py-3 text-left">By</th>
+                      </tr></thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {[...supplierKegIn].reverse().map(s=>(
+                          <tr key={s.id} className="hover:bg-gray-50">
+                            <td className="px-5 py-3"><span className="px-2 py-0.5 bg-sky-50 text-sky-700 rounded-full text-xs font-medium">{s.supplier}</span></td>
+                            <td className="px-5 py-3 text-gray-600 text-xs">{s.keg_ref}</td>
+                            <td className="px-5 py-3 text-gray-800 font-medium">{s.beer_name}</td>
+                            <td className="px-5 py-3 text-gray-500 text-xs">{s.style}</td>
+                            <td className="px-5 py-3 text-gray-500 text-xs">{s.abv ? `${s.abv}%` : ""}</td>
+                            <td className="px-5 py-3 text-gray-500">{s.size}</td>
+                            <td className="px-5 py-3 text-gray-400 text-xs">{s.received_date}</td>
+                            <td className="px-5 py-3 text-gray-500">{s.received_by}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─── TAP MANAGEMENT PAGE ──────────────────────────────────────────────────
+    function TapManagementPage({ tapLog, setTapLog }) {
+      const [tab, setTab] = useState("queue");
+      const TAP_LINES = Array.from({length:14}, (_,i) => `Tap ${i+1}`);
+
+      const pending  = tapLog.filter(t => t.status === "Pending" || t.status === "Queued");
+      const active   = tapLog.filter(t => t.status === "Active");
+      const finished = tapLog.filter(t => t.status === "Finished");
+
+      function setField(id, field, value) {
+        setTapLog(prev => prev.map(t => {
+          if (t.id !== id) return t;
+          const updated = { ...t, [field]: value };
+          // Recompute status
+          if (updated.date_untapped) updated.status = "Finished";
+          else if (updated.ready === "true" && updated.tap_line && updated.date_tapped) updated.status = "Active";
+          else if (updated.ready === "true") updated.status = "Queued";
+          else updated.status = "Pending";
+          return updated;
+        }));
+      }
+
+      // Set of tap lines currently occupied by an active beer
+      const occupiedLines = new Set(active.map(t => t.tap_line).filter(Boolean));
+
+      function markReady(id) { setField(id, "ready", "true"); }
+      function assignTap(id, line) {
+        if (occupiedLines.has(line)) return; // guard: refuse if line is taken
+        setTapLog(prev => prev.map(t => {
+          if (t.id !== id) return t;
+          const updated = { ...t, tap_line: line, date_tapped: t.date_tapped || today() };
+          updated.status = "Active";
+          return updated;
+        }));
+      }
+      function markEmpty(id) { setField(id, "date_untapped", today()); }
+      function daysOnTap(t) {
+        if (!t.date_tapped) return null;
+        const end = t.date_untapped || today();
+        return Math.max(0, Math.round((new Date(end) - new Date(t.date_tapped)) / 86400000));
+      }
+
+      const tabBtn = (id, label, count, color="amber") => (
+        <button onClick={()=>setTab(id)} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${tab===id?`bg-${color}-500 text-white shadow-sm`:"text-gray-500 hover:text-gray-700"}`}>
+          {label} {count > 0 && <span className={`ml-1.5 px-1.5 py-0.5 rounded-full text-xs ${tab===id?"bg-white/30":"bg-gray-100 text-gray-500"}`}>{count}</span>}
+        </button>
+      );
+
+      const srcBadge = src => src === "Brewery"
+        ? <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700">Brewery</span>
+        : <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-sky-50 text-sky-700">{src}</span>;
+
+      return (
+        <div>
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold text-gray-800">Tap Management</h1>
+            <p className="text-sm text-gray-400 mt-1">Schedule kegs to tap, track active pours, and log finished kegs</p>
+          </div>
+          <div className="flex gap-2 mb-5">
+            {tabBtn("queue","Tap Queue",pending.length,"amber")}
+            {tabBtn("active","Active Taps",active.length,"emerald")}
+            {tabBtn("history","History",0,"gray")}
+          </div>
+
+          {tab === "queue" && (
+            <div className="bg-white rounded-2xl border border-gray-100">
+              <div className="px-6 py-4 border-b border-gray-100">
+                <h2 className="font-semibold text-gray-800">Kegs Waiting to Tap</h2>
+              </div>
+              {pending.length === 0 ? (
+                <div className="p-10 text-center text-gray-400"><div className="text-3xl mb-2">🍺</div><p>No kegs in queue</p><p className="text-xs mt-1">Receive kegs first from the Keg Received page</p></div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left">Source</th><th className="px-4 py-3 text-left">Keg / Ref</th>
+                      <th className="px-4 py-3 text-left">Beer Name</th><th className="px-4 py-3 text-left">Size</th>
+                      <th className="px-4 py-3 text-center">Ready</th><th className="px-4 py-3 text-left">Tap Line</th>
+                      <th className="px-4 py-3 text-left">Date Tapped</th>
+                      <th className="px-4 py-3 text-left">Price (฿)</th>
+                      <th className="px-4 py-3 text-left">Note</th>
+                      <th className="px-4 py-3"></th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {pending.map(t => (
+                        <tr key={t.id} className="hover:bg-amber-50/20">
+                          <td className="px-4 py-3">{srcBadge(t.source)}</td>
+                          <td className="px-4 py-3 font-mono text-xs text-gray-600">{t.keg_id}</td>
+                          <td className="px-4 py-3 font-medium text-gray-800 max-w-40 truncate">{t.beer_name}</td>
+                          <td className="px-4 py-3 text-gray-500 text-xs">{t.size}</td>
+                          <td className="px-4 py-3 text-center">
+                            <input type="checkbox" checked={t.ready==="true"} onChange={()=>markReady(t.id)}
+                              className="w-4 h-4 rounded accent-amber-500"/>
+                          </td>
+                          <td className="px-4 py-3">
+                            <select value={t.tap_line} onChange={e=>setField(t.id,"tap_line",e.target.value)}
+                              className="border border-gray-200 rounded-lg px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-amber-400 bg-white">
+                              <option value="">— Select —</option>
+                              {TAP_LINES.map(l => {
+                                const taken = occupiedLines.has(l);
+                                const takenBy = taken ? active.find(a=>a.tap_line===l)?.beer_name : null;
+                                return (
+                                  <option key={l} value={l} disabled={taken}>
+                                    {l}{taken ? ` — ${takenBy ? takenBy.slice(0,20) : "occupied"}` : ""}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </td>
+                          <td className="px-4 py-3">
+                            <input type="date" value={t.date_tapped} onChange={e=>setField(t.id,"date_tapped",e.target.value)}
+                              className="border border-gray-200 rounded-lg px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-amber-400 bg-white w-32"/>
+                          </td>
+                          <td className="px-4 py-3">
+                            <input type="number" min="0" step="10" value={t.price||""} onChange={e=>setField(t.id,"price",e.target.value)}
+                              placeholder="0"
+                              className="border border-gray-200 rounded-lg px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-amber-400 bg-white w-20"/>
+                          </td>
+                          <td className="px-4 py-3">
+                            <input value={t.note||""} onChange={e=>setField(t.id,"note",e.target.value)} placeholder="—"
+                              className="border border-gray-200 rounded-lg px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-amber-400 bg-white w-24"/>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {t.ready==="true" && t.tap_line && (
+                              occupiedLines.has(t.tap_line) ? (
+                                <span className="px-3 py-1.5 bg-gray-100 text-gray-400 rounded-lg text-xs font-semibold cursor-not-allowed" title="This tap line is already in use">
+                                  🚫 Occupied
+                                </span>
+                              ) : (
+                                <button onClick={()=>assignTap(t.id,t.tap_line)}
+                                  className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-semibold hover:bg-emerald-600 transition-colors">
+                                  → Tap It
+                                </button>
+                              )
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === "active" && (
+            <div className="bg-white rounded-2xl border border-gray-100">
+              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                <h2 className="font-semibold text-gray-800">Currently on Tap</h2>
+                <span className="text-xs text-emerald-600 font-medium">{active.length} active</span>
+              </div>
+              {active.length === 0 ? (
+                <div className="p-10 text-center text-gray-400"><div className="text-3xl mb-2">🍻</div><p>No active taps — assign tap lines from the queue</p></div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left">Tap Line</th><th className="px-4 py-3 text-left">Beer Name</th>
+                      <th className="px-4 py-3 text-left">Source</th><th className="px-4 py-3 text-left">Date Tapped</th>
+                      <th className="px-4 py-3 text-center">Days on Tap</th>
+                      <th className="px-4 py-3 text-left">Price (฿)</th>
+                      <th className="px-4 py-3 text-left">Note</th>
+                      <th className="px-4 py-3"></th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {active.sort((a,b)=>{const n=x=>parseInt(x.tap_line?.replace(/\D/g,"")||99);return n(a)-n(b);}).map(t=>(
+                        <tr key={t.id} className="hover:bg-emerald-50/20">
+                          <td className="px-4 py-3">
+                            <span className="inline-flex items-center justify-center w-12 h-7 bg-amber-500 text-white rounded-lg text-xs font-bold">{t.tap_line}</span>
+                          </td>
+                          <td className="px-4 py-3 font-medium text-gray-800">{t.beer_name}</td>
+                          <td className="px-4 py-3">{srcBadge(t.source)}</td>
+                          <td className="px-4 py-3 text-gray-400 text-xs">{t.date_tapped}</td>
+                          <td className="px-4 py-3 text-center">
+                            <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold ${
+                              daysOnTap(t) > 14 ? "bg-red-100 text-red-700" :
+                              daysOnTap(t) > 7  ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
+                            }`}>{daysOnTap(t)}d</span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <input type="number" min="0" step="10" value={t.price||""} onChange={e=>setField(t.id,"price",e.target.value)}
+                              placeholder="0"
+                              className="border border-gray-200 rounded-lg px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-amber-400 bg-white w-20"/>
+                          </td>
+                          <td className="px-4 py-3">
+                            <input value={t.note||""} onChange={e=>setField(t.id,"note",e.target.value)} placeholder="—"
+                              className="border border-gray-200 rounded-lg px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-amber-400 bg-white w-24"/>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <button onClick={()=>markEmpty(t.id)}
+                              className="px-3 py-1.5 bg-red-50 text-red-600 border border-red-200 rounded-lg text-xs font-semibold hover:bg-red-100 transition-colors">
+                              🪣 Empty
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === "history" && (
+            <div className="bg-white rounded-2xl border border-gray-100">
+              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                <h2 className="font-semibold text-gray-800">Finished Kegs</h2>
+                <span className="text-xs text-gray-400">{finished.length} total</span>
+              </div>
+              {finished.length === 0 ? (
+                <div className="p-10 text-center text-gray-400"><div className="text-3xl mb-2">📋</div><p>No finished kegs yet</p></div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left">Tap Line</th><th className="px-4 py-3 text-left">Beer Name</th>
+                      <th className="px-4 py-3 text-left">Source</th><th className="px-4 py-3 text-left">Tapped</th>
+                      <th className="px-4 py-3 text-left">Finished</th><th className="px-4 py-3 text-center">Days on Tap</th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {[...finished].reverse().map(t=>(
+                        <tr key={t.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-gray-500 text-xs">{t.tap_line}</td>
+                          <td className="px-4 py-3 font-medium text-gray-700">{t.beer_name}</td>
+                          <td className="px-4 py-3">{srcBadge(t.source)}</td>
+                          <td className="px-4 py-3 text-gray-400 text-xs">{t.date_tapped}</td>
+                          <td className="px-4 py-3 text-gray-400 text-xs">{t.date_untapped}</td>
+                          <td className="px-4 py-3 text-center">
+                            <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">{daysOnTap(t)}d</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─── BAR DASHBOARD PAGE ───────────────────────────────────────────────────
+    function BarDashboardPage({ tapLog, barKegIn, supplierKegIn }) {
+      const todayStr = today();
+      const active   = tapLog.filter(t => t.status === "Active");
+      const finToday = tapLog.filter(t => t.date_untapped === todayStr);
+      const recToday = [
+        ...barKegIn.filter(b => b.received_date === todayStr),
+        ...supplierKegIn.filter(s => s.received_date === todayStr),
+      ];
+      const avgDays = active.length > 0
+        ? (active.reduce((sum,t)=>{
+            const d = Math.max(0, Math.round((new Date(todayStr)-new Date(t.date_tapped))/86400000));
+            return sum+d;
+          },0) / active.length).toFixed(1)
+        : "—";
+
+      // Build tap board: tap 1–14
+      const tapBoard = Array.from({length:14}, (_,i) => {
+        const num = i+1;
+        const beer = active.find(t => t.tap_line === `Tap ${num}`);
+        return { num, beer };
+      });
+
+      const daysOnTap = t => {
+        if (!t.date_tapped) return 0;
+        return Math.max(0, Math.round((new Date(todayStr)-new Date(t.date_tapped))/86400000));
+      };
+
+      const pending = tapLog.filter(t => t.status === "Pending" || t.status === "Queued");
+
+      return (
+        <div>
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold text-gray-800">Bar Dashboard</h1>
+            <p className="text-sm text-gray-400 mt-1">Real-time overview of taps, keg stock, and daily activity</p>
+          </div>
+
+          {/* KPI row */}
+          <div className="grid grid-cols-4 gap-4 mb-6">
+            <StatCard label="Active Taps" value={active.length} sub={`of 14 taps in use`} color="emerald"/>
+            <StatCard label="Finished Today" value={finToday.length} sub={finToday.map(t=>t.beer_name).join(", ")||"None"} color="amber"/>
+            <StatCard label="Kegs Received Today" value={recToday.length} sub="From brewery + suppliers" color="sky"/>
+            <StatCard label="Avg Days on Tap" value={avgDays} sub="Active taps only" color="gray"/>
+          </div>
+
+          {/* Tap Board */}
+          <div className="bg-white rounded-2xl border border-gray-100 mb-6">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="font-semibold text-gray-800">🍺 Tap Board — 14 Taps</h2>
+              <div className="flex items-center gap-3 text-xs">
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-emerald-400 inline-block"></span>Active</span>
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-gray-200 inline-block"></span>Available</span>
+              </div>
+            </div>
+            <div className="p-5 grid grid-cols-7 gap-3">
+              {tapBoard.map(({num, beer}) => (
+                <div key={num} className={`rounded-2xl p-3 border-2 transition-all ${
+                  beer ? "border-emerald-200 bg-emerald-50" : "border-gray-100 bg-gray-50"
+                }`}>
+                  <div className={`text-xs font-bold mb-2 ${beer?"text-emerald-700":"text-gray-400"}`}>Tap {num}</div>
+                  {beer ? (
+                    <>
+                      <div className="text-xs font-semibold text-gray-800 leading-tight mb-1.5" style={{fontSize:"11px"}}>{beer.beer_name}</div>
+                      <div className={`text-xs font-bold ${
+                        daysOnTap(beer)>14?"text-red-600":daysOnTap(beer)>7?"text-amber-600":"text-emerald-600"
+                      }`}>{daysOnTap(beer)}d</div>
+                      <div className="mt-1 flex items-center justify-between">
+                        {beer.source==="Brewery"
+                          ? <span className="text-amber-600 text-xs">🏭</span>
+                          : <span className="text-sky-600 text-xs">🚚</span>}
+                        {beer.price && <span className="text-gray-500 text-xs font-medium">฿{beer.price}</span>}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-xs text-gray-300 mt-1">Available</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Bottom row */}
+          <div className="grid grid-cols-2 gap-5">
+            {/* Pending queue */}
+            <div className="bg-white rounded-2xl border border-gray-100">
+              <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <h3 className="font-semibold text-gray-800 text-sm">Tap Queue</h3>
+                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">{pending.length} waiting</span>
+              </div>
+              {pending.length === 0 ? (
+                <div className="p-6 text-center text-sm text-gray-400">Queue is empty</div>
+              ) : (
+                <div className="divide-y divide-gray-50">
+                  {pending.slice(0,6).map(t => (
+                    <div key={t.id} className="px-5 py-3 flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-gray-800 truncate max-w-48">{t.beer_name}</p>
+                        <p className="text-xs text-gray-400">{t.keg_id} · {t.size}</p>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                        t.status==="Queued"?"bg-sky-100 text-sky-700":"bg-gray-100 text-gray-500"}`}>{t.status}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Aged taps alert */}
+            <div className="bg-white rounded-2xl border border-gray-100">
+              <div className="px-5 py-4 border-b border-gray-100">
+                <h3 className="font-semibold text-gray-800 text-sm">Age on Tap Alert</h3>
+              </div>
+              {active.length === 0 ? (
+                <div className="p-6 text-center text-sm text-gray-400">No active taps</div>
+              ) : (
+                <div className="divide-y divide-gray-50">
+                  {[...active].sort((a,b)=>daysOnTap(b)-daysOnTap(a)).slice(0,6).map(t=>(
+                    <div key={t.id} className="px-5 py-3 flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-gray-800 truncate max-w-40">{t.beer_name}</p>
+                        <p className="text-xs text-gray-400">{t.tap_line}</p>
+                      </div>
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                        daysOnTap(t)>14?"bg-red-100 text-red-700":
+                        daysOnTap(t)>7 ?"bg-amber-100 text-amber-700":"bg-emerald-100 text-emerald-700"
+                      }`}>{daysOnTap(t)}d</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     // ─── APP ─────────────────────────────────────────────────────────────────
     function App() {
       const [page, setPage] = useState("dashboard");
@@ -3183,6 +3907,9 @@
       const [batchTasks, setBatchTasks] = useState(INITIAL_BATCH_TASKS);
       const [brewsheets, setBrewsheets] = useState(INITIAL_BREWSHEETS);
       const [selectedBatchId, setSelectedBatchId] = useState(null);
+      const [barKegIn, setBarKegIn]         = useState([]);
+      const [supplierKegIn, setSupplierKegIn] = useState([]);
+      const [tapLog, setTapLog]             = useState([]);
 
       // ── Auth state ──────────────────────────────────────────────────────────
       const [authState, setAuthState]     = useState(OFFLINE_MODE ? "offline" : "idle");
@@ -3229,6 +3956,9 @@
           if (data.Batches.length)    setBatches(data.Batches);        else emptySheets.push(["Batches",    INITIAL_BATCHES]);
           if (data.BeerList.length)   setBeerList(data.BeerList);      else emptySheets.push(["BeerList",   INITIAL_BEER_LIST]);
           if (data.BatchTasks.length) setBatchTasks(data.BatchTasks);  else emptySheets.push(["BatchTasks", INITIAL_BATCH_TASKS]);
+          if (data.BarKegIn.length)      setBarKegIn(data.BarKegIn);
+          if (data.SupplierKegIn.length) setSupplierKegIn(data.SupplierKegIn);
+          if (data.TapLog.length)        setTapLog(data.TapLog);
           if (data.Brewsheets.length) {
             const bs = {};
             data.Brewsheets.forEach(r => { if (r.batch_id) bs[r.batch_id] = r.data; });
@@ -3282,7 +4012,10 @@
       useSave("BrokenLog",  brokenLog,  [brokenLog]);
       useSave("Batches",    batches,    [batches]);
       useSave("BeerList",   beerList,   [beerList]);
-      useSave("BatchTasks", batchTasks, [batchTasks]);
+      useSave("BatchTasks",    batchTasks,    [batchTasks]);
+      useSave("BarKegIn",      barKegIn,      [barKegIn]);
+      useSave("SupplierKegIn", supplierKegIn, [supplierKegIn]);
+      useSave("TapLog",        tapLog,        [tapLog]);
       useEffect(() => {
         if (!dataReadyRef.current || authState !== "ready") return;
         const items = Object.entries(brewsheets).map(([batch_id, data]) => ({ batch_id, data }));
@@ -3335,6 +4068,10 @@
               {page === "batches"     && <BatchesPage    batches={batches} setBatches={setBatches} beerList={beerList} setBeerList={setBeerList} fillLog={fillLog} onOpenBrewsheet={openBrewsheet} />}
               {page === "fermenters"  && <FermenterDashboard batches={batches} fillLog={fillLog} batchTasks={batchTasks} setBatchTasks={setBatchTasks} />}
               {page === "brewsheet"   && (() => { const b = batches.find(x=>x.batch_id===selectedBatchId); return b ? <BrewsheetPage batch={b} brewsheet={brewsheets[b.batch_id]} onSave={saveBrewsheet} onBack={()=>setPage("batches")}/> : null; })()}
+              {page === "bar-dashboard"     && <BarDashboardPage tapLog={tapLog} barKegIn={barKegIn} supplierKegIn={supplierKegIn} />}
+              {page === "storage-inventory" && <StorageInventoryPage kegStatus={kegStatus} />}
+              {page === "keg-received"      && <KegReceivedPage stockOut={stockOut} barKegIn={barKegIn} setBarKegIn={setBarKegIn} supplierKegIn={supplierKegIn} setSupplierKegIn={setSupplierKegIn} tapLog={tapLog} setTapLog={setTapLog} currentUser={currentUser} />}
+              {page === "tap-management"    && <TapManagementPage tapLog={tapLog} setTapLog={setTapLog} />}
             </div>
           </main>
         </div>
