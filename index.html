@@ -34,7 +34,7 @@
       StockOut:   ["id","date_out","destination","keg_id","beer_name","keg_size","recorded_by","remark"],
       BrokenLog:  ["id","date","keg_id","beer_name","reason","reported_by"],
       Batches:    ["id","batch_id","brew_day","beer_name","fermenter","volume","filled_litres","fermentation_days","condition_days","release_date","status"],
-      BeerList:   ["name","style"],
+      BeerList:   ["brand","name","style","abv"],
       BatchTasks:    ["id","batch_id","task","day","assigned_to"],
       Brewsheets:    ["batch_id","data"],
       BarKegIn:      ["id","stock_out_id","keg_id","size","beer_name","sent_by","received","received_date","received_by","note","remark"],
@@ -115,26 +115,26 @@
 
     // ─── MOCK DATA ────────────────────────────────────────────────────────────
     const INITIAL_BEER_LIST = [
-      { name: "UPB Chatuchak Lager", style: "Lager" },
-      { name: "UPB Nimit Tai Weizen", style: "Weizen" },
-      { name: "UPB 109 Pale Ale", style: "Pale Ale" },
-      { name: "UPB Landslider", style: "DDH IPA" },
-      { name: "Sandport Tha-Sai", style: "IPA" },
-      { name: "Sandport Samakkee", style: "Lager" },
-      { name: "Yodbeer Yuzu Honey", style: "Blond Ale" },
-      { name: "UPB Golden Ale", style: "American Blonde Ale" },
-      { name: "UPB Oatmeal Stout", style: "Oatmeal Stout" },
-      { name: "UPB x WUV Juicy Jaws", style: "NEIPA" },
-      { name: "Yodbeer Beargryll", style: "WCIPA" },
-      { name: "UPB Vienna Lager (Radicle & Burbrit)", style: "Vienna Lager" },
-      { name: "FWB | Repentless (Peach Witbier)", style: "Witbier" },
-      { name: "Coconut Pandan Stout", style: "Stout" },
-      { name: "Yod Beer XPA", style: "XPA" },
-      { name: "Dolcita Hazy IPA", style: "Hazy IPA" },
-      { name: "Pheebok Rice Lager", style: "Lager" },
-      { name: "UPB Jasmine Rice Lager", style: "Lager" },
-      { name: "Apple Grape Cider", style: "Cider" },
-      { name: "Sandport Wheat Of The Wall", style: "Wheat IPA" },
+      { brand: "UPB", name: "UPB Chatuchak Lager", style: "Lager", abv: "" },
+      { brand: "UPB", name: "UPB Nimit Tai Weizen", style: "Weizen", abv: "" },
+      { brand: "UPB", name: "UPB 109 Pale Ale", style: "Pale Ale", abv: "" },
+      { brand: "UPB", name: "UPB Landslider", style: "DDH IPA", abv: "" },
+      { brand: "Sandport", name: "Sandport Tha-Sai", style: "IPA", abv: "" },
+      { brand: "Sandport", name: "Sandport Samakkee", style: "Lager", abv: "" },
+      { brand: "Yodbeer", name: "Yodbeer Yuzu Honey", style: "Blond Ale", abv: "" },
+      { brand: "UPB", name: "UPB Golden Ale", style: "American Blonde Ale", abv: "" },
+      { brand: "UPB", name: "UPB Oatmeal Stout", style: "Oatmeal Stout", abv: "" },
+      { brand: "UPB", name: "UPB x WUV Juicy Jaws", style: "NEIPA", abv: "" },
+      { brand: "Yodbeer", name: "Yodbeer Beargryll", style: "WCIPA", abv: "" },
+      { brand: "UPB", name: "UPB Vienna Lager (Radicle & Burbrit)", style: "Vienna Lager", abv: "" },
+      { brand: "FWB", name: "FWB | Repentless (Peach Witbier)", style: "Witbier", abv: "" },
+      { brand: "", name: "Coconut Pandan Stout", style: "Stout", abv: "" },
+      { brand: "Yod Beer", name: "Yod Beer XPA", style: "XPA", abv: "" },
+      { brand: "Dolcita", name: "Dolcita Hazy IPA", style: "Hazy IPA", abv: "" },
+      { brand: "Pheebok", name: "Pheebok Rice Lager", style: "Lager", abv: "" },
+      { brand: "UPB", name: "UPB Jasmine Rice Lager", style: "Lager", abv: "" },
+      { brand: "", name: "Apple Grape Cider", style: "Cider", abv: "" },
+      { brand: "Sandport", name: "Sandport Wheat Of The Wall", style: "Wheat IPA", abv: "" },
     ];
 
     const STAFF = ["Gent", "Gunn", "Meena"];
@@ -1011,19 +1011,26 @@
       const [filterSize, setFilterSize] = useState("All");
       const [showAddKeg, setShowAddKeg] = useState(false);
       const [kegForm, setKegForm] = useState({ size: "20", qty: 1 });
+      const [dateMode, setDateMode] = useState("all"); // "today" | "period" | "all"
+      const [dateFrom, setDateFrom] = useState("");
+      const [dateTo,   setDateTo]   = useState("");
 
       const statuses = ["All", ...Object.keys(STATUS_CONFIG)];
       const sizes = ["All", ...KEG_SIZES];
 
       const filtered = useMemo(() => {
+        const todayStr = new Date().toISOString().split("T")[0];
         return kegStatus.filter(k => {
           const s = search.toLowerCase();
           const matchSearch = !s || k.keg_id.toLowerCase().includes(s) || (k.beer_name||"").toLowerCase().includes(s) || (k.location||"").toLowerCase().includes(s);
           const matchStatus = filterStatus === "All" || k.status === filterStatus;
           const matchSize   = filterSize === "All" || k.size === filterSize;
-          return matchSearch && matchStatus && matchSize;
+          let matchDate = true;
+          if (dateMode === "today")  matchDate = k.fill_date === todayStr;
+          if (dateMode === "period") matchDate = (!dateFrom || (k.fill_date||"") >= dateFrom) && (!dateTo || (k.fill_date||"") <= dateTo);
+          return matchSearch && matchStatus && matchSize && matchDate;
         });
-      }, [kegStatus, search, filterStatus, filterSize]);
+      }, [kegStatus, search, filterStatus, filterSize, dateMode, dateFrom, dateTo]);
 
       function nextKegNum(sizeKey) {
         const prefix = sizeKey === "OW" ? "OW_" : `K${sizeKey}_`;
@@ -1070,17 +1077,33 @@
           </div>
 
           {/* Filters */}
-          <div className="bg-white rounded-2xl p-4 border border-gray-100 flex flex-wrap gap-3">
-            <div className="relative flex-1 min-w-48">
-              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search keg ID, beer, location…" className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent" />
+          <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-3">
+            <div className="flex flex-wrap gap-3">
+              <div className="relative flex-1 min-w-48">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search keg ID, beer, location…" className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent" />
+              </div>
+              <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white text-gray-700">
+                {statuses.map(s => <option key={s}>{s}</option>)}
+              </select>
+              <select value={filterSize} onChange={e => setFilterSize(e.target.value)} className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white text-gray-700">
+                {sizes.map(s => <option key={s}>{s}</option>)}
+              </select>
             </div>
-            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white text-gray-700">
-              {statuses.map(s => <option key={s}>{s}</option>)}
-            </select>
-            <select value={filterSize} onChange={e => setFilterSize(e.target.value)} className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white text-gray-700">
-              {sizes.map(s => <option key={s}>{s}</option>)}
-            </select>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-gray-400">Fill date:</span>
+              {[{id:"all",label:"Show All"},{id:"today",label:"Today"},{id:"period",label:"By Period"}].map(opt => (
+                <button key={opt.id} onClick={() => setDateMode(opt.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${dateMode===opt.id?"bg-amber-500 text-white":"bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                  {opt.label}
+                </button>
+              ))}
+              {dateMode === "period" && (<>
+                <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                <span className="text-xs text-gray-400">–</span>
+                <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400" />
+              </>)}
+            </div>
           </div>
 
           {/* Table */}
@@ -1173,6 +1196,9 @@
       const [showModal, setShowModal] = useState(false);
       const [search, setSearch] = useState("");
       const [kegSearch, setKegSearch] = useState("");
+      const [dateMode, setDateMode] = useState("all"); // "today" | "period" | "all"
+      const [dateFrom, setDateFrom] = useState("");
+      const [dateTo,   setDateTo]   = useState("");
 
       function makeBlankForm() {
         return {
@@ -1224,6 +1250,20 @@
         }));
       }
 
+      function handleDeleteFill(id, keg_id) {
+        // Pass keg_id directly to avoid stale-closure lookup failures
+        // Only revert keg if no other fill log entries remain for this keg
+        const otherFills = fillLog.filter(r => r.id !== id && r.keg_id === keg_id);
+        setFillLog(prev => prev.filter(r => r.id !== id));
+        if (otherFills.length === 0) {
+          setKegStatus(prev => prev.map(k =>
+            k.keg_id === keg_id && k.status === "Filled"
+              ? { ...k, status: "Empty", beer_name: "", fill_date: "", last_updated_by: k.last_updated_by }
+              : k
+          ));
+        }
+      }
+
       function handleSubmit(e) {
         e.preventDefault();
         if (!form.batch_id || !form.selected_kegs.length) return;
@@ -1258,10 +1298,16 @@
       }
 
       const filtered = useMemo(() => {
-        if (!search) return fillLog;
-        const s = search.toLowerCase();
-        return fillLog.filter(r => r.keg_id.toLowerCase().includes(s) || r.beer_name.toLowerCase().includes(s) || (r.filled_by||"").toLowerCase().includes(s));
-      }, [fillLog, search]);
+        const todayStr = new Date().toISOString().split("T")[0];
+        return fillLog.filter(r => {
+          const s = search.toLowerCase();
+          const matchSearch = !search || r.keg_id.toLowerCase().includes(s) || r.beer_name.toLowerCase().includes(s) || (r.filled_by||"").toLowerCase().includes(s);
+          let matchDate = true;
+          if (dateMode === "today")  matchDate = r.date_filled === todayStr;
+          if (dateMode === "period") matchDate = (!dateFrom || r.date_filled >= dateFrom) && (!dateTo || r.date_filled <= dateTo);
+          return matchSearch && matchDate;
+        });
+      }, [fillLog, search, dateMode, dateFrom, dateTo]);
 
       const sorted = [...filtered].sort((a,b) => b.date_filled.localeCompare(a.date_filled));
 
@@ -1278,10 +1324,23 @@
             </button>
           </div>
 
-          <div className="bg-white rounded-2xl p-4 border border-gray-100">
+          <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-3">
             <div className="relative">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search keg ID, beer or staff…" className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent" />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {[{id:"all",label:"Show All"},{id:"today",label:"Today"},{id:"period",label:"By Period"}].map(opt => (
+                <button key={opt.id} onClick={() => setDateMode(opt.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${dateMode===opt.id?"bg-amber-500 text-white":"bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                  {opt.label}
+                </button>
+              ))}
+              {dateMode === "period" && (<>
+                <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                <span className="text-xs text-gray-400">–</span>
+                <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400" />
+              </>)}
             </div>
           </div>
 
@@ -1298,11 +1357,12 @@
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Filled By</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Batch #</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Remark</th>
+                    <th className="px-4 py-3"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {sorted.length === 0 ? (
-                    <tr><td colSpan={8} className="text-center py-10 text-gray-400 text-sm">No fill log entries</td></tr>
+                    <tr><td colSpan={9} className="text-center py-10 text-gray-400 text-sm">No fill log entries</td></tr>
                   ) : sorted.map((r, i) => (
                     <tr key={r.id} className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${i % 2 === 0 ? "" : "bg-gray-50/40"}`}>
                       <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(r.date_filled)}</td>
@@ -1313,6 +1373,9 @@
                       <td className="px-4 py-3 text-gray-600">{r.filled_by}</td>
                       <td className="px-4 py-3 text-gray-500">{r.batch_no || "—"}</td>
                       <td className="px-4 py-3 text-gray-400 max-w-40 truncate">{r.remark || "—"}</td>
+                      <td className="px-4 py-3 text-right">
+                        <button onClick={() => handleDeleteFill(r.id, r.keg_id)} className="text-xs text-red-400 hover:text-red-600 transition-colors px-2 py-0.5 rounded hover:bg-red-50">Delete</button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1447,6 +1510,9 @@
       const [filterDest, setFilterDest] = useState("All");
       const [filterStatus, setFilterStatus] = useState("All");
       const [kegSearch, setKegSearch] = useState("");
+      const [dateMode, setDateMode] = useState("all"); // "today" | "period" | "all"
+      const [dateFrom, setDateFrom] = useState("");
+      const [dateTo,   setDateTo]   = useState("");
 
       function makeBlankForm() {
         return {
@@ -1503,6 +1569,16 @@
         setForm(makeBlankForm());
       }
 
+      function handleDeleteStockOut(id, keg_id, beer_name) {
+        // Revert keg: Out → Filled (only if still Out; leave alone if already Returned/Broken)
+        setKegStatus(prev => prev.map(k =>
+          k.keg_id === keg_id && k.status === "Out"
+            ? { ...k, status: "Filled", beer_name: beer_name || k.beer_name, date_out: "", location: "Brewery", last_updated_by: k.last_updated_by }
+            : k
+        ));
+        setStockOut(prev => prev.filter(r => r.id !== id));
+      }
+
       function openReturn(row) {
         setReturnTarget(row);
         setReturnForm({ date_returned: new Date().toISOString().split("T")[0], recorded_by: STAFF[0] });
@@ -1526,14 +1602,18 @@
       const allDests = ["All", ...DESTINATIONS];
 
       const filtered = useMemo(() => {
+        const todayStr = new Date().toISOString().split("T")[0];
         return stockOut.filter(r => {
           const s = search.toLowerCase();
           const matchSearch = !s || r.keg_id.toLowerCase().includes(s) || (r.beer_name||"").toLowerCase().includes(s) || (r.destination||"").toLowerCase().includes(s);
           const matchDest   = filterDest === "All" || r.destination === filterDest;
           const matchStatus = filterStatus === "All" || (filterStatus === "Out" ? !r.date_returned : !!r.date_returned);
-          return matchSearch && matchDest && matchStatus;
+          let matchDate = true;
+          if (dateMode === "today")  matchDate = r.date_out === todayStr;
+          if (dateMode === "period") matchDate = (!dateFrom || r.date_out >= dateFrom) && (!dateTo || r.date_out <= dateTo);
+          return matchSearch && matchDest && matchStatus && matchDate;
         });
-      }, [stockOut, search, filterDest, filterStatus]);
+      }, [stockOut, search, filterDest, filterStatus, dateMode, dateFrom, dateTo]);
 
       const sorted = [...filtered].sort((a,b) => b.date_out.localeCompare(a.date_out));
 
@@ -1550,19 +1630,34 @@
             </button>
           </div>
 
-          <div className="bg-white rounded-2xl p-4 border border-gray-100 flex flex-wrap gap-3">
-            <div className="relative flex-1 min-w-48">
-              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search keg ID, beer, destination…" className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent" />
+          <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-3">
+            <div className="flex flex-wrap gap-3">
+              <div className="relative flex-1 min-w-48">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search keg ID, beer, destination…" className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent" />
+              </div>
+              <select value={filterDest} onChange={e => setFilterDest(e.target.value)} className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white text-gray-700">
+                {allDests.map(d => <option key={d}>{d}</option>)}
+              </select>
+              <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white text-gray-700">
+                <option value="All">All Status</option>
+                <option value="Out">Still Out</option>
+                <option value="Returned">Returned</option>
+              </select>
             </div>
-            <select value={filterDest} onChange={e => setFilterDest(e.target.value)} className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white text-gray-700">
-              {allDests.map(d => <option key={d}>{d}</option>)}
-            </select>
-            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white text-gray-700">
-              <option value="All">All Status</option>
-              <option value="Out">Still Out</option>
-              <option value="Returned">Returned</option>
-            </select>
+            <div className="flex flex-wrap items-center gap-2">
+              {[{id:"all",label:"Show All"},{id:"today",label:"Today"},{id:"period",label:"By Period"}].map(opt => (
+                <button key={opt.id} onClick={() => setDateMode(opt.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${dateMode===opt.id?"bg-amber-500 text-white":"bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                  {opt.label}
+                </button>
+              ))}
+              {dateMode === "period" && (<>
+                <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                <span className="text-xs text-gray-400">–</span>
+                <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400" />
+              </>)}
+            </div>
           </div>
 
           <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
@@ -1598,15 +1693,21 @@
                         }
                       </td>
                       <td className="px-4 py-3 text-right">
-                        {!r.date_returned && (
+                        <div className="flex items-center justify-end gap-2">
+                          {!r.date_returned && (
+                            <button
+                              onClick={() => openReturn(r)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-sky-600 bg-sky-50 hover:bg-sky-100 rounded-lg transition-colors whitespace-nowrap"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+                              Mark Returned
+                            </button>
+                          )}
                           <button
-                            onClick={() => openReturn(r)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-sky-600 bg-sky-50 hover:bg-sky-100 rounded-lg transition-colors whitespace-nowrap"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
-                            Mark Returned
-                          </button>
-                        )}
+                            onClick={() => handleDeleteStockOut(r.id, r.keg_id, r.beer_name)}
+                            className="text-xs text-red-400 hover:text-red-600 transition-colors px-2 py-1 rounded hover:bg-red-50 whitespace-nowrap"
+                          >Delete</button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1770,6 +1871,16 @@
         setForm(f => ({...f, keg_id, beer_name: keg ? (keg.beer_name || "") : ""}));
       }
 
+      function handleDeleteBroken(id, keg_id) {
+        // Revert keg: Broken → Empty (only if still Broken)
+        setKegStatus(prev => prev.map(k =>
+          k.keg_id === keg_id && k.status === "Broken"
+            ? { ...k, status: "Empty", beer_name: "", last_updated_by: k.last_updated_by }
+            : k
+        ));
+        setBrokenLog(prev => prev.filter(r => r.id !== id));
+      }
+
       function handleSubmit(e) {
         e.preventDefault();
         const newEntry = { ...form, id: Date.now() };
@@ -1830,11 +1941,12 @@
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Reason</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Resolution</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Resolved Date</th>
+                    <th className="px-4 py-3"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {sorted.length === 0 ? (
-                    <tr><td colSpan={9} className="text-center py-10 text-gray-400 text-sm">No issues reported</td></tr>
+                    <tr><td colSpan={10} className="text-center py-10 text-gray-400 text-sm">No issues reported</td></tr>
                   ) : sorted.map((r, i) => (
                     <tr key={r.id} className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${i%2===0?"":"bg-gray-50/40"}`}>
                       <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(r.date_reported)}</td>
@@ -1846,6 +1958,9 @@
                       <td className="px-4 py-3 text-gray-600">{r.reason || "—"}</td>
                       <td className="px-4 py-3"><ResolutionBadge resolution={r.resolution} /></td>
                       <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(r.resolution_date)}</td>
+                      <td className="px-4 py-3 text-right">
+                        <button onClick={() => handleDeleteBroken(r.id, r.keg_id)} className="text-xs text-red-400 hover:text-red-600 transition-colors px-2 py-0.5 rounded hover:bg-red-50">Delete</button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1965,7 +2080,25 @@
         status: "Pending",
       });
       const [batchForm, setBatchForm] = useState(emptyBatchForm);
-      const [beerForm,  setBeerForm]  = useState({ name:"", style:"" });
+      const [beerForm,  setBeerForm]  = useState({ brand:"", name:"", style:"", abv:"" });
+      const [editBeerIdx, setEditBeerIdx] = useState(null); // null = add mode, number = edit mode
+
+      function openEditBeer(idx) {
+        const b = beerList[idx];
+        setBeerForm({ brand: b.brand||"", name: b.name||"", style: b.style||"", abv: b.abv||"" });
+        setEditBeerIdx(idx);
+        setShowBeerModal(true);
+      }
+
+      function openAddBeer() {
+        setBeerForm({ brand:"", name:"", style:"", abv:"" });
+        setEditBeerIdx(null);
+        setShowBeerModal(true);
+      }
+
+      function handleDeleteBeer(idx) {
+        setBeerList(prev => prev.filter((_, i) => i !== idx));
+      }
 
       // Auto-calc release date from form
       const previewRelease = calcReleaseDate(batchForm.brew_day, batchForm.fermentation_days, batchForm.condition_days);
@@ -2004,9 +2137,15 @@
       function handleAddBeer(e) {
         e.preventDefault();
         if (!beerForm.name.trim()) return;
-        setBeerList(prev => [...prev, { name: beerForm.name.trim(), style: beerForm.style.trim() }]);
+        const updated = { brand: beerForm.brand.trim(), name: beerForm.name.trim(), style: beerForm.style.trim(), abv: beerForm.abv.trim() };
+        if (editBeerIdx !== null) {
+          setBeerList(prev => prev.map((b, i) => i === editBeerIdx ? updated : b));
+        } else {
+          setBeerList(prev => [...prev, updated]);
+        }
         setShowBeerModal(false);
-        setBeerForm({ name:"", style:"" });
+        setEditBeerIdx(null);
+        setBeerForm({ brand:"", name:"", style:"", abv:"" });
       }
 
       // Fermenter occupancy hint for dropdown
@@ -2038,7 +2177,7 @@
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
                   Add Batch
                 </button>
-              : <button onClick={() => setShowBeerModal(true)} className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium rounded-xl transition-colors">
+              : <button onClick={() => openAddBeer()} className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium rounded-xl transition-colors">
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
                   Add Beer
                 </button>
@@ -2126,11 +2265,32 @@
           {/* ── BEER LIST TAB ─────────────────────────────────────────── */}
           {tab === "beers" && (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {beerList.map(b => (
-                <div key={b.name} className="bg-white rounded-2xl p-4 border border-gray-100 hover:border-amber-200 transition-colors">
+              {beerList.map((b, idx) => (
+                <div key={b.name + idx} className="group bg-white rounded-2xl p-4 border border-gray-100 hover:border-amber-200 transition-colors relative">
+                  {/* Edit / Delete buttons — appear on hover */}
+                  <div className="absolute top-2.5 right-2.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => openEditBeer(idx)}
+                      className="p-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-600 transition-colors"
+                      title="Edit beer"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                    </button>
+                    <button
+                      onClick={() => handleDeleteBeer(idx)}
+                      className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors"
+                      title="Delete beer"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    </button>
+                  </div>
                   <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center text-base mb-3">🍺</div>
-                  <p className="text-sm font-medium text-gray-800 leading-tight mb-1">{b.name}</p>
-                  <span className="inline-block px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full">{b.style||"—"}</span>
+                  {b.brand && <p className="text-xs text-amber-600 font-medium mb-0.5 truncate">{b.brand}</p>}
+                  <p className="text-sm font-medium text-gray-800 leading-tight mb-1.5 pr-14">{b.name}</p>
+                  <div className="flex flex-wrap gap-1">
+                    <span className="inline-block px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full">{b.style||"—"}</span>
+                    {b.abv && <span className="inline-block px-2 py-0.5 bg-amber-50 text-amber-600 text-xs rounded-full">{b.abv}% ABV</span>}
+                  </div>
                 </div>
               ))}
             </div>
@@ -2205,19 +2365,29 @@
 
           {/* ── ADD BEER MODAL ────────────────────────────────────────── */}
           {showBeerModal && (
-            <Modal title="Add New Beer" onClose={() => setShowBeerModal(false)}>
+            <Modal title={editBeerIdx !== null ? "Edit Beer" : "Add New Beer"} onClose={() => { setShowBeerModal(false); setEditBeerIdx(null); setBeerForm({ brand:"", name:"", style:"", abv:"" }); }}>
               <form onSubmit={handleAddBeer} className="space-y-4">
+                <Field label="Brand">
+                  <input placeholder="e.g. UPB, Sandport, Yodbeer…" value={beerForm.brand}
+                    onChange={e=>setBeerForm(f=>({...f,brand:e.target.value}))} className={inputCls} />
+                </Field>
                 <Field label="Beer Name">
                   <input required placeholder="e.g. UPB Tropical IPA" value={beerForm.name}
                     onChange={e=>setBeerForm(f=>({...f,name:e.target.value}))} className={inputCls} />
                 </Field>
-                <Field label="Beer Style">
-                  <input placeholder="e.g. Hazy IPA, Lager, Stout…" value={beerForm.style}
-                    onChange={e=>setBeerForm(f=>({...f,style:e.target.value}))} className={inputCls} />
-                </Field>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Beer Style">
+                    <input placeholder="e.g. Hazy IPA, Lager…" value={beerForm.style}
+                      onChange={e=>setBeerForm(f=>({...f,style:e.target.value}))} className={inputCls} />
+                  </Field>
+                  <Field label="ABV (%)">
+                    <input type="number" step="0.1" min="0" max="25" placeholder="e.g. 5.5" value={beerForm.abv}
+                      onChange={e=>setBeerForm(f=>({...f,abv:e.target.value}))} className={inputCls} />
+                  </Field>
+                </div>
                 <div className="flex gap-3 pt-2">
-                  <button type="button" onClick={()=>setShowBeerModal(false)} className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
-                  <button type="submit" className="flex-1 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium rounded-xl transition-colors">Save Beer</button>
+                  <button type="button" onClick={() => { setShowBeerModal(false); setEditBeerIdx(null); setBeerForm({ brand:"", name:"", style:"", abv:"" }); }} className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
+                  <button type="submit" className="flex-1 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium rounded-xl transition-colors">{editBeerIdx !== null ? "Save Changes" : "Save Beer"}</button>
                 </div>
               </form>
             </Modal>
@@ -2228,7 +2398,10 @@
 
     // ─── FERMENTER DASHBOARD ──────────────────────────────────────────────────
     // ─── FERMENTER STATUS TAB ─────────────────────────────────────────────────
-    function FermenterStatusTab({ batches, fillLog }) {
+    function FermenterStatusTab({ batches, setBatches, fillLog }) {
+      function handleStatusChange(batchId, newStatus) {
+        setBatches(prev => prev.map(b => b.id === batchId ? { ...b, status: newStatus } : b));
+      }
       const TODAY_D = new Date("2026-03-16");
 
       // Active batch per fermenter (Done = empty tank)
@@ -2321,7 +2494,13 @@
 
                     {/* Age + Status badge row */}
                     <div className="flex items-center justify-between">
-                      <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${c.badge}`}>{st}</div>
+                      <select
+                        value={b.status}
+                        onChange={e => handleStatusChange(b.id, e.target.value)}
+                        className={`text-xs font-medium px-2 py-0.5 rounded-full border-0 cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-400 ${c.badge}`}
+                      >
+                        {BATCH_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
                       {age !== null && (
                         <span className="text-xs text-gray-400">Day {age}</span>
                       )}
@@ -2368,7 +2547,15 @@
                       <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{ageDays(b.brew_day) !== null ? `Day ${ageDays(b.brew_day)}` : "—"}</td>
                       <td className="px-4 py-3 text-gray-700 whitespace-nowrap font-medium">{filledLitres(b.batch_id)} / {b.volume} L</td>
                       <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(b.release_date)}</td>
-                      <td className="px-4 py-3"><BatchStatusBadge status={b.status} /></td>
+                      <td className="px-4 py-3">
+                        <select
+                          value={b.status}
+                          onChange={e => handleStatusChange(b.id, e.target.value)}
+                          className={`text-xs font-medium px-2.5 py-1 rounded-full border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-400 ${BATCH_STATUS_CONFIG[b.status]?.bg||"bg-gray-100"} ${BATCH_STATUS_CONFIG[b.status]?.text||"text-gray-500"}`}
+                        >
+                          {BATCH_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -2604,9 +2791,30 @@
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {[...batchTasks]
-                      .sort((a,b) => a.batch_id !== b.batch_id ? a.batch_id.localeCompare(b.batch_id) : a.day - b.day)
-                      .map(t => {
+                    {(() => {
+                      // Sort: group by assigned_to, within each group newest task date first
+                      const sorted = [...batchTasks].sort((a, b) => {
+                        const pA = a.assigned_to || "~";
+                        const pB = b.assigned_to || "~";
+                        if (pA !== pB) return pA.localeCompare(pB);
+                        const batchA = batches.find(x => x.batch_id === a.batch_id);
+                        const batchB = batches.find(x => x.batch_id === b.batch_id);
+                        const msA = batchA?.brew_day ? new Date(batchA.brew_day).getTime() + (a.day - 1) * 86400000 : 0;
+                        const msB = batchB?.brew_day ? new Date(batchB.brew_day).getTime() + (b.day - 1) * 86400000 : 0;
+                        return msB - msA;
+                      });
+                      const rows = [];
+                      let lastPerson = null;
+                      sorted.forEach(t => {
+                        const person = t.assigned_to || "Unassigned";
+                        if (person !== lastPerson) {
+                          lastPerson = person;
+                          rows.push(
+                            <tr key={`hdr-${person}`} className="bg-amber-50/60">
+                              <td colSpan={7} className="px-4 py-1.5 text-xs font-semibold text-amber-700 uppercase tracking-wide">{person}</td>
+                            </tr>
+                          );
+                        }
                         const b = batches.find(x => x.batch_id === t.batch_id);
                         const tDate = (() => {
                           if (!b || !b.brew_day) return "—";
@@ -2615,7 +2823,7 @@
                           return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
                         })();
                         const pinC = taskPinColor(t.task);
-                        return (
+                        rows.push(
                           <tr key={t.id} className="hover:bg-gray-50/50">
                             <td className="px-4 py-2.5 font-mono text-xs text-gray-600">#{t.batch_id}</td>
                             <td className="px-4 py-2.5 text-gray-700 max-w-xs truncate">{b ? b.beer_name : "—"}</td>
@@ -2640,7 +2848,9 @@
                             </td>
                           </tr>
                         );
-                      })}
+                      });
+                      return rows;
+                    })()}
                   </tbody>
                 </table>
               </div>
@@ -2798,7 +3008,7 @@
     }
 
     // ─── FERMENTER DASHBOARD (tabbed wrapper) ─────────────────────────────────
-    function FermenterDashboard({ batches, fillLog, batchTasks, setBatchTasks }) {
+    function FermenterDashboard({ batches, setBatches, fillLog, batchTasks, setBatchTasks }) {
       const [tab, setTab] = useState("status");
       const fermenterMap = {};
       FERMENTER_IDS.forEach(id => { fermenterMap[id] = null; });
@@ -2823,7 +3033,7 @@
               </button>
             ))}
           </div>
-          {tab==="status"   && <FermenterStatusTab batches={batches} fillLog={fillLog} />}
+          {tab==="status"   && <FermenterStatusTab batches={batches} setBatches={setBatches} fillLog={fillLog} />}
           {tab==="timeline" && <FermenterTimelineTab batches={batches} batchTasks={batchTasks} setBatchTasks={setBatchTasks} />}
         </div>
       );
@@ -4066,7 +4276,7 @@
               {page === "stock-out"   && <StockOutPage   stockOut={stockOut} setStockOut={setStockOut} kegStatus={kegStatus} setKegStatus={setKegStatus} />}
               {page === "broken-log"  && <BrokenLogPage  brokenLog={brokenLog} setBrokenLog={setBrokenLog} kegStatus={kegStatus} setKegStatus={setKegStatus} />}
               {page === "batches"     && <BatchesPage    batches={batches} setBatches={setBatches} beerList={beerList} setBeerList={setBeerList} fillLog={fillLog} onOpenBrewsheet={openBrewsheet} />}
-              {page === "fermenters"  && <FermenterDashboard batches={batches} fillLog={fillLog} batchTasks={batchTasks} setBatchTasks={setBatchTasks} />}
+              {page === "fermenters"  && <FermenterDashboard batches={batches} setBatches={setBatches} fillLog={fillLog} batchTasks={batchTasks} setBatchTasks={setBatchTasks} />}
               {page === "brewsheet"   && (() => { const b = batches.find(x=>x.batch_id===selectedBatchId); return b ? <BrewsheetPage batch={b} brewsheet={brewsheets[b.batch_id]} onSave={saveBrewsheet} onBack={()=>setPage("batches")}/> : null; })()}
               {page === "bar-dashboard"     && <BarDashboardPage tapLog={tapLog} barKegIn={barKegIn} supplierKegIn={supplierKegIn} />}
               {page === "storage-inventory" && <StorageInventoryPage kegStatus={kegStatus} />}
