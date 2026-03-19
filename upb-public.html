@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>United Peoples Brewery · UPB</title>
+  <meta name="description" content="United Peoples Brewery – Craft beer brewed for the people. See what's on tap, join our events, and visit us." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,800;1,700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { background: #FAFAF7; font-family: 'Inter', sans-serif; color: #1C1917; margin: 0; }
+    .font-display { font-family: 'Playfair Display', serif; }
+    html { scroll-behavior: smooth; }
+
+    /* Navbar blur */
+    .nav-blur { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+
+    /* Hero gradient */
+    .hero-bg {
+      background: linear-gradient(135deg, #FFF8ED 0%, #FFFBF5 40%, #FEF3C7 100%);
+    }
+
+    /* Tap card hover */
+    .tap-card { transition: transform 0.2s, box-shadow 0.2s; }
+    .tap-card:hover { transform: translateY(-3px); box-shadow: 0 12px 32px rgba(180,83,9,0.12); }
+
+    /* Fade in animation */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-up { animation: fadeUp 0.6s ease both; }
+    .fade-up-1 { animation-delay: 0.1s; }
+    .fade-up-2 { animation-delay: 0.2s; }
+    .fade-up-3 { animation-delay: 0.35s; }
+    .fade-up-4 { animation-delay: 0.5s; }
+
+    /* Hop decoration */
+    .hop-deco { opacity: 0.07; pointer-events: none; user-select: none; }
+
+    /* Section divider */
+    .section-rule { width: 48px; height: 3px; background: #F59E0B; border-radius: 99px; }
+
+    /* Lang toggle */
+    .lang-btn { transition: background 0.15s, color 0.15s; }
+    .lang-btn.active { background: #F59E0B; color: #fff; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #F5F5F4; }
+    ::-webkit-scrollbar-thumb { background: #D6D3D1; border-radius: 99px; }
+
+    /* Event tag colors */
+    .tag-event   { background: #FEF3C7; color: #92400E; }
+    .tag-news    { background: #DBEAFE; color: #1E40AF; }
+    .tag-promo   { background: #D1FAE5; color: #065F46; }
+    .tag-collab  { background: #EDE9FE; color: #5B21B6; }
+
+    /* Social button */
+    .social-btn { transition: transform 0.15s, background 0.15s; }
+    .social-btn:hover { transform: scale(1.08); }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ★  CONFIGURATION — edit these to match your business  ★
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Your Brewery Ops Google Spreadsheet ID (same as brewery-ops.html)
+// IMPORTANT: The spreadsheet must be shared as "Anyone with the link can view"
+const SPREADSHEET_ID = "1WXjQBYLc_6tgMd2wgN2mqeWRR6f4CA0oyBXXv12JGyw";
+
+// Social & contact links — replace with your real URLs
+const SOCIAL_LINKS = {
+  instagram:    "https://instagram.com/upbbrewery",       // ← replace
+  facebook:     "https://facebook.com/upbbrewery",        // ← replace
+  line:         "https://line.me/ti/p/@upbbrewery",       // ← replace
+  googlemaps:   "https://maps.google.com/?q=United+Peoples+Brewery+Bangkok", // ← replace
+  googlereview: "https://search.google.com/local/writereview?placeid=PASTE_YOUR_PLACE_ID", // ← replace
+};
+
+// Brewery information
+const BREWERY_INFO = {
+  address_en: "Bangkok, Thailand",          // ← replace with full address
+  address_th: "กรุงเทพมหานคร ประเทศไทย",   // ← replace
+  hours_en:   "Wed – Sun  |  4 PM – Midnight",
+  hours_th:   "พุธ – อาทิตย์  |  16:00 – 24:00 น.",
+  phone:      "+66 XX XXX XXXX",            // ← replace
+  founded:    "2022",
+};
+
+// ─── EVENTS & NEWS ───────────────────────────────────────────────────────────
+// Add / edit / remove entries here to update the Events section.
+// tag options: "Event" | "News" | "Promo" | "Collab"
+const EVENTS = [
+  {
+    id: 1,
+    date: "2026-04-05",
+    title_en: "Live Jazz Night",
+    title_th: "คืนดนตรีแจ๊สสด",
+    desc_en:  "Kick back with live jazz every first Saturday of the month. Free entry — just bring your thirst.",
+    desc_th:  "ผ่อนคลายกับดนตรีแจ๊สสดทุกเสาร์แรกของเดือน ไม่มีค่าเข้า — แค่พร้อมดื่ม!",
+    tag: "Event",
+  },
+  {
+    id: 2,
+    date: "2026-04-12",
+    title_en: "New Release: Hazy IPA",
+    title_th: "เปิดตัวใหม่: เฮซี่ IPA",
+    desc_en:  "Our latest Hazy IPA is now pouring. Tropical, juicy, and unfiltered. Come try the first pour.",
+    desc_th:  "เฮซี่ IPA รุ่นใหม่ล่าสุดพร้อมเสิร์ฟแล้ว! หอมผลไม้ เข้มข้น ไม่ฟิลเตอร์ มาลองรสแรก",
+    tag: "News",
+  },
+  {
+    id: 3,
+    date: "2026-04-19",
+    title_en: "Brewer's Table Dinner",
+    title_th: "ดินเนอร์โต๊ะบรูเมอร์",
+    desc_en:  "An intimate 5-course beer-pairing dinner with our head brewer. Limited seats — reserve early.",
+    desc_th:  "ดินเนอร์จับคู่เบียร์ 5 คอร์ส กับหัวหน้าบรูเมอร์ ที่นั่งจำกัด — จองก่อนพลาด",
+    tag: "Event",
+  },
+  {
+    id: 4,
+    date: "2026-05-01",
+    title_en: "Collab Brew: x Sandport",
+    title_th: "เบียร์ร่วม: x Sandport",
+    desc_en:  "We teamed up with Sandport Brewing for a limited Vienna Lager. On tap for one month only.",
+    desc_th:  "ผสานฝีมือกับ Sandport Brewing ในเวียนนา ลาเกอร์รุ่นพิเศษ ออนแทปเดือนเดียว!",
+    tag: "Collab",
+  },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  TRANSLATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+const T = {
+  en: {
+    nav_about:    "About",
+    nav_taps:     "On Tap",
+    nav_events:   "Events",
+    nav_visit:    "Visit Us",
+    hero_tagline: "Craft Beer, Brewed for the People",
+    hero_sub:     "Independent brewery in the heart of Bangkok. We brew bold, honest beer — come taste the difference.",
+    hero_cta1:    "See What's On Tap",
+    hero_cta2:    "Find Us",
+    about_label:  "Our Story",
+    about_title:  "Beer for Everyone.",
+    about_body:   "United Peoples Brewery was born from a simple belief: great craft beer should be accessible to everyone. We brew small-batch, all-natural beers using quality ingredients — always fresh, always honest. From hoppy IPAs to smooth lagers, every pour tells a story.",
+    stat1_label:  "Litres Brewed",
+    stat2_label:  "Beers on Roster",
+    stat3_label:  "Years Brewing",
+    taps_label:   "On Tap Now",
+    taps_title:   "What's Pouring Today",
+    taps_sub:     "Our active tap list — updated live from the brewhouse.",
+    taps_loading: "Loading tap list…",
+    taps_empty:   "No active taps right now. Check back soon!",
+    taps_error:   "Could not load tap data. Please make sure the spreadsheet is publicly shared.",
+    tap_line:     "Tap",
+    tap_brewery:  "Brewery",
+    tap_supplier: "Guest Tap",
+    tap_price:    "฿",
+    events_label: "Events & News",
+    events_title: "What's On",
+    events_sub:   "Upcoming events, new releases, and brewery news.",
+    visit_label:  "Find Us",
+    visit_title:  "Come Visit",
+    visit_hours:  "Opening Hours",
+    visit_addr:   "Address",
+    review_btn:   "Leave Us a Google Review ⭐",
+    review_sub:   "Love what you tasted? Let others know!",
+    follow_title: "Follow Along",
+    footer_copy:  "© 2026 United Peoples Brewery. All rights reserved.",
+    footer_made:  "Brewed with ❤ in Bangkok",
+    refresh:      "Refresh Taps",
+    more_soon:    "More events coming soon — stay tuned.",
+  },
+  th: {
+    nav_about:    "เกี่ยวกับเรา",
+    nav_taps:     "แทปวันนี้",
+    nav_events:   "อีเวนต์",
+    nav_visit:    "มาเยี่ยมเรา",
+    hero_tagline: "คราฟต์เบียร์ เพื่อทุกคน",
+    hero_sub:     "โรงเบียร์อิสระใจกลางกรุงเทพฯ เราต้มเบียร์ที่จริงใจและเปี่ยมรสชาติ — มาลองด้วยตัวเอง",
+    hero_cta1:    "ดูเบียร์แทปวันนี้",
+    hero_cta2:    "แผนที่",
+    about_label:  "เรื่องราวของเรา",
+    about_title:  "เบียร์เพื่อทุกคน",
+    about_body:   "United Peoples Brewery เกิดจากความเชื่อง่าย ๆ ว่าคราฟต์เบียร์ดี ๆ ควรเข้าถึงได้ทุกคน เราต้มเบียร์แบบ Small Batch ด้วยวัตถุดิบคุณภาพ — สด ตรงไปตรงมา และเต็มไปด้วยเรื่องราว ไม่ว่าจะเป็น IPA หอมหรือลาเกอร์นุ่มนวล ทุกแก้วมีความหมาย",
+    stat1_label:  "ลิตรที่ต้มแล้ว",
+    stat2_label:  "สูตรเบียร์",
+    stat3_label:  "ปีที่ต้ม",
+    taps_label:   "แทปวันนี้",
+    taps_title:   "เบียร์ที่เปิดอยู่ตอนนี้",
+    taps_sub:     "รายการแทปปัจจุบัน — อัปเดตสดจากโรงต้ม",
+    taps_loading: "กำลังโหลดรายการแทป…",
+    taps_empty:   "ยังไม่มีแทปเปิดอยู่ตอนนี้ กลับมาเร็ว ๆ นี้!",
+    taps_error:   "ไม่สามารถโหลดข้อมูลแทปได้ กรุณาตรวจสอบว่า Spreadsheet ถูกแชร์แบบสาธารณะแล้ว",
+    tap_line:     "แทป",
+    tap_brewery:  "โรงต้ม",
+    tap_supplier: "Guest Tap",
+    tap_price:    "฿",
+    events_label: "อีเวนต์ & ข่าวสาร",
+    events_title: "กิจกรรมที่กำลังมา",
+    events_sub:   "อีเวนต์ เบียร์ใหม่ และข่าวสารจากโรงต้ม",
+    visit_label:  "มาเยี่ยมเรา",
+    visit_title:  "เราอยู่ที่นี่",
+    visit_hours:  "เวลาเปิด-ปิด",
+    visit_addr:   "ที่อยู่",
+    review_btn:   "รีวิว Google ให้เราหน่อยนะ ⭐",
+    review_sub:   "ชอบในสิ่งที่ได้ลอง? บอกคนอื่นด้วย!",
+    follow_title: "ติดตามเรา",
+    footer_copy:  "© 2026 United Peoples Brewery สงวนลิขสิทธิ์",
+    footer_made:  "ต้มด้วย ❤ ในกรุงเทพฯ",
+    refresh:      "รีเฟรชแทป",
+    more_soon:    "มีอีเวนต์เพิ่มเติมเร็ว ๆ นี้ — ติดตามเรา",
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function parseCSVRow(line) {
+  const cells = [];
+  let cur = "", inQ = false;
+  for (const ch of line) {
+    if (ch === '"') { inQ = !inQ; }
+    else if (ch === ',' && !inQ) { cells.push(cur); cur = ""; }
+    else cur += ch;
+  }
+  cells.push(cur);
+  return cells.map(c => c.trim().replace(/^"|"$/g, ""));
+}
+
+function parseCSV(text) {
+  const lines = text.trim().split("\n").filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = parseCSVRow(lines[0]).map(h => h.toLowerCase().trim());
+  return lines.slice(1).map(line => {
+    const vals = parseCSVRow(line);
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = (vals[i] || "").trim(); });
+    return obj;
+  });
+}
+
+function fmtDate(dateStr, lang) {
+  if (!dateStr) return "";
+  try {
+    const d = new Date(dateStr + "T00:00:00");
+    return d.toLocaleDateString(lang === "th" ? "th-TH" : "en-GB", {
+      day: "numeric", month: "long", year: "numeric",
+    });
+  } catch { return dateStr; }
+}
+
+function tagClass(tag) {
+  const m = { Event:"tag-event", News:"tag-news", Promo:"tag-promo", Collab:"tag-collab" };
+  return m[tag] || "tag-news";
+}
+
+// Sort events: upcoming first (future → past)
+function sortedEvents() {
+  const today = new Date().toISOString().split("T")[0];
+  return [...EVENTS].sort((a, b) => {
+    const aFut = a.date >= today, bFut = b.date >= today;
+    if (aFut && !bFut) return -1;
+    if (!aFut && bFut) return 1;
+    return aFut ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ICONS
+// ─────────────────────────────────────────────────────────────────────────────
+function IconInstagram() {
+  return <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>;
+}
+function IconFacebook() {
+  return <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>;
+}
+function IconLine() {
+  return <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.627-.63h2.386c.349 0 .63.285.63.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.627-.63.349 0 .631.285.631.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.281.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/></svg>;
+}
+function IconMap() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>;
+}
+function IconStar() {
+  return <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>;
+}
+function IconRefresh() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>;
+}
+function IconBeer() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8"><path d="M5 3h14l-1.5 15a2 2 0 01-2 1.5H8.5a2 2 0 01-2-1.5L5 3z"/><path d="M19 9h2a2 2 0 010 4h-2"/><path d="M8 3V1m4 2V1m4 2V1"/></svg>;
+}
+function IconClock() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>;
+}
+function IconPhone() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81a19.79 19.79 0 01-3.07-8.68A2 2 0 012 .82h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L6.09 8.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z"/></svg>;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  COMPONENTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function LangToggle({ lang, setLang }) {
+  return (
+    <div className="flex items-center gap-0.5 bg-stone-100 rounded-full p-0.5">
+      {["en","th"].map(l => (
+        <button key={l} onClick={() => setLang(l)}
+          className={`lang-btn px-3 py-1 rounded-full text-xs font-semibold transition-all ${lang===l?"active":"text-stone-500 hover:text-stone-700"}`}>
+          {l === "en" ? "EN" : "TH"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Navbar({ lang, setLang, t }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 40);
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const links = [
+    { href: "#about",  label: t.nav_about  },
+    { href: "#taps",   label: t.nav_taps   },
+    { href: "#events", label: t.nav_events  },
+    { href: "#visit",  label: t.nav_visit   },
+  ];
+
+  return (
+    <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 nav-blur
+      ${scrolled ? "bg-white/90 shadow-sm border-b border-stone-100" : "bg-white/60"}`}>
+      <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
+        {/* Logo */}
+        <a href="#" className="flex items-center gap-2.5">
+          <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center text-white font-display font-bold text-sm">U</div>
+          <span className="font-display font-bold text-lg text-stone-900 leading-none">UPB</span>
+        </a>
+
+        {/* Desktop links */}
+        <div className="hidden md:flex items-center gap-7">
+          {links.map(l => (
+            <a key={l.href} href={l.href}
+              className="text-sm font-medium text-stone-600 hover:text-amber-600 transition-colors">
+              {l.label}
+            </a>
+          ))}
+        </div>
+
+        {/* Right side */}
+        <div className="flex items-center gap-3">
+          <LangToggle lang={lang} setLang={setLang} />
+          {/* Mobile menu toggle */}
+          <button onClick={() => setMenuOpen(o => !o)} className="md:hidden p-2 text-stone-600">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={menuOpen ? "M6 18L18 6M6 6l12 12" : "M4 6h16M4 12h16M4 18h16"}/></svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Mobile menu */}
+      {menuOpen && (
+        <div className="md:hidden border-t border-stone-100 bg-white/95 px-5 py-4 space-y-3">
+          {links.map(l => (
+            <a key={l.href} href={l.href} onClick={() => setMenuOpen(false)}
+              className="block text-sm font-medium text-stone-700 hover:text-amber-600 py-1">
+              {l.label}
+            </a>
+          ))}
+        </div>
+      )}
+    </nav>
+  );
+}
+
+function Hero({ lang, t }) {
+  return (
+    <section className="hero-bg relative overflow-hidden pt-16 min-h-screen flex items-center">
+      {/* Decorative hops / circles */}
+      <div className="hop-deco absolute top-20 right-10 text-amber-400" style={{fontSize:"220px",lineHeight:1}}>🌾</div>
+      <div className="hop-deco absolute bottom-20 left-5 text-amber-400" style={{fontSize:"160px",lineHeight:1}}>🍺</div>
+      <div className="absolute top-32 left-1/2 -translate-x-1/2 w-[600px] h-[600px] rounded-full bg-amber-100/40 blur-3xl pointer-events-none"></div>
+
+      <div className="relative max-w-6xl mx-auto px-5 py-24 text-center">
+        {/* Eyebrow */}
+        <div className="fade-up fade-up-1 inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold uppercase tracking-widest mb-6">
+          🍺 United Peoples Brewery · Bangkok
+        </div>
+
+        {/* Main heading */}
+        <h1 className="fade-up fade-up-2 font-display text-5xl md:text-7xl font-bold text-stone-900 leading-tight mb-5">
+          {t.hero_tagline}
+        </h1>
+
+        {/* Sub */}
+        <p className="fade-up fade-up-3 text-lg md:text-xl text-stone-500 max-w-xl mx-auto leading-relaxed mb-10">
+          {t.hero_sub}
+        </p>
+
+        {/* CTAs */}
+        <div className="fade-up fade-up-4 flex flex-wrap items-center justify-center gap-4">
+          <a href="#taps"
+            className="inline-flex items-center gap-2.5 px-7 py-3.5 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-full transition-all shadow-lg shadow-amber-200 hover:shadow-amber-300 hover:-translate-y-0.5">
+            <IconBeer /> {t.hero_cta1}
+          </a>
+          <a href={SOCIAL_LINKS.googlemaps} target="_blank" rel="noreferrer"
+            className="inline-flex items-center gap-2 px-7 py-3.5 bg-white hover:bg-stone-50 text-stone-700 font-semibold rounded-full border border-stone-200 transition-all hover:-translate-y-0.5">
+            <IconMap /> {t.hero_cta2}
+          </a>
+        </div>
+      </div>
+
+      {/* Bottom fade */}
+      <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-stone-50/80 to-transparent pointer-events-none"></div>
+    </section>
+  );
+}
+
+function About({ lang, t }) {
+  const stats = [
+    { value: "50,000+", label: t.stat1_label },
+    { value: "30+",     label: t.stat2_label },
+    { value: BREWERY_INFO.founded, label: t.stat3_label },
+  ];
+  return (
+    <section id="about" className="py-24 bg-white">
+      <div className="max-w-6xl mx-auto px-5">
+        <div className="grid md:grid-cols-2 gap-16 items-center">
+          {/* Text */}
+          <div>
+            <p className="text-amber-600 text-xs font-bold uppercase tracking-widest mb-3">{t.about_label}</p>
+            <div className="section-rule mb-5"></div>
+            <h2 className="font-display text-4xl md:text-5xl font-bold text-stone-900 mb-6">{t.about_title}</h2>
+            <p className="text-stone-500 leading-relaxed text-base">{t.about_body}</p>
+          </div>
+
+          {/* Stats */}
+          <div className="grid grid-cols-3 gap-4">
+            {stats.map((s, i) => (
+              <div key={i} className="bg-amber-50 rounded-2xl p-6 text-center border border-amber-100">
+                <div className="font-display text-3xl font-bold text-amber-600 mb-1">{s.value}</div>
+                <div className="text-xs text-stone-500 font-medium">{s.label}</div>
+              </div>
+            ))}
+            {/* Full-width bottom card */}
+            <div className="col-span-3 bg-stone-900 rounded-2xl p-5 flex items-center gap-4 text-white">
+              <div className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center flex-shrink-0">
+                <IconBeer />
+              </div>
+              <div>
+                <div className="font-semibold text-sm">Independent &amp; Unfiltered</div>
+                <div className="text-xs text-stone-400 mt-0.5">Small-batch · All-natural · Always fresh</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function TapCard({ tap, t, index }) {
+  const colorSets = [
+    { bg:"bg-amber-50",  border:"border-amber-200",  num:"text-amber-500",  badge:"bg-amber-100 text-amber-700"  },
+    { bg:"bg-sky-50",    border:"border-sky-200",    num:"text-sky-500",    badge:"bg-sky-100 text-sky-700"      },
+    { bg:"bg-emerald-50",border:"border-emerald-200",num:"text-emerald-500",badge:"bg-emerald-100 text-emerald-700"},
+    { bg:"bg-violet-50", border:"border-violet-200", num:"text-violet-500", badge:"bg-violet-100 text-violet-700" },
+    { bg:"bg-rose-50",   border:"border-rose-200",   num:"text-rose-500",   badge:"bg-rose-100 text-rose-700"    },
+  ];
+  const c = colorSets[index % colorSets.length];
+  const isBrewery = (tap.source || "").toLowerCase() === "brewery";
+  const sourceLabel = isBrewery ? t.tap_brewery : (tap.supplier || t.tap_supplier);
+
+  return (
+    <div className={`tap-card rounded-2xl p-5 border-2 ${c.bg} ${c.border} relative`}>
+      {/* Tap number */}
+      <div className={`font-display text-4xl font-bold ${c.num} leading-none mb-3`}>
+        {tap.tap_line ? `${t.tap_line} ${tap.tap_line}` : `—`}
+      </div>
+
+      {/* Beer name */}
+      <h3 className="font-display text-lg font-bold text-stone-900 leading-snug mb-1">{tap.beer_name || "—"}</h3>
+
+      {/* Source badge */}
+      <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${c.badge} mb-3`}>
+        {isBrewery ? "🏭 " : "🍻 "}{sourceLabel}
+      </span>
+
+      {/* Price + Size row */}
+      <div className="flex items-center justify-between mt-auto pt-3 border-t border-white/60">
+        <span className="text-xs text-stone-400">{tap.size || "—"}</span>
+        {tap.price && <span className="text-sm font-bold text-stone-700">{t.tap_price}{tap.price}</span>}
+      </div>
+    </div>
+  );
+}
+
+function ActiveTaps({ lang, t }) {
+  const [taps, setTaps]       = useState([]);
+  const [status, setStatus]   = useState("loading"); // "loading" | "ok" | "empty" | "error"
+  const [lastUpd, setLastUpd] = useState(null);
+
+  async function fetchTaps() {
+    setStatus("loading");
+    try {
+      // Uses the "Publish to web" CSV endpoint — more reliable than gviz/tq for cross-origin fetch
+      const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/pub?output=csv&sheet=TapLog`;
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const csv = await res.text();
+      const rows = parseCSV(csv);
+      const active = rows.filter(r => (r.status || "").toLowerCase() === "active")
+        .sort((a, b) => {
+          const na = parseInt(a.tap_line) || 99, nb = parseInt(b.tap_line) || 99;
+          return na - nb;
+        });
+      setTaps(active);
+      setStatus(active.length === 0 ? "empty" : "ok");
+      setLastUpd(new Date().toLocaleTimeString(lang === "th" ? "th-TH" : "en-GB", { hour:"2-digit", minute:"2-digit" }));
+    } catch (e) {
+      console.warn("Tap fetch error:", e);
+      setStatus("error");
+    }
+  }
+
+  useEffect(() => { fetchTaps(); }, []);
+
+  return (
+    <section id="taps" className="py-24 bg-stone-50">
+      <div className="max-w-6xl mx-auto px-5">
+        {/* Header */}
+        <div className="flex flex-wrap items-end justify-between gap-4 mb-12">
+          <div>
+            <p className="text-amber-600 text-xs font-bold uppercase tracking-widest mb-3">{t.taps_label}</p>
+            <div className="section-rule mb-4"></div>
+            <h2 className="font-display text-4xl md:text-5xl font-bold text-stone-900">{t.taps_title}</h2>
+            <p className="text-stone-400 mt-2 text-sm">{t.taps_sub}</p>
+          </div>
+          <div className="flex items-center gap-3">
+            {lastUpd && <span className="text-xs text-stone-400">Updated {lastUpd}</span>}
+            <button onClick={fetchTaps}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-amber-700 bg-amber-100 hover:bg-amber-200 rounded-full transition-colors">
+              <IconRefresh /> {t.refresh}
+            </button>
+          </div>
+        </div>
+
+        {/* States */}
+        {status === "loading" && (
+          <div className="flex flex-col items-center justify-center py-20 gap-4">
+            <div className="w-10 h-10 border-4 border-amber-200 border-t-amber-500 rounded-full animate-spin"></div>
+            <p className="text-stone-400 text-sm">{t.taps_loading}</p>
+          </div>
+        )}
+
+        {status === "error" && (
+          <div className="bg-red-50 border border-red-100 rounded-2xl p-8 text-center">
+            <p className="text-red-500 font-medium mb-1">{t.taps_error}</p>
+            <p className="text-red-400 text-xs mt-2">Make sure the spreadsheet is shared as "Anyone with the link can view"</p>
+            <button onClick={fetchTaps} className="mt-4 px-5 py-2 bg-red-100 hover:bg-red-200 text-red-600 rounded-full text-sm font-medium transition-colors">{t.refresh}</button>
+          </div>
+        )}
+
+        {status === "empty" && (
+          <div className="text-center py-20">
+            <div className="text-5xl mb-4">🍺</div>
+            <p className="text-stone-400">{t.taps_empty}</p>
+          </div>
+        )}
+
+        {status === "ok" && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {taps.map((tap, i) => (
+              <TapCard key={tap.id || i} tap={tap} t={t} index={i} lang={lang} />
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function Events({ lang, t }) {
+  const events = sortedEvents();
+  const today = new Date().toISOString().split("T")[0];
+
+  return (
+    <section id="events" className="py-24 bg-white">
+      <div className="max-w-6xl mx-auto px-5">
+        <div className="mb-12">
+          <p className="text-amber-600 text-xs font-bold uppercase tracking-widest mb-3">{t.events_label}</p>
+          <div className="section-rule mb-4"></div>
+          <h2 className="font-display text-4xl md:text-5xl font-bold text-stone-900">{t.events_title}</h2>
+          <p className="text-stone-400 mt-2 text-sm">{t.events_sub}</p>
+        </div>
+
+        {events.length === 0 ? (
+          <p className="text-stone-400 text-center py-16">{t.more_soon}</p>
+        ) : (
+          <div className="grid md:grid-cols-2 gap-5">
+            {events.map(ev => {
+              const isPast = ev.date < today;
+              return (
+                <div key={ev.id} className={`rounded-2xl p-6 border transition-all ${isPast ? "bg-stone-50 border-stone-100 opacity-70" : "bg-white border-stone-100 hover:border-amber-200 hover:shadow-md"}`}>
+                  <div className="flex items-start justify-between mb-3">
+                    <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${tagClass(ev.tag)}`}>
+                      {ev.tag}
+                    </span>
+                    <span className="text-xs text-stone-400 font-medium">{fmtDate(ev.date, lang)}</span>
+                  </div>
+                  <h3 className="font-display text-xl font-bold text-stone-900 mb-2">
+                    {lang === "th" ? ev.title_th : ev.title_en}
+                  </h3>
+                  <p className="text-stone-500 text-sm leading-relaxed">
+                    {lang === "th" ? ev.desc_th : ev.desc_en}
+                  </p>
+                  {isPast && (
+                    <span className="inline-block mt-3 text-xs text-stone-400 italic">Past event</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function SocialAndVisit({ lang, t }) {
+  const socials = [
+    { icon: <IconInstagram />, label: "Instagram", href: SOCIAL_LINKS.instagram,  bg: "bg-gradient-to-br from-purple-500 to-pink-500" },
+    { icon: <IconFacebook />,  label: "Facebook",  href: SOCIAL_LINKS.facebook,   bg: "bg-blue-600" },
+    { icon: <IconLine />,      label: "Line",      href: SOCIAL_LINKS.line,        bg: "bg-green-500" },
+    { icon: <IconMap />,       label: "Maps",      href: SOCIAL_LINKS.googlemaps,  bg: "bg-red-500" },
+  ];
+
+  return (
+    <section id="visit" className="py-24 bg-stone-50">
+      <div className="max-w-6xl mx-auto px-5">
+        <div className="grid md:grid-cols-2 gap-12 items-start">
+
+          {/* Visit info */}
+          <div>
+            <p className="text-amber-600 text-xs font-bold uppercase tracking-widest mb-3">{t.visit_label}</p>
+            <div className="section-rule mb-4"></div>
+            <h2 className="font-display text-4xl md:text-5xl font-bold text-stone-900 mb-8">{t.visit_title}</h2>
+
+            <div className="space-y-5">
+              <div className="flex items-start gap-4 bg-white rounded-2xl p-5 border border-stone-100">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600 flex-shrink-0"><IconClock /></div>
+                <div>
+                  <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-1">{t.visit_hours}</p>
+                  <p className="text-stone-800 font-medium">{lang === "th" ? BREWERY_INFO.hours_th : BREWERY_INFO.hours_en}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-4 bg-white rounded-2xl p-5 border border-stone-100">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600 flex-shrink-0"><IconMap /></div>
+                <div>
+                  <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-1">{t.visit_addr}</p>
+                  <p className="text-stone-800 font-medium">{lang === "th" ? BREWERY_INFO.address_th : BREWERY_INFO.address_en}</p>
+                  <a href={SOCIAL_LINKS.googlemaps} target="_blank" rel="noreferrer"
+                    className="text-amber-600 text-xs font-medium hover:underline mt-1 inline-block">
+                    Open in Google Maps →
+                  </a>
+                </div>
+              </div>
+              <div className="flex items-start gap-4 bg-white rounded-2xl p-5 border border-stone-100">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600 flex-shrink-0"><IconPhone /></div>
+                <div>
+                  <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-1">Phone</p>
+                  <p className="text-stone-800 font-medium">{BREWERY_INFO.phone}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Reviews + Social */}
+          <div className="space-y-8">
+            {/* Google Review */}
+            <div className="bg-white rounded-2xl p-7 border border-stone-100 text-center">
+              <div className="flex justify-center gap-1 text-amber-400 mb-3">
+                {[...Array(5)].map((_, i) => <IconStar key={i} />)}
+              </div>
+              <h3 className="font-display text-2xl font-bold text-stone-900 mb-2">{t.review_sub}</h3>
+              <p className="text-stone-400 text-sm mb-5">Share your experience — it helps us grow 🙏</p>
+              <a href={SOCIAL_LINKS.googlereview} target="_blank" rel="noreferrer"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-full transition-all shadow-md shadow-amber-100 hover:-translate-y-0.5">
+                {t.review_btn}
+              </a>
+            </div>
+
+            {/* Social */}
+            <div className="bg-white rounded-2xl p-6 border border-stone-100">
+              <h3 className="font-semibold text-stone-700 mb-5 text-sm">{t.follow_title}</h3>
+              <div className="grid grid-cols-4 gap-3">
+                {socials.map(s => (
+                  <a key={s.label} href={s.href} target="_blank" rel="noreferrer"
+                    className={`social-btn flex flex-col items-center justify-center gap-2 py-4 rounded-2xl text-white ${s.bg}`}>
+                    {s.icon}
+                    <span className="text-xs font-medium">{s.label}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Footer({ lang, t }) {
+  return (
+    <footer className="bg-stone-900 text-stone-400 py-10">
+      <div className="max-w-6xl mx-auto px-5 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 bg-amber-500 rounded-lg flex items-center justify-center text-white font-display font-bold text-xs">U</div>
+          <span className="font-display font-bold text-white text-base">United Peoples Brewery</span>
+        </div>
+        <p className="text-xs text-center">{t.footer_copy}</p>
+        <p className="text-xs">{t.footer_made}</p>
+      </div>
+    </footer>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  APP
+// ─────────────────────────────────────────────────────────────────────────────
+function App() {
+  const [lang, setLang] = useState("en");
+  const t = T[lang];
+
+  return (
+    <div>
+      <Navbar lang={lang} setLang={setLang} t={t} />
+      <Hero    lang={lang} t={t} />
+      <About   lang={lang} t={t} />
+      <ActiveTaps lang={lang} t={t} />
+      <Events  lang={lang} t={t} />
+      <SocialAndVisit lang={lang} t={t} />
+      <Footer  lang={lang} t={t} />
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
