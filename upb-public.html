@@ -89,20 +89,27 @@ const SOCIAL_LINKS = {
   googlereview: "https://search.google.com/local/writereview?placeid=PASTE_YOUR_PLACE_ID", // ← replace
 };
 
-// Brewery information
-const BREWERY_INFO = {
-  address_en: "Bangkok, Thailand",          // ← replace with full address
-  address_th: "กรุงเทพมหานคร ประเทศไทย",   // ← replace
+// Brewery information — used as FALLBACK if Sheets haven't been configured yet
+// These will be overridden automatically once SiteConfig is saved in upb-admin.html
+const BREWERY_INFO_FALLBACK = {
+  address_en: "Bangkok, Thailand",          // ← replace in Admin panel
+  address_th: "กรุงเทพมหานคร ประเทศไทย",   // ← replace in Admin panel
   hours_en:   "Wed – Sun  |  4 PM – Midnight",
   hours_th:   "พุธ – อาทิตย์  |  16:00 – 24:00 น.",
-  phone:      "+66 XX XXX XXXX",            // ← replace
+  phone:      "+66 XX XXX XXXX",            // ← replace in Admin panel
   founded:    "2022",
+  about_en:   "", // populated from Sheets
+  about_th:   "", // populated from Sheets
+  stat_litres_en: "50,000+",
+  stat_litres_th: "50,000+",
+  stat_beers_en:  "30+",
+  stat_beers_th:  "30+",
 };
 
-// ─── EVENTS & NEWS ───────────────────────────────────────────────────────────
-// Add / edit / remove entries here to update the Events section.
-// tag options: "Event" | "News" | "Promo" | "Collab"
-const EVENTS = [
+// ─── EVENTS & NEWS (FALLBACK) ─────────────────────────────────────────────────
+// These are shown while Sheets data loads, or if the Events sheet is empty.
+// Manage events via upb-admin.html — they'll appear here automatically.
+const EVENTS_FALLBACK = [
   {
     id: 1,
     date: "2026-04-05",
@@ -228,6 +235,89 @@ const T = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  SHEETS DATA — fetch Events + SiteConfig via JSONP
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Generic JSONP fetch for any sheet tab in the UPB Public Taps spreadsheet */
+function jsonpFetchSheet(sheetName) {
+  return new Promise((resolve, reject) => {
+    const cb = "_upbPub" + Date.now() + Math.random().toString(36).slice(2);
+    const script = document.createElement("script");
+    let done = false;
+    const cleanup = () => {
+      if (done) return; done = true;
+      delete window[cb];
+      if (script.parentNode) script.parentNode.removeChild(script);
+      clearTimeout(timer);
+    };
+    window[cb] = (resp) => {
+      cleanup();
+      try {
+        if (!resp || resp.status !== "ok") throw new Error("bad response");
+        const { cols, rows } = resp.table;
+        const headers = cols.map(c => (c.label || c.id || "").toLowerCase().replace(/\s+/g,"_").trim());
+        const parsed = (rows || []).map(row => {
+          const obj = {};
+          (row.c || []).forEach((cell, i) => {
+            obj[headers[i]] = cell && cell.v != null ? String(cell.v).trim() : "";
+          });
+          return obj;
+        });
+        resolve(parsed);
+      } catch(e) { reject(e); }
+    };
+    script.onerror = () => { cleanup(); reject(new Error("load error")); };
+    const timer = setTimeout(() => { cleanup(); reject(new Error("timeout")); }, 10000);
+    script.src = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:json;responseHandler:${cb}&sheet=${encodeURIComponent(sheetName)}&headers=1`;
+    document.head.appendChild(script);
+  });
+}
+
+/**
+ * useSiteData — loads Events and SiteConfig from Sheets on mount.
+ * Falls back to hardcoded constants if sheets aren't set up yet.
+ */
+function useSiteData() {
+  const [events,      setEvents]      = useState(EVENTS_FALLBACK);
+  const [breweryInfo, setBreweryInfo] = useState(BREWERY_INFO_FALLBACK);
+
+  useEffect(() => {
+    // Load Events sheet
+    jsonpFetchSheet("Events")
+      .then(rows => {
+        const active = rows.filter(r => r.active === "true" || r.active === "TRUE");
+        if (active.length > 0) setEvents(active);
+      })
+      .catch(() => {}); // silent — keep fallback
+
+    // Load SiteConfig sheet
+    jsonpFetchSheet("SiteConfig")
+      .then(rows => {
+        if (!rows || rows.length === 0) return;
+        const get = (key, lang = "en") => (rows.find(r => r.key === key) || {})[`value_${lang}`] || "";
+        const updated = {
+          address_en:     get("address",      "en") || BREWERY_INFO_FALLBACK.address_en,
+          address_th:     get("address",      "th") || BREWERY_INFO_FALLBACK.address_th,
+          hours_en:       get("hours",        "en") || BREWERY_INFO_FALLBACK.hours_en,
+          hours_th:       get("hours",        "th") || BREWERY_INFO_FALLBACK.hours_th,
+          phone:          get("phone",        "en") || BREWERY_INFO_FALLBACK.phone,
+          founded:        get("stat_founded", "en") || BREWERY_INFO_FALLBACK.founded,
+          about_en:       get("about_desc",   "en"),
+          about_th:       get("about_desc",   "th"),
+          stat_litres_en: get("stat_litres",  "en") || BREWERY_INFO_FALLBACK.stat_litres_en,
+          stat_litres_th: get("stat_litres",  "th") || BREWERY_INFO_FALLBACK.stat_litres_th,
+          stat_beers_en:  get("stat_beers",   "en") || BREWERY_INFO_FALLBACK.stat_beers_en,
+          stat_beers_th:  get("stat_beers",   "th") || BREWERY_INFO_FALLBACK.stat_beers_th,
+        };
+        setBreweryInfo(updated);
+      })
+      .catch(() => {}); // silent — keep fallback
+  }, []);
+
+  return { events, breweryInfo };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -266,14 +356,17 @@ function fmtDate(dateStr, lang) {
 }
 
 function tagClass(tag) {
-  const m = { Event:"tag-event", News:"tag-news", Promo:"tag-promo", Collab:"tag-collab" };
+  const m = {
+    Event:"tag-event", News:"tag-news", Promo:"tag-promo", Collab:"tag-collab",
+    Promotion:"tag-promo", "Tap Launch":"tag-event", Workshop:"tag-collab", Other:"tag-news",
+  };
   return m[tag] || "tag-news";
 }
 
 // Sort events: upcoming first (future → past)
-function sortedEvents() {
+function sortedEvents(evts) {
   const today = new Date().toISOString().split("T")[0];
-  return [...EVENTS].sort((a, b) => {
+  return [...evts].sort((a, b) => {
     const aFut = a.date >= today, bFut = b.date >= today;
     if (aFut && !bFut) return -1;
     if (!aFut && bFut) return 1;
@@ -434,11 +527,15 @@ function Hero({ lang, t }) {
   );
 }
 
-function About({ lang, t }) {
+function About({ lang, t, breweryInfo }) {
+  const bi = breweryInfo || BREWERY_INFO_FALLBACK;
+  const aboutText = lang === "th"
+    ? (bi.about_th || t.about_body)
+    : (bi.about_en || t.about_body);
   const stats = [
-    { value: "50,000+", label: t.stat1_label },
-    { value: "30+",     label: t.stat2_label },
-    { value: BREWERY_INFO.founded, label: t.stat3_label },
+    { value: lang === "th" ? (bi.stat_litres_th || bi.stat_litres_en) : bi.stat_litres_en, label: t.stat1_label },
+    { value: lang === "th" ? (bi.stat_beers_th  || bi.stat_beers_en)  : bi.stat_beers_en,  label: t.stat2_label },
+    { value: bi.founded || BREWERY_INFO_FALLBACK.founded,                                  label: t.stat3_label },
   ];
   return (
     <section id="about" className="py-24 bg-white">
@@ -449,7 +546,7 @@ function About({ lang, t }) {
             <p className="text-amber-600 text-xs font-bold uppercase tracking-widest mb-3">{t.about_label}</p>
             <div className="section-rule mb-5"></div>
             <h2 className="font-display text-4xl md:text-5xl font-bold text-stone-900 mb-6">{t.about_title}</h2>
-            <p className="text-stone-500 leading-relaxed text-base">{t.about_body}</p>
+            <p className="text-stone-500 leading-relaxed text-base">{aboutText}</p>
           </div>
 
           {/* Stats */}
@@ -493,7 +590,7 @@ function TapCard({ tap, t, index }) {
     <div className={`tap-card rounded-2xl p-5 border-2 ${c.bg} ${c.border} relative`}>
       {/* Tap number */}
       <div className={`font-display text-4xl font-bold ${c.num} leading-none mb-3`}>
-        {tap.tap_line ? `${t.tap_line} ${tap.tap_line}` : `—`}
+        {tap.tap_line || "—"}
       </div>
 
       {/* Beer name */}
@@ -518,27 +615,58 @@ function ActiveTaps({ lang, t }) {
   const [status, setStatus]   = useState("loading"); // "loading" | "ok" | "empty" | "error"
   const [lastUpd, setLastUpd] = useState(null);
 
-  async function fetchTaps() {
+  function fetchTaps() {
     setStatus("loading");
-    try {
-      // Uses the "Publish to web" CSV endpoint — more reliable than gviz/tq for cross-origin fetch
-      const url = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/pub?output=csv&sheet=TapLog`;
-      const res = await fetch(url, { cache: "no-store" });
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const csv = await res.text();
-      const rows = parseCSV(csv);
-      const active = rows.filter(r => (r.status || "").toLowerCase() === "active")
-        .sort((a, b) => {
-          const na = parseInt(a.tap_line) || 99, nb = parseInt(b.tap_line) || 99;
-          return na - nb;
-        });
-      setTaps(active);
-      setStatus(active.length === 0 ? "empty" : "ok");
-      setLastUpd(new Date().toLocaleTimeString(lang === "th" ? "th-TH" : "en-GB", { hour:"2-digit", minute:"2-digit" }));
-    } catch (e) {
-      console.warn("Tap fetch error:", e);
-      setStatus("error");
+    // JSONP via Google Visualization API — works with "Anyone with link can view"
+    // No "Publish to web" required, no CORS issues
+    const cbName = "_upbTap" + Date.now();
+    const script = document.createElement("script");
+    let settled = false;
+
+    function cleanup() {
+      if (settled) return;
+      settled = true;
+      delete window[cbName];
+      if (script.parentNode) script.parentNode.removeChild(script);
+      clearTimeout(timer);
     }
+
+    window[cbName] = function(resp) {
+      cleanup();
+      try {
+        if (!resp || resp.status !== "ok") throw new Error("bad response: " + JSON.stringify(resp));
+        const { cols, rows } = resp.table;
+        const headers = cols.map(c => (c.label || c.id || "").toLowerCase().replace(/\s+/g,"_").trim());
+        console.log("[UPB Taps] headers:", headers);
+        const parsed = (rows || []).map(row => {
+          const obj = {};
+          (row.c || []).forEach((cell, i) => {
+            obj[headers[i]] = cell && cell.v != null ? String(cell.v) : "";
+          });
+          return obj;
+        });
+        console.log("[UPB Taps] parsed rows:", parsed);
+        const tapNum = r => parseInt((r.tap_line || "").replace(/\D/g, "")) || 99;
+        const active = parsed
+          .filter(r => (r.status || "").toLowerCase() === "active")
+          .sort((a, b) => tapNum(a) - tapNum(b));
+        console.log("[UPB Taps] active taps:", active);
+        setTaps(active);
+        setStatus(active.length === 0 ? "empty" : "ok");
+        setLastUpd(new Date().toLocaleTimeString(lang === "th" ? "th-TH" : "en-GB", { hour:"2-digit", minute:"2-digit" }));
+      } catch(e) {
+        console.warn("[UPB Taps] parse error:", e);
+        setStatus("error");
+      }
+    };
+
+    script.onerror = () => { cleanup(); setStatus("error"); };
+    const timer = setTimeout(() => { cleanup(); setStatus(s => s === "loading" ? "error" : s); }, 12000);
+
+    // gid=0 = first sheet tab (more reliable than sheet name)
+    // headers=1 = explicitly tell gviz row 1 is the header row
+    script.src = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:json;responseHandler:${cbName}&gid=0&headers=1`;
+    document.head.appendChild(script);
   }
 
   useEffect(() => { fetchTaps(); }, []);
@@ -598,8 +726,8 @@ function ActiveTaps({ lang, t }) {
   );
 }
 
-function Events({ lang, t }) {
-  const events = sortedEvents();
+function Events({ lang, t, events: rawEvents }) {
+  const events = sortedEvents(rawEvents || EVENTS_FALLBACK);
   const today = new Date().toISOString().split("T")[0];
 
   return (
@@ -645,7 +773,8 @@ function Events({ lang, t }) {
   );
 }
 
-function SocialAndVisit({ lang, t }) {
+function SocialAndVisit({ lang, t, breweryInfo }) {
+  const bi = breweryInfo || BREWERY_INFO_FALLBACK;
   const socials = [
     { icon: <IconInstagram />, label: "Instagram", href: SOCIAL_LINKS.instagram,  bg: "bg-gradient-to-br from-purple-500 to-pink-500" },
     { icon: <IconFacebook />,  label: "Facebook",  href: SOCIAL_LINKS.facebook,   bg: "bg-blue-600" },
@@ -669,14 +798,14 @@ function SocialAndVisit({ lang, t }) {
                 <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600 flex-shrink-0"><IconClock /></div>
                 <div>
                   <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-1">{t.visit_hours}</p>
-                  <p className="text-stone-800 font-medium">{lang === "th" ? BREWERY_INFO.hours_th : BREWERY_INFO.hours_en}</p>
+                  <p className="text-stone-800 font-medium">{lang === "th" ? bi.hours_th : bi.hours_en}</p>
                 </div>
               </div>
               <div className="flex items-start gap-4 bg-white rounded-2xl p-5 border border-stone-100">
                 <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600 flex-shrink-0"><IconMap /></div>
                 <div>
                   <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-1">{t.visit_addr}</p>
-                  <p className="text-stone-800 font-medium">{lang === "th" ? BREWERY_INFO.address_th : BREWERY_INFO.address_en}</p>
+                  <p className="text-stone-800 font-medium">{lang === "th" ? bi.address_th : bi.address_en}</p>
                   <a href={SOCIAL_LINKS.googlemaps} target="_blank" rel="noreferrer"
                     className="text-amber-600 text-xs font-medium hover:underline mt-1 inline-block">
                     Open in Google Maps →
@@ -687,7 +816,7 @@ function SocialAndVisit({ lang, t }) {
                 <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600 flex-shrink-0"><IconPhone /></div>
                 <div>
                   <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide mb-1">Phone</p>
-                  <p className="text-stone-800 font-medium">{BREWERY_INFO.phone}</p>
+                  <p className="text-stone-800 font-medium">{bi.phone}</p>
                 </div>
               </div>
             </div>
@@ -749,15 +878,16 @@ function Footer({ lang, t }) {
 function App() {
   const [lang, setLang] = useState("en");
   const t = T[lang];
+  const { events, breweryInfo } = useSiteData();
 
   return (
     <div>
       <Navbar lang={lang} setLang={setLang} t={t} />
       <Hero    lang={lang} t={t} />
-      <About   lang={lang} t={t} />
+      <About   lang={lang} t={t} breweryInfo={breweryInfo} />
       <ActiveTaps lang={lang} t={t} />
-      <Events  lang={lang} t={t} />
-      <SocialAndVisit lang={lang} t={t} />
+      <Events  lang={lang} t={t} events={events} />
+      <SocialAndVisit lang={lang} t={t} breweryInfo={breweryInfo} />
       <Footer  lang={lang} t={t} />
     </div>
   );
