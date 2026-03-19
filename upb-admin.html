@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UPB Admin Panel</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍺</text></svg>" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    textarea { font-family: inherit; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ── CONFIG ─────────────────────────────────────────────────────────────────────
+// ⚠️  Change ADMIN_PASSWORD before deploying!
+const SPREADSHEET_ID   = "1WXjQBYLc_6tgMd2wgN2mqeWRR6f4CA0oyBXXv12JGyw";
+const GOOGLE_CLIENT_ID = "787778307584-v1bfnkpnfgu9j1ueni9mi97chlpdu2ec.apps.googleusercontent.com";
+const ADMIN_PASSWORD   = "upb2024";
+const SCOPES           = "https://www.googleapis.com/auth/spreadsheets";
+
+const SHEET_EVENTS = "Events";
+const SHEET_CONFIG = "SiteConfig";
+const EVENTS_COLS  = ["id","date","title_en","title_th","desc_en","desc_th","tag","active"];
+const CONFIG_COLS  = ["key","value_en","value_th"];
+
+const CONFIG_DEFAULTS = [
+  { key: "about_desc",   value_en: "United Peoples Brewery is a craft brewery based in Bangkok, dedicated to creating world-class beers with a Thai spirit. We believe great beer brings people together.", value_th: "United Peoples Brewery คือโรงเบียร์คราฟท์ในกรุงเทพฯ ที่มุ่งมั่นสร้างสรรค์เบียร์คุณภาพระดับโลกด้วยจิตวิญญาณไทย เราเชื่อว่าเบียร์ดีๆ ทำให้ผู้คนมาอยู่ด้วยกัน" },
+  { key: "stat_litres",  value_en: "50,000",                      value_th: "50,000"                      },
+  { key: "stat_beers",   value_en: "20+",                         value_th: "20+"                         },
+  { key: "stat_founded", value_en: "2019",                        value_th: "2562"                        },
+  { key: "hours",        value_en: "Mon – Sun: 14:00 – 22:00",   value_th: "จ – อา: 14:00 – 22:00"      },
+  { key: "address",      value_en: "Bangkok, Thailand",            value_th: "กรุงเทพมหานคร ประเทศไทย"   },
+  { key: "phone",        value_en: "+66 81 234 5678",              value_th: "+66 81 234 5678"             },
+];
+
+// ── ACCESS TOKEN STORE ─────────────────────────────────────────────────────────
+let _accessToken = null;
+const getToken = () => _accessToken;
+const setToken = (t) => { _accessToken = t; };
+
+// ── SHEETS UTILITIES ───────────────────────────────────────────────────────────
+
+/** Read a sheet tab via JSONP (no write token required, just "Anyone with link") */
+function jsonpRead(sheetName) {
+  return new Promise((resolve, reject) => {
+    const cb = "_upbAdm" + Date.now() + Math.random().toString(36).slice(2);
+    const script = document.createElement("script");
+    let done = false;
+    const cleanup = () => {
+      if (done) return; done = true;
+      delete window[cb];
+      if (script.parentNode) script.parentNode.removeChild(script);
+      clearTimeout(timer);
+    };
+    window[cb] = (resp) => {
+      cleanup();
+      try {
+        if (!resp || resp.status !== "ok") throw new Error("bad response");
+        const { cols, rows } = resp.table;
+        const headers = cols.map(c => (c.label || c.id || "").toLowerCase().replace(/\s+/g, "_").trim());
+        const parsed = (rows || []).map(row => {
+          const obj = {};
+          (row.c || []).forEach((cell, i) => {
+            obj[headers[i]] = cell && cell.v != null ? String(cell.v).trim() : "";
+          });
+          return obj;
+        });
+        resolve(parsed);
+      } catch (e) { reject(e); }
+    };
+    script.onerror = () => { cleanup(); reject(new Error("script load error")); };
+    const timer = setTimeout(() => { cleanup(); reject(new Error("timeout")); }, 12000);
+    script.src = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:json;responseHandler:${cb}&sheet=${encodeURIComponent(sheetName)}&headers=1`;
+    document.head.appendChild(script);
+  });
+}
+
+/** Write full sheet content (overwrites everything from A1) */
+async function sheetsWrite(sheetName, cols, rows) {
+  const tok = getToken();
+  if (!tok) throw new Error("Not authenticated");
+  const values = [cols, ...rows.map(r => cols.map(c => r[c] ?? ""))];
+  const range  = `${sheetName}!A1`;
+  const url    = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}?valueInputOption=RAW`;
+  const resp   = await fetch(url, {
+    method:  "PUT",
+    headers: { "Authorization": `Bearer ${tok}`, "Content-Type": "application/json" },
+    body:    JSON.stringify({ values }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err?.error?.message || resp.statusText);
+  }
+  return resp.json();
+}
+
+/** List all sheet tab names in the spreadsheet */
+async function sheetsList() {
+  const tok = getToken();
+  if (!tok) return [];
+  const resp = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?fields=sheets.properties.title`,
+    { headers: { "Authorization": `Bearer ${tok}` } }
+  );
+  if (!resp.ok) return [];
+  const data = await resp.json();
+  return (data.sheets || []).map(s => s.properties.title);
+}
+
+/** Add a new tab to the spreadsheet */
+async function sheetsAddTab(sheetName) {
+  const tok = getToken();
+  if (!tok) throw new Error("Not authenticated");
+  const resp = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}:batchUpdate`,
+    {
+      method:  "POST",
+      headers: { "Authorization": `Bearer ${tok}`, "Content-Type": "application/json" },
+      body:    JSON.stringify({ requests: [{ addSheet: { properties: { title: sheetName } } }] }),
+    }
+  );
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err?.error?.message || resp.statusText);
+  }
+}
+
+/**
+ * Ensure a sheet tab exists. If not, create it and write defaultRows.
+ * If it exists and has data, return that data. Otherwise seed with defaults.
+ */
+async function sheetsEnsure(sheetName, cols, defaultRows) {
+  const existing = await sheetsList();
+  if (!existing.includes(sheetName)) {
+    await sheetsAddTab(sheetName);
+    await sheetsWrite(sheetName, cols, defaultRows);
+    return defaultRows;
+  }
+  try {
+    const data = await jsonpRead(sheetName);
+    if (data && data.length > 0) return data;
+    // Sheet exists but is empty — seed it
+    await sheetsWrite(sheetName, cols, defaultRows);
+    return defaultRows;
+  } catch {
+    return defaultRows;
+  }
+}
+
+// ── ICONS ──────────────────────────────────────────────────────────────────────
+const Icons = {
+  Plus:    () => <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/></svg>,
+  Edit:    () => <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+  Trash:   () => <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>,
+  Check:   () => <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>,
+  X:       () => <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>,
+  Save:    () => <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>,
+  Logout:  () => <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>,
+  Eye:     () => <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>,
+  EyeOff:  () => <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"/></svg>,
+};
+
+// ── TOAST ──────────────────────────────────────────────────────────────────────
+function useToast() {
+  const [toasts, setToasts] = useState([]);
+  const push = useCallback((msg, type = "ok") => {
+    const id = Date.now() + Math.random();
+    setToasts(p => [...p, { id, msg, type }]);
+    setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3500);
+  }, []);
+  return { toasts, push };
+}
+
+function ToastContainer({ toasts }) {
+  const colors = { ok: "bg-green-500", error: "bg-red-500", warn: "bg-amber-500" };
+  const icons  = { ok: "✓", error: "✗", warn: "⚠" };
+  return (
+    <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none">
+      {toasts.map(t => (
+        <div key={t.id} className={`${colors[t.type] || colors.ok} text-white text-sm font-medium px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 pointer-events-auto`}>
+          <span>{icons[t.type] || "✓"}</span>
+          <span>{t.msg}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── SYNC BADGE ─────────────────────────────────────────────────────────────────
+function SyncBadge({ status }) {
+  if (status === "saving") return <span className="text-xs text-amber-500 animate-pulse font-medium">Saving…</span>;
+  if (status === "error")  return <span className="text-xs text-red-500 font-medium">Save failed — retry</span>;
+  if (status === "idle")   return <span className="text-xs text-green-600 font-medium">✓ Saved to Sheets</span>;
+  return null;
+}
+
+// ── PASSWORD GATE ──────────────────────────────────────────────────────────────
+function PasswordGate({ onPass }) {
+  const [pw,  setPw]  = useState("");
+  const [err, setErr] = useState("");
+  const [show, setShow] = useState(false);
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (pw === ADMIN_PASSWORD) { onPass(); }
+    else { setErr("Incorrect password"); setPw(""); }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50">
+      <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-10 w-full max-w-sm text-center">
+        <div className="w-16 h-16 bg-amber-100 rounded-2xl flex items-center justify-center text-3xl mx-auto mb-5">🍺</div>
+        <h1 className="text-2xl font-bold text-gray-800 mb-1">UPB Admin</h1>
+        <p className="text-sm text-gray-400 mb-8">Enter the admin password to continue</p>
+        <form onSubmit={submit} className="space-y-4">
+          <div className="relative">
+            <input
+              type={show ? "text" : "password"}
+              autoFocus
+              value={pw}
+              onChange={e => { setPw(e.target.value); setErr(""); }}
+              placeholder="Admin password"
+              className="w-full px-4 py-3 pr-10 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-400 text-sm text-center"
+            />
+            <button type="button" onClick={() => setShow(s => !s)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+              {show ? <Icons.EyeOff/> : <Icons.Eye/>}
+            </button>
+          </div>
+          {err && <p className="text-xs text-red-500">{err}</p>}
+          <button type="submit"
+            className="w-full py-3 bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-semibold rounded-xl transition-colors text-sm">
+            Continue
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── GOOGLE AUTH GATE ───────────────────────────────────────────────────────────
+function GoogleAuthGate({ onAuth }) {
+  const [loading, setLoading] = useState(false);
+  const [err, setErr]         = useState("");
+  const clientRef             = useRef(null);
+
+  useEffect(() => {
+    let tries = 0;
+    const init = () => {
+      if (window.google?.accounts?.oauth2) {
+        clientRef.current = window.google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: SCOPES,
+          callback: (resp) => {
+            setLoading(false);
+            if (resp.error) { setErr(resp.error_description || resp.error); return; }
+            setToken(resp.access_token);
+            onAuth(resp.access_token);
+          },
+        });
+      } else if (tries++ < 30) {
+        setTimeout(init, 300);
+      } else {
+        setErr("Google auth library failed to load. Please refresh the page.");
+      }
+    };
+    init();
+  }, [onAuth]);
+
+  const handleSignIn = () => {
+    setErr("");
+    setLoading(true);
+    clientRef.current?.requestAccessToken();
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50">
+      <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-10 w-full max-w-sm text-center">
+        <div className="w-16 h-16 bg-amber-100 rounded-2xl flex items-center justify-center text-3xl mx-auto mb-5">🍺</div>
+        <h1 className="text-2xl font-bold text-gray-800 mb-1">UPB Admin</h1>
+        <p className="text-sm text-gray-400 mb-8">Sign in with your Google account to access admin features</p>
+        {err && <p className="text-xs text-red-500 mb-4 px-2">{err}</p>}
+        <button onClick={handleSignIn} disabled={loading}
+          className="w-full py-3 bg-white hover:bg-gray-50 border border-gray-200 rounded-xl transition-colors flex items-center justify-center gap-3 text-sm font-medium text-gray-700 disabled:opacity-60 shadow-sm">
+          {loading
+            ? <span className="w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"/>
+            : <svg width="18" height="18" viewBox="0 0 18 18">
+                <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 01-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/>
+                <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z"/>
+                <path fill="#FBBC05" d="M3.964 10.707A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.707V4.961H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.039l3.007-2.332z"/>
+                <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.961L3.964 6.293C4.672 4.166 6.656 3.58 9 3.58z"/>
+              </svg>
+          }
+          {loading ? "Signing in…" : "Sign in with Google"}
+        </button>
+        <p className="text-xs text-gray-400 mt-5">Only authorized accounts with edit access to the UPB Public Taps spreadsheet can sign in.</p>
+      </div>
+    </div>
+  );
+}
+
+// ── EVENTS TAB ─────────────────────────────────────────────────────────────────
+const EVENT_TAGS = ["Event", "News", "Promotion", "Tap Launch", "Workshop", "Other"];
+const TAG_COLORS = {
+  "Event":       "bg-blue-100 text-blue-700",
+  "News":        "bg-green-100 text-green-700",
+  "Promotion":   "bg-purple-100 text-purple-700",
+  "Tap Launch":  "bg-amber-100 text-amber-700",
+  "Workshop":    "bg-pink-100 text-pink-700",
+  "Other":       "bg-gray-100 text-gray-600",
+};
+const EMPTY_EVENT = { id:"", date:"", title_en:"", title_th:"", desc_en:"", desc_th:"", tag:"Event", active:"true" };
+
+function EventModal({ initial, onSave, onClose }) {
+  const [form, setForm] = useState(initial ? { ...initial } : { ...EMPTY_EVENT });
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (!form.title_en.trim()) return;
+    const saved = {
+      ...form,
+      id:     form.id || `evt-${Date.now()}`,
+      active: String(form.active === true || form.active === "true"),
+    };
+    onSave(saved);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white z-10 px-6 py-4 border-b border-gray-100 flex items-center justify-between rounded-t-2xl">
+          <h2 className="font-semibold text-gray-800">{initial?.id ? "Edit Event / News" : "New Event / News"}</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"><Icons.X/></button>
+        </div>
+        <form onSubmit={submit} className="p-6 space-y-5">
+
+          {/* Date + Tag */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-medium text-gray-500 mb-1.5 block">Date</label>
+              <input type="date" value={form.date} onChange={e => set("date", e.target.value)}
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"/>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500 mb-1.5 block">Category</label>
+              <select value={form.tag} onChange={e => set("tag", e.target.value)}
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white">
+                {EVENT_TAGS.map(t => <option key={t}>{t}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Titles */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-medium text-gray-500 mb-1.5 block">Title <span className="text-gray-400">(EN)</span> <span className="text-red-400">*</span></label>
+              <input type="text" required value={form.title_en} onChange={e => set("title_en", e.target.value)}
+                placeholder="Event title in English"
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"/>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500 mb-1.5 block">Title <span className="text-gray-400">(TH)</span></label>
+              <input type="text" value={form.title_th} onChange={e => set("title_th", e.target.value)}
+                placeholder="ชื่อกิจกรรมภาษาไทย"
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"/>
+            </div>
+          </div>
+
+          {/* Descriptions */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-medium text-gray-500 mb-1.5 block">Description <span className="text-gray-400">(EN)</span></label>
+              <textarea rows={5} value={form.desc_en} onChange={e => set("desc_en", e.target.value)}
+                placeholder="Full event description in English"
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"/>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500 mb-1.5 block">Description <span className="text-gray-400">(TH)</span></label>
+              <textarea rows={5} value={form.desc_th} onChange={e => set("desc_th", e.target.value)}
+                placeholder="รายละเอียดภาษาไทย"
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"/>
+            </div>
+          </div>
+
+          {/* Active toggle */}
+          <label className="flex items-center gap-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.active === "true" || form.active === true}
+              onChange={e => set("active", String(e.target.checked))}
+              className="w-4 h-4 rounded accent-amber-500"
+            />
+            <span className="text-sm text-gray-700">Show on public site</span>
+          </label>
+
+          <div className="flex gap-3 justify-end pt-2 border-t border-gray-100">
+            <button type="button" onClick={onClose}
+              className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-xl transition-colors">Cancel</button>
+            <button type="submit"
+              className="px-5 py-2 text-sm bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl transition-colors">
+              {initial?.id ? "Save Changes" : "Create Event"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function EventsTab({ push }) {
+  const [events,     setEvents]     = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [modal,      setModal]      = useState(null); // null | {} (new) | event (edit)
+  const [syncStatus, setSyncStatus] = useState(null);
+  const [filter,     setFilter]     = useState("all");
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const data = await sheetsEnsure(SHEET_EVENTS, EVENTS_COLS, []);
+        setEvents(data);
+      } catch(e) {
+        push("Failed to load events: " + e.message, "error");
+      } finally { setLoading(false); }
+    })();
+  }, []);
+
+  const persist = async (next) => {
+    setSyncStatus("saving");
+    try {
+      await sheetsWrite(SHEET_EVENTS, EVENTS_COLS, next);
+      setSyncStatus("idle");
+    } catch(e) {
+      setSyncStatus("error");
+      push("Save failed: " + e.message, "error");
+      throw e;
+    }
+  };
+
+  const handleSave = async (saved) => {
+    const next = events.find(e => e.id === saved.id)
+      ? events.map(e => e.id === saved.id ? saved : e)
+      : [...events, saved];
+    setEvents(next);
+    setModal(null);
+    await persist(next);
+    push(saved.id && events.find(e => e.id === saved.id) ? "Event updated!" : "Event created!", "ok");
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm("Delete this event? This cannot be undone.")) return;
+    const next = events.filter(e => e.id !== id);
+    setEvents(next);
+    await persist(next);
+    push("Event deleted", "ok");
+  };
+
+  const handleToggle = async (id) => {
+    const next = events.map(e => e.id === id ? { ...e, active: e.active === "true" ? "false" : "true" } : e);
+    setEvents(next);
+    await persist(next);
+    push("Visibility updated", "ok");
+  };
+
+  const filtered = events
+    .filter(e => filter === "active" ? e.active === "true" : filter === "inactive" ? e.active !== "true" : true)
+    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <div>
+          <h2 className="text-lg font-bold text-gray-800">Events & News</h2>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-xs text-gray-400">{events.length} post{events.length !== 1 ? "s" : ""}</span>
+            {syncStatus && <><span className="text-gray-300">·</span><SyncBadge status={syncStatus}/></>}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+            {[["all","All"],["active","Active"],["inactive","Hidden"]].map(([v,l]) => (
+              <button key={v} onClick={() => setFilter(v)}
+                className={`px-3 py-1 text-xs rounded-lg font-medium transition-colors ${filter === v ? "bg-white text-amber-700 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                {l}
+              </button>
+            ))}
+          </div>
+          <button onClick={() => setModal({})}
+            className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm">
+            <Icons.Plus/> New Post
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-20 gap-2 text-gray-400 text-sm">
+          <span className="w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"/>
+          Loading events from Sheets…
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-20">
+          <p className="text-gray-400 text-sm">No posts yet.</p>
+          <button onClick={() => setModal({})} className="mt-3 text-sm text-amber-600 hover:underline">Create your first event →</button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map(evt => (
+            <div key={evt.id}
+              className={`bg-white rounded-xl border border-gray-100 px-4 py-3.5 flex items-start gap-3 hover:border-gray-200 transition-colors ${evt.active !== "true" ? "opacity-55" : ""}`}>
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-2 mb-1">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TAG_COLORS[evt.tag] || TAG_COLORS["Other"]}`}>
+                    {evt.tag || "Other"}
+                  </span>
+                  {evt.date && <span className="text-xs text-gray-400">{evt.date}</span>}
+                  {evt.active !== "true" && (
+                    <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Hidden</span>
+                  )}
+                </div>
+                <p className="text-sm font-semibold text-gray-800 truncate">{evt.title_en || "(no title)"}</p>
+                {evt.title_th && <p className="text-xs text-gray-400 truncate">{evt.title_th}</p>}
+                {evt.desc_en && <p className="text-xs text-gray-500 mt-1 line-clamp-2 leading-relaxed">{evt.desc_en}</p>}
+              </div>
+              <div className="flex items-center gap-1 shrink-0 pt-0.5">
+                <button title={evt.active === "true" ? "Hide from public site" : "Show on public site"}
+                  onClick={() => handleToggle(evt.id)}
+                  className={`p-1.5 rounded-lg transition-colors ${evt.active === "true" ? "bg-green-50 text-green-600 hover:bg-green-100" : "bg-gray-100 text-gray-400 hover:bg-gray-200"}`}>
+                  {evt.active === "true" ? <Icons.Eye/> : <Icons.EyeOff/>}
+                </button>
+                <button onClick={() => setModal(evt)}
+                  className="p-1.5 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 transition-colors">
+                  <Icons.Edit/>
+                </button>
+                <button onClick={() => handleDelete(evt.id)}
+                  className="p-1.5 rounded-lg bg-red-50 text-red-400 hover:bg-red-100 transition-colors">
+                  <Icons.Trash/>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {modal !== null && (
+        <EventModal
+          initial={modal?.id ? modal : null}
+          onSave={handleSave}
+          onClose={() => setModal(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── ABOUT TAB ──────────────────────────────────────────────────────────────────
+function AboutTab({ push, configRows, onConfigSave }) {
+  const get = (key, lang = "en") => (configRows.find(r => r.key === key) || {})[`value_${lang}`] || "";
+
+  const [form, setForm]       = useState(null);
+  const [syncStatus, setSyncStatus] = useState(null);
+
+  // Build initial form from configRows
+  useEffect(() => {
+    setForm({
+      about_en:   get("about_desc",   "en"),
+      about_th:   get("about_desc",   "th"),
+      litres_en:  get("stat_litres",  "en"),
+      litres_th:  get("stat_litres",  "th"),
+      beers_en:   get("stat_beers",   "en"),
+      beers_th:   get("stat_beers",   "th"),
+      founded_en: get("stat_founded", "en"),
+      founded_th: get("stat_founded", "th"),
+    });
+  }, [configRows]);
+
+  if (!form) return <div className="text-sm text-gray-400 py-10 text-center">Loading…</div>;
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setSyncStatus("saving");
+    try {
+      await onConfigSave({
+        about_desc:   { value_en: form.about_en,   value_th: form.about_th   },
+        stat_litres:  { value_en: form.litres_en,  value_th: form.litres_th  },
+        stat_beers:   { value_en: form.beers_en,   value_th: form.beers_th   },
+        stat_founded: { value_en: form.founded_en, value_th: form.founded_th },
+      });
+      setSyncStatus("idle");
+      push("About section saved!", "ok");
+    } catch(e) {
+      setSyncStatus("error");
+      push("Save failed: " + e.message, "error");
+    }
+  };
+
+  return (
+    <form onSubmit={handleSave}>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="text-lg font-bold text-gray-800">About the Brewery</h2>
+          {syncStatus && <SyncBadge status={syncStatus}/>}
+        </div>
+        <button type="submit" className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm">
+          <Icons.Save/> Save Changes
+        </button>
+      </div>
+
+      <div className="space-y-5">
+        {/* Description */}
+        <div className="bg-white rounded-xl border border-gray-100 p-5">
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">Brewery Description</h3>
+          <div className="grid grid-cols-2 gap-4">
+            {[["English","about_en","Our story in English..."],["ภาษาไทย","about_th","เรื่องราวของเราเป็นภาษาไทย..."]].map(([label,key,ph]) => (
+              <div key={key}>
+                <label className="text-xs font-medium text-gray-500 mb-1.5 block">{label}</label>
+                <textarea rows={6} value={form[key]} onChange={e => set(key, e.target.value)} placeholder={ph}
+                  className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none leading-relaxed"/>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div className="bg-white rounded-xl border border-gray-100 p-5">
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">Stats <span className="text-xs font-normal text-gray-400">(shown on About section)</span></h3>
+          <div className="grid grid-cols-3 gap-5">
+            {[
+              { label:"Annual Litres Brewed", en:"litres_en", th:"litres_th", ph_en:"e.g. 50,000", ph_th:"e.g. 50,000" },
+              { label:"Beer Styles",           en:"beers_en",  th:"beers_th",  ph_en:"e.g. 20+",   ph_th:"e.g. 20+"    },
+              { label:"Founded Year",          en:"founded_en",th:"founded_th",ph_en:"e.g. 2019",  ph_th:"e.g. 2562"   },
+            ].map(({ label, en, th, ph_en, ph_th }) => (
+              <div key={label} className="space-y-2">
+                <p className="text-xs font-semibold text-gray-600">{label}</p>
+                <input type="text" value={form[en]} onChange={e => set(en, e.target.value)} placeholder={ph_en}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"/>
+                <input type="text" value={form[th]} onChange={e => set(th, e.target.value)} placeholder={ph_th}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"/>
+                <p className="text-xs text-gray-400">EN · TH</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+// ── BUSINESS TAB ───────────────────────────────────────────────────────────────
+function BusinessTab({ push, configRows, onConfigSave }) {
+  const get = (key, lang = "en") => (configRows.find(r => r.key === key) || {})[`value_${lang}`] || "";
+
+  const [form, setForm]       = useState(null);
+  const [syncStatus, setSyncStatus] = useState(null);
+
+  useEffect(() => {
+    setForm({
+      hours_en:   get("hours",   "en"),
+      hours_th:   get("hours",   "th"),
+      address_en: get("address", "en"),
+      address_th: get("address", "th"),
+      phone:      get("phone",   "en"),
+    });
+  }, [configRows]);
+
+  if (!form) return <div className="text-sm text-gray-400 py-10 text-center">Loading…</div>;
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setSyncStatus("saving");
+    try {
+      await onConfigSave({
+        hours:   { value_en: form.hours_en,   value_th: form.hours_th   },
+        address: { value_en: form.address_en, value_th: form.address_th },
+        phone:   { value_en: form.phone,      value_th: form.phone      },
+      });
+      setSyncStatus("idle");
+      push("Business info saved!", "ok");
+    } catch(e) {
+      setSyncStatus("error");
+      push("Save failed: " + e.message, "error");
+    }
+  };
+
+  return (
+    <form onSubmit={handleSave}>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="text-lg font-bold text-gray-800">Business Info</h2>
+          {syncStatus && <SyncBadge status={syncStatus}/>}
+        </div>
+        <button type="submit" className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm">
+          <Icons.Save/> Save Changes
+        </button>
+      </div>
+
+      <div className="space-y-5">
+        {/* Hours */}
+        <div className="bg-white rounded-xl border border-gray-100 p-5">
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">Opening Hours</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-medium text-gray-500 mb-1.5 block">English</label>
+              <input type="text" value={form.hours_en} onChange={e => set("hours_en", e.target.value)}
+                placeholder="Mon – Sun: 14:00 – 22:00"
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"/>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500 mb-1.5 block">ภาษาไทย</label>
+              <input type="text" value={form.hours_th} onChange={e => set("hours_th", e.target.value)}
+                placeholder="จ – อา: 14:00 – 22:00"
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"/>
+            </div>
+          </div>
+        </div>
+
+        {/* Address */}
+        <div className="bg-white rounded-xl border border-gray-100 p-5">
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">Address</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-medium text-gray-500 mb-1.5 block">English</label>
+              <textarea rows={3} value={form.address_en} onChange={e => set("address_en", e.target.value)}
+                placeholder="e.g. 123 Soi Chatuchak, Bangkok 10900, Thailand"
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"/>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500 mb-1.5 block">ภาษาไทย</label>
+              <textarea rows={3} value={form.address_th} onChange={e => set("address_th", e.target.value)}
+                placeholder="เช่น 123 ซอยจตุจักร กรุงเทพฯ 10900"
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"/>
+            </div>
+          </div>
+        </div>
+
+        {/* Phone */}
+        <div className="bg-white rounded-xl border border-gray-100 p-5">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Phone Number</h3>
+          <input type="text" value={form.phone} onChange={e => set("phone", e.target.value)}
+            placeholder="+66 81 234 5678"
+            className="w-full max-w-xs px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400"/>
+          <p className="text-xs text-gray-400 mt-1.5">Displayed on the public website for customers to contact you.</p>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+// ── ADMIN APP ──────────────────────────────────────────────────────────────────
+const TABS = [
+  { id: "events",   label: "Events & News", icon: "📅" },
+  { id: "about",    label: "About",         icon: "🏭" },
+  { id: "business", label: "Business Info", icon: "🕐" },
+];
+
+function AdminApp({ userEmail }) {
+  const [tab,        setTab]        = useState("events");
+  const [configRows, setConfigRows] = useState([]);
+  const [cfgLoading, setCfgLoading] = useState(true);
+  const { toasts, push } = useToast();
+
+  // Load SiteConfig on mount
+  useEffect(() => {
+    (async () => {
+      setCfgLoading(true);
+      try {
+        const data = await sheetsEnsure(SHEET_CONFIG, CONFIG_COLS, CONFIG_DEFAULTS);
+        setConfigRows(data && data.length > 0 ? data : CONFIG_DEFAULTS);
+      } catch(e) {
+        push("Could not load site config — using defaults.", "warn");
+        setConfigRows(CONFIG_DEFAULTS);
+      } finally { setCfgLoading(false); }
+    })();
+  }, []);
+
+  const handleConfigSave = async (updates) => {
+    // updates = { key: { value_en, value_th }, ... }
+    let next = [...configRows];
+    Object.entries(updates).forEach(([key, vals]) => {
+      const idx = next.findIndex(r => r.key === key);
+      if (idx >= 0) next[idx] = { ...next[idx], ...vals };
+      else next.push({ key, ...vals });
+    });
+    await sheetsWrite(SHEET_CONFIG, CONFIG_COLS, next);
+    setConfigRows(next);
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-100 sticky top-0 z-30 shadow-sm">
+        <div className="max-w-5xl mx-auto px-4">
+          <div className="flex items-center gap-4 py-0">
+            {/* Brand */}
+            <div className="flex items-center gap-2.5 py-3 shrink-0">
+              <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center text-lg">🍺</div>
+              <div>
+                <span className="font-bold text-gray-800 text-sm leading-none block">UPB Admin</span>
+                <span className="text-xs text-gray-400 leading-none">{userEmail || "Admin"}</span>
+              </div>
+            </div>
+            {/* Nav */}
+            <nav className="flex items-center gap-1 ml-4">
+              {TABS.map(t => (
+                <button key={t.id} onClick={() => setTab(t.id)}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-xl transition-colors ${
+                    tab === t.id ? "bg-amber-50 text-amber-700" : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                  }`}>
+                  <span className="text-base">{t.icon}</span>
+                  <span>{t.label}</span>
+                </button>
+              ))}
+            </nav>
+            {/* Right side */}
+            <div className="ml-auto flex items-center gap-2">
+              <a href="upb-public.html" target="_blank" rel="noopener"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-colors">
+                <Icons.Eye/> View Site
+              </a>
+              <button onClick={() => { setToken(null); window.location.reload(); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-colors">
+                <Icons.Logout/> Sign out
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Content */}
+      <main className="max-w-5xl mx-auto px-4 py-6">
+        {tab === "events"   && <EventsTab push={push}/>}
+        {tab === "about"    && (cfgLoading ? <div className="text-center py-20 text-gray-400 text-sm">Loading config…</div> : <AboutTab push={push} configRows={configRows} onConfigSave={handleConfigSave}/>)}
+        {tab === "business" && (cfgLoading ? <div className="text-center py-20 text-gray-400 text-sm">Loading config…</div> : <BusinessTab push={push} configRows={configRows} onConfigSave={handleConfigSave}/>)}
+      </main>
+
+      <ToastContainer toasts={toasts}/>
+    </div>
+  );
+}
+
+// ── ROOT ───────────────────────────────────────────────────────────────────────
+function Root() {
+  const [step,  setStep]  = useState("password");
+  const [email, setEmail] = useState("");
+
+  const handleAuth = useCallback((tok) => {
+    // Fetch email from Google token info
+    fetch(`https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${tok}`)
+      .then(r => r.json())
+      .then(d => setEmail(d.email || ""))
+      .catch(() => {});
+    setStep("app");
+  }, []);
+
+  if (step === "password") return <PasswordGate onPass={() => setStep("google")}/>;
+  if (step === "google")   return <GoogleAuthGate onAuth={handleAuth}/>;
+  return <AdminApp userEmail={email}/>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Root/>);
+</script>
+</body>
+</html>
