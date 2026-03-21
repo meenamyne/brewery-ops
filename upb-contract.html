@@ -404,6 +404,24 @@ async function sheetsRead(spreadsheetId, sheetName){
   }catch(e){ return null; }
 }
 
+// ─── GOOGLE SHEETS API READ (authenticated) ─────────────────────────────────
+async function sheetsApiRead(token, spreadsheetId, tabName){
+  try{
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(tabName)}`,
+      {headers:{"Authorization":"Bearer "+token}}
+    );
+    if(!res.ok) return null;
+    const json = await res.json();
+    const values = json.values||[];
+    if(values.length<2) return null;
+    const hdrs = values[0];
+    return values.slice(1)
+      .map(row=>{ const o={}; hdrs.forEach((h,i)=>{ o[h]=row[i]??""; }); return o; })
+      .filter(r=>Object.values(r).some(v=>v!==""));
+  }catch(e){ return null; }
+}
+
 // ─── GOOGLE SHEETS API WRITE ────────────────────────────────────────────────
 async function sheetsApiWrite(token, spreadsheetId, tabName, headers, rows){
   const body = [headers, ...rows.map(r=>headers.map(h=>r[h]??""  ))];
@@ -459,41 +477,43 @@ function useSave(tabName, headers, initial){
   const [data,   setData]   = useState(initial);
   const [synced, setSynced] = useState(false);
   const [dirty,  setDirty]  = useState(false);
-  const tokenRef  = useRef(null);
-  const emptyRef  = useRef(false); // true if sheet was empty on load
+  const tokenRef = useRef(null);
 
-  // expose token setter; if sheet was empty, trigger immediate push
+  // On login: authenticated read from Sheets to get the latest data,
+  // then push seed data if the tab is empty.
   const setToken = useCallback((t)=>{
     tokenRef.current = t;
-    if(emptyRef.current) setDirty(true); // push seed data on first login
-  },[]);
+    if(SPREADSHEET_ID==="YOUR_SPREADSHEET_ID_HERE") return;
+    sheetsApiRead(t, SPREADSHEET_ID, tabName).then(rows=>{
+      if(rows && rows.length>0){
+        setData(rows);   // ← sync latest Sheets data into local state
+      } else {
+        setDirty(true);  // ← sheet empty: push seed/current data up
+      }
+    });
+  },[tabName]);
 
-  // load from sheets once
+  // On mount: unauthenticated read (works for public sheets / gviz)
   useEffect(()=>{
     if(SPREADSHEET_ID==="YOUR_SPREADSHEET_ID_HERE") return;
     sheetsRead(SPREADSHEET_ID, tabName).then(rows=>{
-      if(rows&&rows.length>0){
-        setData(rows);
-      } else {
-        emptyRef.current = true; // sheet empty – seed data needs pushing
-      }
+      if(rows && rows.length>0) setData(rows);
       setSynced(true);
-    }).catch(()=>{ emptyRef.current=true; setSynced(true); });
+    }).catch(()=>setSynced(true));
   },[tabName]);
 
-  // save on change
+  // Write to Sheets whenever dirty and token is available
   useEffect(()=>{
     if(!dirty||!tokenRef.current||SPREADSHEET_ID==="YOUR_SPREADSHEET_ID_HERE") return;
     const t = setTimeout(async ()=>{
       await sheetsEnsure(tokenRef.current, SPREADSHEET_ID, tabName, headers);
       await sheetsApiWrite(tokenRef.current, SPREADSHEET_ID, tabName, headers, data);
       setDirty(false);
-      emptyRef.current = false;
     },1200);
     return ()=>clearTimeout(t);
   },[data, dirty, tabName, headers]);
 
-  // force push all data (called by Sync button)
+  // Force push (called by Sync button)
   const forcePush = useCallback(()=>{ if(tokenRef.current) setDirty(true); },[]);
 
   const update = useCallback((fn)=>{ setData(fn); setDirty(true); },[]);
@@ -2105,9 +2125,12 @@ function Sidebar({page,setPage,token,onLogin,onSync,syncing}){
     <div className="px-4 py-4 border-t border-gray-100 space-y-2">
       {token
         ? <>
-            <div style={{display:"flex",alignItems:"center",gap:7,fontSize:12,color:"#059669"}}>
-              <span style={{width:8,height:8,borderRadius:9999,background:"#10b981",display:"inline-block",flexShrink:0}}/>
-              Sheets connected
+            <div style={{display:"flex",alignItems:"center",gap:7,fontSize:12,
+              color:syncing?"#0d9488":"#059669"}}>
+              <span style={{width:8,height:8,borderRadius:9999,flexShrink:0,display:"inline-block",
+                background:syncing?"#2dd4bf":"#10b981",
+                animation:syncing?"pulse 1s infinite":undefined}}/>
+              {syncing ? "Syncing data…" : "Sheets connected"}
             </div>
             <button onClick={onSync} disabled={syncing}
               style={{width:"100%",padding:"7px 10px",borderRadius:10,border:"1.5px solid #e5e7eb",
@@ -2115,7 +2138,7 @@ function Sidebar({page,setPage,token,onLogin,onSync,syncing}){
                 fontSize:12,fontWeight:600,color:syncing?"#0d9488":"#374151",
                 display:"flex",alignItems:"center",justifyContent:"center",gap:6,
                 fontFamily:"Inter,sans-serif"}}>
-              {syncing ? "⟳ Syncing…" : "☁ Push to Sheets"}
+              {syncing ? "⟳ Syncing…" : "↺ Force Sync"}
             </button>
           </>
         : <div style={{fontSize:12,color:"#9ca3af",display:"flex",alignItems:"center",gap:6}}>
@@ -2178,10 +2201,12 @@ function App(){
 
   const [syncing, setSyncing] = useState(false);
 
-  // push token to all save hooks
+  // On login: push token to all hooks → each hook auto-reads from Sheets
   useEffect(()=>{
     if(!token) return;
+    setSyncing(true);
     [setTkC,setTkCB,setTkI,setTkR,setTkRI,setTkO,setTkQ].forEach(fn=>fn(token));
+    setTimeout(()=>setSyncing(false), 3500); // show loading briefly while reads complete
   },[token]);
 
   const syncAll = ()=>{
