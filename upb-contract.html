@@ -1,0 +1,2222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>UPB Contract Brewing</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<script>
+tailwind.config = {
+  theme: { extend: {
+    colors: {
+      brand:  "#1e4d6b",
+      accent: "#2a9d8f",
+      gold:   "#e9c46a",
+      warm:   "#f4a261",
+      danger: "#e76f51",
+      foam:   "#f8f9fa",
+    },
+    fontFamily: { sans: ["Inter","sans-serif"] }
+  }}
+};
+</script>
+<style>
+  *,*::before,*::after{box-sizing:border-box;}
+  body{font-family:'Inter',sans-serif;background:#f1f5f9;margin:0;color:#111827;}
+  /* Sidebar */
+  .sidebar-link{display:flex;align-items:center;gap:10px;padding:9px 14px;border-radius:12px;
+    font-size:14px;font-weight:500;transition:all .15s;width:100%;text-align:left;
+    border:none;cursor:pointer;background:transparent;}
+  .sidebar-link.active{background:#1e4d6b;color:#fff;}
+  .sidebar-link:not(.active){color:#64748b;}
+  .sidebar-link:not(.active):hover{background:#e2e8f0;color:#1e293b;}
+  /* Cards */
+  .card{background:#fff;border-radius:16px;border:1px solid #f3f4f6;
+    box-shadow:0 1px 4px rgba(0,0,0,.06);}
+  /* Inputs */
+  .input-cls{width:100%;border:1.5px solid #e5e7eb;border-radius:8px;
+    padding:9px 12px;font-size:14px;background:#fff;font-family:'Inter',sans-serif;
+    outline:none;color:#111827;transition:border-color .15s,box-shadow .15s;}
+  .input-cls:focus{border-color:#2dd4bf;box-shadow:0 0 0 3px rgba(45,212,191,.18);}
+  /* Buttons */
+  .btn-primary{padding:9px 18px;background:#0d9488;color:#fff;font-size:14px;font-weight:600;
+    border-radius:12px;transition:background .15s;display:inline-flex;align-items:center;
+    gap:7px;border:none;cursor:pointer;font-family:'Inter',sans-serif;line-height:1.4;}
+  .btn-primary:hover{background:#0f766e;}
+  .btn-ghost{padding:9px 18px;border:1.5px solid #e5e7eb;color:#374151;font-size:14px;
+    font-weight:500;border-radius:12px;transition:all .15s;background:#fff;cursor:pointer;
+    font-family:'Inter',sans-serif;line-height:1.4;}
+  .btn-ghost:hover{background:#f9fafb;border-color:#d1d5db;}
+  /* Badges */
+  .badge{display:inline-flex;align-items:center;padding:3px 10px;
+    border-radius:9999px;font-size:12px;font-weight:600;gap:5px;}
+  /* Table */
+  .table-scroll{overflow-x:auto;}
+  /* Labels inside forms */
+  .form-label{display:block;font-size:12px;font-weight:600;color:#6b7280;
+    margin-bottom:5px;letter-spacing:.02em;text-transform:uppercase;}
+  /* Scrollbar */
+  ::-webkit-scrollbar{width:6px;height:6px;}
+  ::-webkit-scrollbar-track{background:#f1f5f9;}
+  ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px;}
+  /* Modal overlay */
+  .modal-overlay{position:fixed;inset:0;z-index:50;display:flex;align-items:center;
+    justify-content:center;padding:16px;background:rgba(15,23,42,.55);backdrop-filter:blur(2px);}
+  .modal-box{background:#fff;border-radius:20px;padding:28px;width:100%;
+    max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.18);}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+// ─── SEED DATA ───────────────────────────────────────────────────────────────
+const INITIAL_INGREDIENTS = [
+  {id:1,category:"Misc",supplier:"Chemrich",name:"Calcium Sulfate",purchase_size:5.0,purchase_unit:"kg",purchase_price:345.0,use_qty:5000.0,use_unit:"g",cost_per_unit:0.069},
+  {id:2,category:"Misc",supplier:"Chemrich",name:"Calcium Chrolide",purchase_size:5.0,purchase_unit:"kg",purchase_price:289.0,use_qty:5000.0,use_unit:"g",cost_per_unit:0.0578},
+  {id:3,category:"Misc",supplier:"Chemrich",name:"Magnesium Sulfate",purchase_size:5.0,purchase_unit:"kg",purchase_price:445.0,use_qty:5000.0,use_unit:"g",cost_per_unit:0.089},
+  {id:4,category:"Misc",supplier:"Thai brew Shop",name:"ALDC",purchase_size:1.0,purchase_unit:"kg",purchase_price:8910.0,use_qty:1000.0,use_unit:"g",cost_per_unit:8.91},
+  {id:5,category:"Misc",supplier:"Thai brew Shop",name:"Whirlfloc Tablet",purchase_size:5.0,purchase_unit:"tablet",purchase_price:75.0,use_qty:5.0,use_unit:"tablet",cost_per_unit:15.0},
+  {id:6,category:"Misc",supplier:"Thai brew Shop",name:"Bio-fine",purchase_size:4.0,purchase_unit:"kg",purchase_price:8344.0,use_qty:4000.0,use_unit:"g",cost_per_unit:2.086},
+  {id:7,category:"Misc",supplier:"Thai brew Shop",name:"Foam Control",purchase_size:0.5,purchase_unit:"kg",purchase_price:1611.0,use_qty:500.0,use_unit:"g",cost_per_unit:3.222},
+  {id:8,category:"Misc",supplier:"Kegland",name:"Phorsphoric Acid",purchase_size:1.0,purchase_unit:"kg",purchase_price:290.0,use_qty:1000.0,use_unit:"g",cost_per_unit:0.29},
+  {id:9,category:"Misc",supplier:"WHC",name:"Yeast Nutrient",purchase_size:100.0,purchase_unit:"g",purchase_price:820.0,use_qty:100.0,use_unit:"g",cost_per_unit:8.2},
+  {id:10,category:"Malt",supplier:"Thomas Fawcette",name:"Maris Otter",purchase_size:25.0,purchase_unit:"kg",purchase_price:1540.0,use_qty:25000.0,use_unit:"g",cost_per_unit:0.0616},
+  {id:11,category:"Malt",supplier:"Weyermann",name:"Carapils",purchase_size:25.0,purchase_unit:"kg",purchase_price:1750.0,use_qty:25000.0,use_unit:"g",cost_per_unit:0.07},
+  {id:12,category:"Hop",supplier:"Yakima Cheif Hops",name:"Columbus (Tomahawk)",purchase_size:5.0,purchase_unit:"kg",purchase_price:6750.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.35},
+  {id:13,category:"Hop",supplier:"Yakima Cheif Hops",name:"El Dorado",purchase_size:5.0,purchase_unit:"kg",purchase_price:10250.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.05},
+  {id:14,category:"Hop",supplier:"Yakima Cheif Hops",name:"Mosaic",purchase_size:5.0,purchase_unit:"kg",purchase_price:10250.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.05},
+  {id:15,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Mosaic",purchase_size:1.0,purchase_unit:"kg",purchase_price:4150.0,use_qty:1000.0,use_unit:"g",cost_per_unit:4.15},
+  {id:16,category:"Hop",supplier:"Global Hops",name:"CZ Saazer",purchase_size:5.0,purchase_unit:"kg",purchase_price:8475.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.695},
+  {id:17,category:"Hop",supplier:"Global Hops",name:"GR Akoya",purchase_size:5.0,purchase_unit:"kg",purchase_price:6975.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.395},
+  {id:18,category:"Hop",supplier:"Global Hops",name:"GR Ariana",purchase_size:5.0,purchase_unit:"kg",purchase_price:7975.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.595},
+  {id:19,category:"Hop",supplier:"Global Hops",name:"GR Calista",purchase_size:5.0,purchase_unit:"kg",purchase_price:7975.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.595},
+  {id:20,category:"Hop",supplier:"Global Hops",name:"GR Hallertau Blanc",purchase_size:5.0,purchase_unit:"kg",purchase_price:6975.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.395},
+  {id:21,category:"Hop",supplier:"Global Hops",name:"GR Hallertau Hersbrucker",purchase_size:5.0,purchase_unit:"kg",purchase_price:7475.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.495},
+  {id:22,category:"Hop",supplier:"Global Hops",name:"GR Hallertau Mittelfruh",purchase_size:5.0,purchase_unit:"kg",purchase_price:7975.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.595},
+  {id:23,category:"Hop",supplier:"Global Hops",name:"GR Hallertau Tradition",purchase_size:5.0,purchase_unit:"kg",purchase_price:6975.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.395},
+  {id:24,category:"Hop",supplier:"Global Hops",name:"GR Hallertau Magnum",purchase_size:5.0,purchase_unit:"kg",purchase_price:6975.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.395},
+  {id:25,category:"Hop",supplier:"Global Hops",name:"GR Herkules",purchase_size:5.0,purchase_unit:"kg",purchase_price:6975.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.395},
+  {id:26,category:"Hop",supplier:"Global Hops",name:"GR Huell Melon",purchase_size:5.0,purchase_unit:"kg",purchase_price:7475.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.495},
+  {id:27,category:"Hop",supplier:"Global Hops",name:"GR Mandarina Bavaria",purchase_size:5.0,purchase_unit:"kg",purchase_price:6475.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.295},
+  {id:28,category:"Hop",supplier:"Global Hops",name:"GR Northern Brewer",purchase_size:5.0,purchase_unit:"kg",purchase_price:6625.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.325},
+  {id:29,category:"Hop",supplier:"Global Hops",name:"GR Perle",purchase_size:5.0,purchase_unit:"kg",purchase_price:6625.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.325},
+  {id:30,category:"Hop",supplier:"Global Hops",name:"GR Polaris",purchase_size:5.0,purchase_unit:"kg",purchase_price:7475.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.495},
+  {id:31,category:"Hop",supplier:"Global Hops",name:"GR Saphir",purchase_size:5.0,purchase_unit:"kg",purchase_price:6975.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.395},
+  {id:32,category:"Hop",supplier:"Global Hops",name:"GR Solero",purchase_size:5.0,purchase_unit:"kg",purchase_price:7975.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.595},
+  {id:33,category:"Hop",supplier:"Global Hops",name:"GR Spalter Select",purchase_size:5.0,purchase_unit:"kg",purchase_price:6975.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.395},
+  {id:34,category:"Hop",supplier:"Global Hops",name:"GR Tettnanger",purchase_size:5.0,purchase_unit:"kg",purchase_price:7475.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.495},
+  {id:35,category:"Hop",supplier:"Global Hops",name:"UK East Kent Golding",purchase_size:5.0,purchase_unit:"kg",purchase_price:9000.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.8},
+  {id:36,category:"Hop",supplier:"Global Hops",name:"UK Fuggle",purchase_size:5.0,purchase_unit:"kg",purchase_price:9000.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.8},
+  {id:37,category:"Hop",supplier:"Global Hops",name:"SL Styrian Golding (Celeia)",purchase_size:5.0,purchase_unit:"kg",purchase_price:6975.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.395},
+  {id:38,category:"Hop",supplier:"Global Hops",name:"SL Styrian Gold",purchase_size:5.0,purchase_unit:"kg",purchase_price:6475.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.295},
+  {id:39,category:"Hop",supplier:"Yakima Cheif Hops",name:"AU Eclipse",purchase_size:5.0,purchase_unit:"kg",purchase_price:12750.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.55},
+  {id:40,category:"Hop",supplier:"Yakima Cheif Hops",name:"AU Ella",purchase_size:5.0,purchase_unit:"kg",purchase_price:12750.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.55},
+  {id:41,category:"Hop",supplier:"Yakima Cheif Hops",name:"AU Enigma",purchase_size:5.0,purchase_unit:"kg",purchase_price:12750.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.55},
+  {id:42,category:"Hop",supplier:"Yakima Cheif Hops",name:"AU Galaxy",purchase_size:5.0,purchase_unit:"kg",purchase_price:12750.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.55},
+  {id:43,category:"Hop",supplier:"Yakima Cheif Hops",name:"AU Vic Secret",purchase_size:5.0,purchase_unit:"kg",purchase_price:12750.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.55},
+  {id:44,category:"Hop",supplier:"Yakima Cheif Hops",name:"NZ Kohatu",purchase_size:5.0,purchase_unit:"kg",purchase_price:9650.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.93},
+  {id:45,category:"Hop",supplier:"Yakima Cheif Hops",name:"NZ Moutere",purchase_size:5.0,purchase_unit:"kg",purchase_price:10075.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.015},
+  {id:46,category:"Hop",supplier:"Yakima Cheif Hops",name:"NZ Motueka",purchase_size:5.0,purchase_unit:"kg",purchase_price:11425.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.285},
+  {id:47,category:"Hop",supplier:"Yakima Cheif Hops",name:"NZ Nectaron",purchase_size:5.0,purchase_unit:"kg",purchase_price:13500.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.7},
+  {id:48,category:"Hop",supplier:"Yakima Cheif Hops",name:"NZ Nelson Sauvin",purchase_size:5.0,purchase_unit:"kg",purchase_price:10250.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.05},
+  {id:49,category:"Hop",supplier:"Yakima Cheif Hops",name:"NZ Pacifica",purchase_size:5.0,purchase_unit:"kg",purchase_price:9750.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.95},
+  {id:50,category:"Hop",supplier:"Yakima Cheif Hops",name:"NZ Pacific Jade",purchase_size:5.0,purchase_unit:"kg",purchase_price:9650.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.93},
+  {id:51,category:"Hop",supplier:"Yakima Cheif Hops",name:"NZ Rakau",purchase_size:5.0,purchase_unit:"kg",purchase_price:9650.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.93},
+  {id:52,category:"Hop",supplier:"Yakima Cheif Hops",name:"NZ Riwaka",purchase_size:5.0,purchase_unit:"kg",purchase_price:14250.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.85},
+  {id:53,category:"Hop",supplier:"Yakima Cheif Hops",name:"NZ Superdelic",purchase_size:5.0,purchase_unit:"kg",purchase_price:12250.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.45},
+  {id:54,category:"Hop",supplier:"Yakima Cheif Hops",name:"NZ Wai-iti",purchase_size:5.0,purchase_unit:"kg",purchase_price:9650.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.93},
+  {id:55,category:"Hop",supplier:"Yakima Cheif Hops",name:"Ahtanum",purchase_size:5.0,purchase_unit:"kg",purchase_price:7250.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.45},
+  {id:56,category:"Hop",supplier:"Yakima Cheif Hops",name:"Amarillo",purchase_size:5.0,purchase_unit:"kg",purchase_price:10250.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.05},
+  {id:57,category:"Hop",supplier:"Yakima Cheif Hops",name:"Bravo",purchase_size:5.0,purchase_unit:"kg",purchase_price:8500.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.7},
+  {id:58,category:"Hop",supplier:"Yakima Cheif Hops",name:"BRU-1",purchase_size:5.0,purchase_unit:"kg",purchase_price:9250.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.85},
+  {id:59,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cascade",purchase_size:5.0,purchase_unit:"kg",purchase_price:8375.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.675},
+  {id:60,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cashmere",purchase_size:5.0,purchase_unit:"kg",purchase_price:9125.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.825},
+  {id:61,category:"Hop",supplier:"Yakima Cheif Hops",name:"Centennial",purchase_size:5.0,purchase_unit:"kg",purchase_price:8375.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.675},
+  {id:62,category:"Hop",supplier:"Yakima Cheif Hops",name:"Chinook",purchase_size:5.0,purchase_unit:"kg",purchase_price:7875.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.575},
+  {id:63,category:"Hop",supplier:"Yakima Cheif Hops",name:"Citra",purchase_size:5.0,purchase_unit:"kg",purchase_price:10250.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.05},
+  {id:64,category:"Hop",supplier:"Yakima Cheif Hops",name:"Columbus",purchase_size:5.0,purchase_unit:"kg",purchase_price:6975.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.395},
+  {id:65,category:"Hop",supplier:"Yakima Cheif Hops",name:"Ekuanot",purchase_size:5.0,purchase_unit:"kg",purchase_price:8475.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.695},
+  {id:66,category:"Hop",supplier:"Yakima Cheif Hops",name:"El Dorado",purchase_size:5.0,purchase_unit:"kg",purchase_price:9050.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.81},
+  {id:67,category:"Hop",supplier:"Yakima Cheif Hops",name:"HBC 630",purchase_size:5.0,purchase_unit:"kg",purchase_price:10250.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.05},
+  {id:68,category:"Hop",supplier:"Yakima Cheif Hops",name:"HBC 638",purchase_size:5.0,purchase_unit:"kg",purchase_price:9475.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.895},
+  {id:69,category:"Hop",supplier:"Yakima Cheif Hops",name:"Idaho 7",purchase_size:5.0,purchase_unit:"kg",purchase_price:8375.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.675},
+  {id:70,category:"Hop",supplier:"Yakima Cheif Hops",name:"Idaho Gem",purchase_size:5.0,purchase_unit:"kg",purchase_price:8750.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.75},
+  {id:71,category:"Hop",supplier:"Yakima Cheif Hops",name:"Krush (HBC586)",purchase_size:5.0,purchase_unit:"kg",purchase_price:10250.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.05},
+  {id:72,category:"Hop",supplier:"Yakima Cheif Hops",name:"Loral",purchase_size:5.0,purchase_unit:"kg",purchase_price:8625.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.725},
+  {id:73,category:"Hop",supplier:"Yakima Cheif Hops",name:"Mosaic",purchase_size:5.0,purchase_unit:"kg",purchase_price:10250.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.05},
+  {id:74,category:"Hop",supplier:"Yakima Cheif Hops",name:"Nugget",purchase_size:5.0,purchase_unit:"kg",purchase_price:7975.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.595},
+  {id:75,category:"Hop",supplier:"Yakima Cheif Hops",name:"Sabro",purchase_size:5.0,purchase_unit:"kg",purchase_price:10250.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.05},
+  {id:76,category:"Hop",supplier:"Yakima Cheif Hops",name:"Simcoe",purchase_size:5.0,purchase_unit:"kg",purchase_price:10250.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.05},
+  {id:77,category:"Hop",supplier:"Yakima Cheif Hops",name:"Sorachi Ace",purchase_size:5.0,purchase_unit:"kg",purchase_price:10250.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.05},
+  {id:78,category:"Hop",supplier:"Yakima Cheif Hops",name:"Talus",purchase_size:1.0,purchase_unit:"kg",purchase_price:2200.0,use_qty:1000.0,use_unit:"g",cost_per_unit:2.2},
+  {id:79,category:"Hop",supplier:"Yakima Cheif Hops",name:"Warrior",purchase_size:5.0,purchase_unit:"kg",purchase_price:8375.0,use_qty:5000.0,use_unit:"g",cost_per_unit:1.675},
+  {id:80,category:"Hop",supplier:"Yakima Cheif Hops",name:"Willamette",purchase_size:5.0,purchase_unit:"kg",purchase_price:10000.0,use_qty:5000.0,use_unit:"g",cost_per_unit:2.0},
+  {id:81,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Amarillo",purchase_size:1.0,purchase_unit:"kg",purchase_price:4150.0,use_qty:1000.0,use_unit:"g",cost_per_unit:4.15},
+  {id:82,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo BRU-1",purchase_size:1.0,purchase_unit:"kg",purchase_price:3650.0,use_qty:1000.0,use_unit:"g",cost_per_unit:3.65},
+  {id:83,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Cascade",purchase_size:1.0,purchase_unit:"kg",purchase_price:3350.0,use_qty:1000.0,use_unit:"g",cost_per_unit:3.35},
+  {id:84,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Centennial",purchase_size:1.0,purchase_unit:"kg",purchase_price:3650.0,use_qty:1000.0,use_unit:"g",cost_per_unit:3.65},
+  {id:85,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Chinook",purchase_size:1.0,purchase_unit:"kg",purchase_price:3450.0,use_qty:1000.0,use_unit:"g",cost_per_unit:3.45},
+  {id:86,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Citra",purchase_size:1.0,purchase_unit:"kg",purchase_price:4150.0,use_qty:1000.0,use_unit:"g",cost_per_unit:4.15},
+  {id:87,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Columbus",purchase_size:1.0,purchase_unit:"kg",purchase_price:2950.0,use_qty:1000.0,use_unit:"g",cost_per_unit:2.95},
+  {id:88,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo El Dorado",purchase_size:1.0,purchase_unit:"kg",purchase_price:3950.0,use_qty:1000.0,use_unit:"g",cost_per_unit:3.95},
+  {id:89,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Ekuanot",purchase_size:1.0,purchase_unit:"kg",purchase_price:3650.0,use_qty:1000.0,use_unit:"g",cost_per_unit:3.65},
+  {id:90,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo HBC 630",purchase_size:1.0,purchase_unit:"kg",purchase_price:4150.0,use_qty:1000.0,use_unit:"g",cost_per_unit:4.15},
+  {id:91,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Idaho 7",purchase_size:1.0,purchase_unit:"kg",purchase_price:3650.0,use_qty:1000.0,use_unit:"g",cost_per_unit:3.65},
+  {id:92,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Krush (586)",purchase_size:1.0,purchase_unit:"kg",purchase_price:4150.0,use_qty:1000.0,use_unit:"g",cost_per_unit:4.15},
+  {id:93,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Loral",purchase_size:1.0,purchase_unit:"kg",purchase_price:3750.0,use_qty:1000.0,use_unit:"g",cost_per_unit:3.75},
+  {id:94,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Mosaic",purchase_size:1.0,purchase_unit:"kg",purchase_price:4150.0,use_qty:1000.0,use_unit:"g",cost_per_unit:4.15},
+  {id:95,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Pop",purchase_size:1.0,purchase_unit:"kg",purchase_price:4150.0,use_qty:1000.0,use_unit:"g",cost_per_unit:4.15},
+  {id:96,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Sabro",purchase_size:1.0,purchase_unit:"kg",purchase_price:4150.0,use_qty:1000.0,use_unit:"g",cost_per_unit:4.15},
+  {id:97,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Simcoe",purchase_size:1.0,purchase_unit:"kg",purchase_price:4150.0,use_qty:1000.0,use_unit:"g",cost_per_unit:4.15},
+  {id:98,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Talus",purchase_size:1.0,purchase_unit:"kg",purchase_price:4150.0,use_qty:1000.0,use_unit:"g",cost_per_unit:4.15},
+  {id:99,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Nelson Sauvin",purchase_size:1.0,purchase_unit:"kg",purchase_price:4150.0,use_qty:1000.0,use_unit:"g",cost_per_unit:4.15},
+  {id:100,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Motueka",purchase_size:1.0,purchase_unit:"kg",purchase_price:4150.0,use_qty:1000.0,use_unit:"g",cost_per_unit:4.15},
+  {id:101,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Riwaka",purchase_size:1.0,purchase_unit:"kg",purchase_price:4995.0,use_qty:1000.0,use_unit:"g",cost_per_unit:4.995},
+  {id:102,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Wai-iti",purchase_size:1.0,purchase_unit:"kg",purchase_price:3950.0,use_qty:1000.0,use_unit:"g",cost_per_unit:3.95},
+  {id:103,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Wakatu",purchase_size:1.0,purchase_unit:"kg",purchase_price:3950.0,use_qty:1000.0,use_unit:"g",cost_per_unit:3.95},
+  {id:104,category:"Hop",supplier:"Yakima Cheif Hops",name:"Cryo Superdelic",purchase_size:1.0,purchase_unit:"kg",purchase_price:4150.0,use_qty:1000.0,use_unit:"g",cost_per_unit:4.15},
+  {id:105,category:"Hop",supplier:"Yakima Cheif Hops",name:"Columbus (Tomahawk)",purchase_size:1.0,purchase_unit:"kg",purchase_price:1470.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.47},
+  {id:106,category:"Hop",supplier:"Yakima Cheif Hops",name:"El Dorado",purchase_size:1.0,purchase_unit:"kg",purchase_price:1955.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.955},
+  {id:107,category:"Hop",supplier:"Yakima Cheif Hops",name:"Mosaic",purchase_size:1.0,purchase_unit:"kg",purchase_price:2200.0,use_qty:1000.0,use_unit:"g",cost_per_unit:2.2},
+  {id:108,category:"Hop",supplier:"Global Hops",name:"CZ Saazer",purchase_size:1.0,purchase_unit:"kg",purchase_price:1740.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.74},
+  {id:109,category:"Hop",supplier:"Global Hops",name:"GR Akoya",purchase_size:1.0,purchase_unit:"kg",purchase_price:1485.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.485},
+  {id:110,category:"Hop",supplier:"Global Hops",name:"GR Ariana",purchase_size:1.0,purchase_unit:"kg",purchase_price:1685.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.685},
+  {id:111,category:"Hop",supplier:"Global Hops",name:"GR Calista",purchase_size:1.0,purchase_unit:"kg",purchase_price:1685.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.685},
+  {id:112,category:"Hop",supplier:"Global Hops",name:"GR Hallertau Blanc",purchase_size:1.0,purchase_unit:"kg",purchase_price:1485.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.485},
+  {id:113,category:"Hop",supplier:"Global Hops",name:"GR Hallertau Hersbrucker",purchase_size:1.0,purchase_unit:"kg",purchase_price:1585.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.585},
+  {id:114,category:"Hop",supplier:"Global Hops",name:"GR Hallertau Mittelfruh",purchase_size:1.0,purchase_unit:"kg",purchase_price:1685.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.685},
+  {id:115,category:"Hop",supplier:"Global Hops",name:"GR Hallertau Tradition",purchase_size:1.0,purchase_unit:"kg",purchase_price:1485.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.485},
+  {id:116,category:"Hop",supplier:"Global Hops",name:"GR Hallertau Magnum",purchase_size:1.0,purchase_unit:"kg",purchase_price:1485.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.485},
+  {id:117,category:"Hop",supplier:"Global Hops",name:"GR Herkules",purchase_size:1.0,purchase_unit:"kg",purchase_price:1485.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.485},
+  {id:118,category:"Hop",supplier:"Global Hops",name:"GR Huell Melon",purchase_size:1.0,purchase_unit:"kg",purchase_price:1585.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.585},
+  {id:119,category:"Hop",supplier:"Global Hops",name:"GR Mandarina Bavaria",purchase_size:1.0,purchase_unit:"kg",purchase_price:1375.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.375},
+  {id:120,category:"Hop",supplier:"Global Hops",name:"GR Northern Brewer",purchase_size:1.0,purchase_unit:"kg",purchase_price:1415.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.415},
+  {id:121,category:"Hop",supplier:"Global Hops",name:"GR Perle",purchase_size:1.0,purchase_unit:"kg",purchase_price:1415.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.415},
+  {id:122,category:"Hop",supplier:"Global Hops",name:"GR Polaris",purchase_size:1.0,purchase_unit:"kg",purchase_price:1585.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.585},
+  {id:123,category:"Hop",supplier:"Global Hops",name:"GR Saphir",purchase_size:1.0,purchase_unit:"kg",purchase_price:1485.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.485},
+  {id:124,category:"Hop",supplier:"Global Hops",name:"GR Solero",purchase_size:1.0,purchase_unit:"kg",purchase_price:1685.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.685},
+  {id:125,category:"Hop",supplier:"Global Hops",name:"GR Spalter Select",purchase_size:1.0,purchase_unit:"kg",purchase_price:1485.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.485},
+  {id:126,category:"Hop",supplier:"Global Hops",name:"GR Tettnanger",purchase_size:1.0,purchase_unit:"kg",purchase_price:1585.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.585},
+  {id:127,category:"Hop",supplier:"Global Hops",name:"UK East Kent Golding",purchase_size:1.0,purchase_unit:"kg",purchase_price:1950.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.95},
+  {id:128,category:"Hop",supplier:"Global Hops",name:"UK Fuggle",purchase_size:1.0,purchase_unit:"kg",purchase_price:1905.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.905},
+  {id:129,category:"Hop",supplier:"Global Hops",name:"SL Styrian Golding (Celeia)",purchase_size:1.0,purchase_unit:"kg",purchase_price:1485.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.485},
+  {id:130,category:"Hop",supplier:"Global Hops",name:"SL Styrian Gold",purchase_size:1.0,purchase_unit:"kg",purchase_price:1375.0,use_qty:1000.0,use_unit:"g",cost_per_unit:1.375},
+  {id:131,category:"Malt",supplier:"Weyermann",name:"Pilsner Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:1444.5,use_qty:25.0,use_unit:"kg",cost_per_unit:57.78},
+  {id:132,category:"Malt",supplier:"Weyermann",name:"Extra Pale Premium Pilsner Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:1738.75,use_qty:25.0,use_unit:"kg",cost_per_unit:69.55},
+  {id:133,category:"Malt",supplier:"Weyermann",name:"Pale Ale Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:1605.0,use_qty:25.0,use_unit:"kg",cost_per_unit:64.2},
+  {id:134,category:"Malt",supplier:"Weyermann",name:"Vienna Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:1524.75,use_qty:25.0,use_unit:"kg",cost_per_unit:60.99},
+  {id:135,category:"Malt",supplier:"Weyermann",name:"Munich Malt Type 1",purchase_size:25.0,purchase_unit:"kg",purchase_price:1551.5,use_qty:25.0,use_unit:"kg",cost_per_unit:62.06},
+  {id:136,category:"Malt",supplier:"Weyermann",name:"Munich Malt Type 2",purchase_size:25.0,purchase_unit:"kg",purchase_price:1578.25,use_qty:25.0,use_unit:"kg",cost_per_unit:63.13},
+  {id:137,category:"Malt",supplier:"Weyermann",name:"Oak Smoked Wheat Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:2193.5,use_qty:25.0,use_unit:"kg",cost_per_unit:87.74},
+  {id:138,category:"Malt",supplier:"Weyermann",name:"Beech Smoked Barley Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:139,category:"Malt",supplier:"Weyermann",name:"Acidulated Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:2407.5,use_qty:25.0,use_unit:"kg",cost_per_unit:96.3},
+  {id:140,category:"Malt",supplier:"Weyermann",name:"Weyermann Brewing Malt Type Cologne",purchase_size:25.0,purchase_unit:"kg",purchase_price:1605.0,use_qty:25.0,use_unit:"kg",cost_per_unit:64.2},
+  {id:141,category:"Malt",supplier:"Weyermann",name:"Melanoidin Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:1738.75,use_qty:25.0,use_unit:"kg",cost_per_unit:69.55},
+  {id:142,category:"Malt",supplier:"Weyermann",name:"Wheat Malt pale",purchase_size:25.0,purchase_unit:"kg",purchase_price:1451.25,use_qty:25.0,use_unit:"kg",cost_per_unit:58.05},
+  {id:143,category:"Malt",supplier:"Weyermann",name:"Wheat Malt dark",purchase_size:25.0,purchase_unit:"kg",purchase_price:1605.0,use_qty:25.0,use_unit:"kg",cost_per_unit:64.2},
+  {id:144,category:"Malt",supplier:"Weyermann",name:"CARAWHEAT®",purchase_size:25.0,purchase_unit:"kg",purchase_price:2273.75,use_qty:25.0,use_unit:"kg",cost_per_unit:90.95},
+  {id:145,category:"Malt",supplier:"Weyermann",name:"Chocolate Wheat Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:2006.25,use_qty:25.0,use_unit:"kg",cost_per_unit:80.25},
+  {id:146,category:"Malt",supplier:"Weyermann",name:"CARAPILS®",purchase_size:25.0,purchase_unit:"kg",purchase_price:1872.5,use_qty:25.0,use_unit:"kg",cost_per_unit:74.9},
+  {id:147,category:"Malt",supplier:"Weyermann",name:"CARAHELL®",purchase_size:25.0,purchase_unit:"kg",purchase_price:1872.5,use_qty:25.0,use_unit:"kg",cost_per_unit:74.9},
+  {id:148,category:"Malt",supplier:"Weyermann",name:"CARABELGE®",purchase_size:25.0,purchase_unit:"kg",purchase_price:1872.5,use_qty:25.0,use_unit:"kg",cost_per_unit:74.9},
+  {id:149,category:"Malt",supplier:"Weyermann",name:"CARARED®",purchase_size:25.0,purchase_unit:"kg",purchase_price:1872.5,use_qty:25.0,use_unit:"kg",cost_per_unit:74.9},
+  {id:150,category:"Malt",supplier:"Weyermann",name:"CARAMUNICH® Type 1",purchase_size:25.0,purchase_unit:"kg",purchase_price:1605.0,use_qty:25.0,use_unit:"kg",cost_per_unit:64.2},
+  {id:151,category:"Malt",supplier:"Weyermann",name:"CARAMUNICH® Type 2",purchase_size:25.0,purchase_unit:"kg",purchase_price:1605.0,use_qty:25.0,use_unit:"kg",cost_per_unit:64.2},
+  {id:152,category:"Malt",supplier:"Weyermann",name:"CARAMUNICH® Type 3",purchase_size:25.0,purchase_unit:"kg",purchase_price:1605.0,use_qty:25.0,use_unit:"kg",cost_per_unit:64.2},
+  {id:153,category:"Malt",supplier:"Weyermann",name:"CARAAROMA®",purchase_size:25.0,purchase_unit:"kg",purchase_price:2407.5,use_qty:25.0,use_unit:"kg",cost_per_unit:96.3},
+  {id:154,category:"Malt",supplier:"Weyermann",name:"CARABOHEMIAN®",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:155,category:"Malt",supplier:"Weyermann",name:"CARAFA® SPECIAL Type 3",purchase_size:25.0,purchase_unit:"kg",purchase_price:1926.0,use_qty:25.0,use_unit:"kg",cost_per_unit:77.04},
+  {id:156,category:"Malt",supplier:"Weyermann",name:"Eraclea Pilsner Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:1738.75,use_qty:25.0,use_unit:"kg",cost_per_unit:69.55},
+  {id:157,category:"Malt",supplier:"Weyermann",name:"Barke® Pilsner Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:1872.75,use_qty:25.0,use_unit:"kg",cost_per_unit:74.91},
+  {id:158,category:"Malt",supplier:"Weyermann",name:"Barke® Vienna Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:1792.25,use_qty:25.0,use_unit:"kg",cost_per_unit:71.69},
+  {id:159,category:"Malt",supplier:"Weyermann",name:"Barke® Munich Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:1792.25,use_qty:25.0,use_unit:"kg",cost_per_unit:71.69},
+  {id:160,category:"Malt",supplier:"Weyermann",name:"Isaria 1924®",purchase_size:25.0,purchase_unit:"kg",purchase_price:1872.5,use_qty:25.0,use_unit:"kg",cost_per_unit:74.9},
+  {id:161,category:"Malt",supplier:"Weyermann",name:"Bohemian Pilsner Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:1631.75,use_qty:25.0,use_unit:"kg",cost_per_unit:65.27},
+  {id:162,category:"Malt",supplier:"Weyermann",name:"Floor-Malted Bohemian Pilsner Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:2006.25,use_qty:25.0,use_unit:"kg",cost_per_unit:80.25},
+  {id:163,category:"Malt",supplier:"Weyermann",name:"Floor-Malted Bohemian Dark Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:164,category:"Malt",supplier:"Weyermann",name:"CARABOHEMIAN®",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:165,category:"Malt",supplier:"Weyermann",name:"CARABELGE®",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:166,category:"Malt",supplier:"Weyermann",name:"Abbey Malt®",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:167,category:"Malt",supplier:"Weyermann",name:"SPECIAL W®",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:168,category:"Malt",supplier:"Weyermann",name:"CARAFA® Type 1",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:169,category:"Malt",supplier:"Weyermann",name:"CARAFA® Type 2",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:170,category:"Malt",supplier:"Weyermann",name:"CARAFA® Type 3",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:171,category:"Malt",supplier:"Weyermann",name:"CARAFA® SPECIAL Type 1",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:172,category:"Malt",supplier:"Weyermann",name:"CARAFA® SPECIAL Type 2",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:173,category:"Malt",supplier:"Weyermann",name:"CARAFA® SPECIAL Type 3",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:174,category:"Malt",supplier:"Weyermann",name:"Chocolate Rye Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:175,category:"Malt",supplier:"Weyermann",name:"Roasted Barley",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:176,category:"Malt",supplier:"Weyermann",name:"Rye Malt pale",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:177,category:"Malt",supplier:"Weyermann",name:"CARARYE®",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:178,category:"Malt",supplier:"Weyermann",name:"Chocolate Rye Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:179,category:"Malt",supplier:"Weyermann",name:"Spelt Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:180,category:"Malt",supplier:"Weyermann",name:"Diastatic Barley Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:181,category:"Malt",supplier:"Weyermann",name:"Distilling Barley Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:2140.0,use_qty:25.0,use_unit:"kg",cost_per_unit:85.6},
+  {id:182,category:"Malt",supplier:"Thomas Fawcette",name:"Maris Otter Pale Ale Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:1540.0,use_qty:25.0,use_unit:"kg",cost_per_unit:61.6},
+  {id:183,category:"Malt",supplier:"Thomas Fawcette",name:"Golden Promise Pale Ale Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:1550.0,use_qty:25.0,use_unit:"kg",cost_per_unit:62.0},
+  {id:184,category:"Malt",supplier:"Thomas Fawcette",name:"Lager (Pilsner) Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:1500.0,use_qty:25.0,use_unit:"kg",cost_per_unit:60.0},
+  {id:185,category:"Malt",supplier:"Thomas Fawcette",name:"Pearl Pale Ale Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:1550.0,use_qty:25.0,use_unit:"kg",cost_per_unit:62.0},
+  {id:186,category:"Malt",supplier:"Thomas Fawcette",name:"Vienna Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:1700.0,use_qty:25.0,use_unit:"kg",cost_per_unit:68.0},
+  {id:187,category:"Malt",supplier:"Thomas Fawcette",name:"Munich Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:1700.0,use_qty:25.0,use_unit:"kg",cost_per_unit:68.0},
+  {id:188,category:"Malt",supplier:"Thomas Fawcette",name:"Wheat Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:1550.0,use_qty:25.0,use_unit:"kg",cost_per_unit:62.0},
+  {id:189,category:"Malt",supplier:"Thomas Fawcette",name:"Oat Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:1800.0,use_qty:25.0,use_unit:"kg",cost_per_unit:72.0},
+  {id:190,category:"Malt",supplier:"Thomas Fawcette",name:"Dextrin Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:2000.0,use_qty:25.0,use_unit:"kg",cost_per_unit:80.0},
+  {id:191,category:"Malt",supplier:"Thomas Fawcette",name:"Caramalt",purchase_size:25.0,purchase_unit:"kg",purchase_price:2000.0,use_qty:25.0,use_unit:"kg",cost_per_unit:80.0},
+  {id:192,category:"Malt",supplier:"Thomas Fawcette",name:"Crystal I Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:2000.0,use_qty:25.0,use_unit:"kg",cost_per_unit:80.0},
+  {id:193,category:"Malt",supplier:"Thomas Fawcette",name:"Dark Crystal",purchase_size:25.0,purchase_unit:"kg",purchase_price:2000.0,use_qty:25.0,use_unit:"kg",cost_per_unit:80.0},
+  {id:194,category:"Malt",supplier:"Thomas Fawcette",name:"Red Crystal",purchase_size:25.0,purchase_unit:"kg",purchase_price:2000.0,use_qty:25.0,use_unit:"kg",cost_per_unit:80.0},
+  {id:195,category:"Malt",supplier:"Thomas Fawcette",name:"Amber Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:2000.0,use_qty:25.0,use_unit:"kg",cost_per_unit:80.0},
+  {id:196,category:"Malt",supplier:"Thomas Fawcette",name:"Brown Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:2000.0,use_qty:25.0,use_unit:"kg",cost_per_unit:80.0},
+  {id:197,category:"Malt",supplier:"Thomas Fawcette",name:"Pale Chocolate Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:2000.0,use_qty:25.0,use_unit:"kg",cost_per_unit:80.0},
+  {id:198,category:"Malt",supplier:"Thomas Fawcette",name:"Black Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:2000.0,use_qty:25.0,use_unit:"kg",cost_per_unit:80.0},
+  {id:199,category:"Malt",supplier:"Thomas Fawcette",name:"Roasted Barley",purchase_size:25.0,purchase_unit:"kg",purchase_price:2000.0,use_qty:25.0,use_unit:"kg",cost_per_unit:80.0},
+  {id:200,category:"Malt",supplier:"Thomas Fawcette",name:"Low Colour Maris Otter Pale Ale Malt",purchase_size:25.0,purchase_unit:"kg",purchase_price:1675.0,use_qty:25.0,use_unit:"kg",cost_per_unit:67.0},
+  {id:201,category:"Yeast",supplier:"Craft Components",name:"W-34/70",purchase_size:500.0,purchase_unit:"g",purchase_price:5180.0,use_qty:500.0,use_unit:"g",cost_per_unit:10.36},
+  {id:202,category:"Yeast",supplier:"Craft Components",name:"US-05",purchase_size:500.0,purchase_unit:"g",purchase_price:3020.0,use_qty:500.0,use_unit:"g",cost_per_unit:6.04},
+  {id:203,category:"Yeast",supplier:"Craft Components",name:"T-58",purchase_size:500.0,purchase_unit:"g",purchase_price:2570.0,use_qty:500.0,use_unit:"g",cost_per_unit:5.14},
+  {id:204,category:"Malt",supplier:"",name:"Oats Flaked",purchase_size:1.0,purchase_unit:"kg",purchase_price:96.0,use_qty:1.0,use_unit:"kg",cost_per_unit:96.0},
+  {id:205,category:"Yeast",supplier:"Craft Components",name:"WLP066 London Fog Ale Dry Yeast – White Labs",purchase_size:500.0,purchase_unit:"g",purchase_price:9100.0,use_qty:500.0,use_unit:"g",cost_per_unit:18.2},
+  {id:206,category:"Misc",supplier:"",name:"Orange",purchase_size:1.0,purchase_unit:"kg",purchase_price:168.0,use_qty:1.0,use_unit:"kg",cost_per_unit:168.0},
+  {id:207,category:"Hop",supplier:"Global Hops",name:"Dolcita",purchase_size:1.0,purchase_unit:"kg",purchase_price:2050.0,use_qty:1000.0,use_unit:"g",cost_per_unit:2.05},
+  {id:208,category:"Misc",supplier:"",name:"Moltodextrin",purchase_size:1.0,purchase_unit:"kg",purchase_price:35.0,use_qty:1.0,use_unit:"kg",cost_per_unit:35.0},
+  {id:209,category:"Misc",supplier:"",name:"Dextrose",purchase_size:1.0,purchase_unit:"kg",purchase_price:35.0,use_qty:1.0,use_unit:"kg",cost_per_unit:35.0},
+  {id:210,category:"Yeast",supplier:"Thai brew Shop",name:"WHC Psychedelic",purchase_size:500.0,purchase_unit:"g",purchase_price:3690.0,use_qty:500.0,use_unit:"g",cost_per_unit:7.38},
+  {id:211,category:"Malt",supplier:"",name:"Wheat Flaked",purchase_size:1.0,purchase_unit:"kg",purchase_price:106.0,use_qty:1.0,use_unit:"kg",cost_per_unit:106.0},
+  {id:212,category:"Yeast",supplier:"Craft Components",name:"S-04",purchase_size:500.0,purchase_unit:"g",purchase_price:3391.9,use_qty:500.0,use_unit:"g",cost_per_unit:6.7838},
+  {id:213,category:"Malt",supplier:"Intermalt",name:"Intermalt Pilsner",purchase_size:25.0,purchase_unit:"kg",purchase_price:1200.0,use_qty:25.0,use_unit:"kg",cost_per_unit:48.0},
+  {id:214,category:"Misc",supplier:"Market",name:"Jasmine Rice (Broken)",purchase_size:1.0,purchase_unit:"kg",purchase_price:24.0,use_qty:1.0,use_unit:"kg",cost_per_unit:24.0},
+  {id:215,category:"Misc",supplier:"Market",name:"Peach Juice",purchase_size:25.0,purchase_unit:"kg",purchase_price:150.0,use_qty:25.0,use_unit:"kg",cost_per_unit:6.0},
+  {id:216,category:"Misc",supplier:"Market",name:"Coriender seed",purchase_size:120.0,purchase_unit:"g",purchase_price:50.0,use_qty:120.0,use_unit:"g",cost_per_unit:0.4167},
+  {id:217,category:"Misc",supplier:"Market",name:"The Flavor Peach 1",purchase_size:10.0,purchase_unit:"g",purchase_price:70.0,use_qty:10.0,use_unit:"g",cost_per_unit:7.0},
+  {id:218,category:"Misc",supplier:"Market",name:"The Flavor Peach 2",purchase_size:100.0,purchase_unit:"g",purchase_price:500.0,use_qty:100.0,use_unit:"g",cost_per_unit:5.0},
+  {id:219,category:"Misc",supplier:"Market",name:"Sky Farm Peach",purchase_size:30.0,purchase_unit:"g",purchase_price:1140.0,use_qty:30.0,use_unit:"g",cost_per_unit:38.0},
+  {id:220,category:"Misc",supplier:"Market",name:"Monin Peach",purchase_size:1400.0,purchase_unit:"g",purchase_price:800.0,use_qty:1400.0,use_unit:"g",cost_per_unit:0.5714},
+  {id:221,category:"Misc",supplier:"Market",name:"Sugar Syrup",purchase_size:800.0,purchase_unit:"g",purchase_price:50.0,use_qty:800.0,use_unit:"g",cost_per_unit:0.0625},
+  {id:222,category:"Yeast",supplier:"Thai brew Shop",name:"Lallemand VERDANT IPA",purchase_size:500.0,purchase_unit:"g",purchase_price:6650.0,use_qty:500.0,use_unit:"g",cost_per_unit:13.3},
+  {id:223,category:"Malt",supplier:"SMK Brauhaus",name:"Joe White Tradition Ale",purchase_size:25.0,purchase_unit:"kg",purchase_price:1475.0,use_qty:25.0,use_unit:"kg",cost_per_unit:59.0},
+  {id:224,category:"Malt",supplier:"Craft Components",name:"Flake Barley",purchase_size:1.0,purchase_unit:"kg",purchase_price:182.0,use_qty:1.0,use_unit:"kg",cost_per_unit:182.0},
+  {id:225,category:"Malt",supplier:"Craft Components",name:"Malt Chateau Cafe",purchase_size:1.0,purchase_unit:"kg",purchase_price:116.0,use_qty:1.0,use_unit:"kg",cost_per_unit:116.0},
+  {id:226,category:"Hop",supplier:"Global Hops",name:"Strata",purchase_size:1.0,purchase_unit:"kg",purchase_price:2200.0,use_qty:1000.0,use_unit:"g",cost_per_unit:2.2},
+  {id:227,category:"Hop",supplier:"Global Hops",name:"Cryo Strata",purchase_size:1.0,purchase_unit:"kg",purchase_price:4150.0,use_qty:1000.0,use_unit:"g",cost_per_unit:4.15},
+  {id:228,category:"Hop",supplier:"Global Hops",name:"DynaBoost Mosaic",purchase_size:1.0,purchase_unit:"kg",purchase_price:17500.0,use_qty:1000.0,use_unit:"g",cost_per_unit:17.5},
+  {id:229,category:"Hop",supplier:"Global Hops",name:"DynaBoost Citra",purchase_size:1.0,purchase_unit:"kg",purchase_price:17500.0,use_qty:1000.0,use_unit:"g",cost_per_unit:17.5},
+  {id:230,category:"Yeast",supplier:"Thai brew Shop",name:"Haze Heaven",purchase_size:500.0,purchase_unit:"g",purchase_price:3990.0,use_qty:500.0,use_unit:"g",cost_per_unit:7.98},
+  {id:231,category:"Yeast",supplier:"Thai brew Shop",name:"LAX",purchase_size:500.0,purchase_unit:"g",purchase_price:2990.0,use_qty:500.0,use_unit:"g",cost_per_unit:5.98}
+];
+
+const INITIAL_CUSTOMERS = [];
+const INITIAL_CBEERS    = [];
+const INITIAL_RECIPES   = [];
+const INITIAL_RINGSREDIENTS = [];
+const INITIAL_ORDERS    = [];
+const INITIAL_QUEUE     = [];
+
+</script>
+
+<script>
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+// ─── CONFIG ────────────────────────────────────────────────────────────────
+const SPREADSHEET_ID   = "1tGg1-NDYdZMw7l_HotfaOsdzYlxPyvi5HSqxcXQBT9s";
+const GOOGLE_CLIENT_ID = "787778307584-v1bfnkpnfgu9j1ueni9mi97chlpdu2ec.apps.googleusercontent.com";
+const SCOPES           = "https://www.googleapis.com/auth/spreadsheets";
+
+// ─── SHEET SCHEMAS ─────────────────────────────────────────────────────────
+const SHEETS = {
+  Customers:          ["id","name","contact_name","phone","email","address","notes","created_date"],
+  CustomerBeers:      ["id","customer_id","brand","beer_name","style","abv","recipe_id","notes"],
+  Ingredients:        ["id","category","supplier","name","purchase_size","purchase_unit","purchase_price","use_qty","use_unit","cost_per_unit"],
+  Recipes:            ["id","recipe_code","customer_id","beer_name","batch_size_litres","misc_pct","total_cost","notes"],
+  RecipeIngredients:  ["id","recipe_id","ingredient_name","purchase_size","purchase_unit","cost_per_unit","yield_pct","use_qty","use_unit","line_cost"],
+  Orders:             ["id","order_no","customer_id","customer_name","beer_name","style","abv","volume_litres","status","quotation_no","order_price","round_no","batch_no","deposit_date","deposit_amount","balance_date","balance_amount","final_date","final_amount","brewing_date","deliver_date","recipe_id","notes"],
+  Queue:              ["id","batch_id","type","order_id","brand","beer_name","brew_date","volume","status","fermenter","notes"],
+};
+
+// ─── CONTRACT STATUS CONFIG ─────────────────────────────────────────────────
+const CONTRACT_STATUSES = [
+  "Initiated","Processing","Rejected","Quotation Sent",
+  "Deposit Paid","Excise & Label","Scheduled","Brewing",
+  "Tasting","Packaging","Final Invoice","Ready","Delivered"
+];
+const STATUS_CFG = {
+  "Initiated":      {bg:"bg-gray-100",      text:"text-gray-600",    dot:"bg-gray-400"},
+  "Processing":     {bg:"bg-blue-100",       text:"text-blue-700",    dot:"bg-blue-500"},
+  "Rejected":       {bg:"bg-red-100",        text:"text-red-700",     dot:"bg-red-500"},
+  "Quotation Sent": {bg:"bg-yellow-100",     text:"text-yellow-700",  dot:"bg-yellow-500"},
+  "Deposit Paid":   {bg:"bg-amber-100",      text:"text-amber-700",   dot:"bg-amber-500"},
+  "Excise & Label": {bg:"bg-orange-100",     text:"text-orange-700",  dot:"bg-orange-500"},
+  "Scheduled":      {bg:"bg-purple-100",     text:"text-purple-700",  dot:"bg-purple-500"},
+  "Brewing":        {bg:"bg-teal-100",       text:"text-teal-700",    dot:"bg-teal-500"},
+  "Tasting":        {bg:"bg-cyan-100",       text:"text-cyan-700",    dot:"bg-cyan-400"},
+  "Packaging":      {bg:"bg-indigo-100",     text:"text-indigo-700",  dot:"bg-indigo-500"},
+  "Final Invoice":  {bg:"bg-pink-100",       text:"text-pink-700",    dot:"bg-pink-500"},
+  "Ready":          {bg:"bg-emerald-100",    text:"text-emerald-700", dot:"bg-emerald-500"},
+  "Delivered":      {bg:"bg-green-50",       text:"text-green-600",   dot:"bg-green-400"},
+};
+const STATUS_TIMEFRAMES = {
+  "Initiated":"Project Initiate","Processing":"Contact Person: 2 wks",
+  "Quotation Sent":"1 wk to approve","Deposit Paid":"Deposit received → 2 wks",
+  "Excise & Label":"Label & excise registration","Scheduled":"In production queue",
+  "Brewing":"Production ~1.5 months","Tasting":"Product approval session",
+  "Packaging":"Packaging + count: 1 wk","Final Invoice":"Tax + storage: 2 days",
+  "Ready":"Ready to ship","Delivered":"Complete",
+};
+// Active (non-terminal) statuses
+const ACTIVE_STATUSES = CONTRACT_STATUSES.filter(s=>!["Rejected","Delivered"].includes(s));
+// Next status map
+const NEXT_STATUS = {
+  "Initiated":"Processing","Processing":"Quotation Sent","Quotation Sent":"Deposit Paid",
+  "Deposit Paid":"Excise & Label","Excise & Label":"Scheduled","Scheduled":"Brewing",
+  "Brewing":"Tasting","Tasting":"Packaging","Packaging":"Final Invoice",
+  "Final Invoice":"Ready","Ready":"Delivered",
+};
+
+// ─── UTILITIES ─────────────────────────────────────────────────────────────
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function fmtDate(d){ if(!d)return""; const dt=new Date(d); return isNaN(dt)?"":dt.toISOString().slice(0,10); }
+function fmtThb(n){ return"฿"+(+n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function today(){ return new Date().toISOString().slice(0,10); }
+
+// ─── GOOGLE SHEETS JSONP READ ───────────────────────────────────────────────
+function gvizFetch(spreadsheetId, sheetName){
+  return new Promise((resolve,reject)=>{
+    const cbName = "_gviz_cb_"+uid();
+    const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&tq=select+*&sheet=${encodeURIComponent(sheetName)}&cb=${cbName}`;
+    window[cbName] = (data)=>{ delete window[cbName]; document.head.removeChild(s); resolve(data); };
+    const s = document.createElement("script"); s.src=url;
+    s.onerror=()=>{ delete window[cbName]; reject(new Error("gviz fetch failed")); };
+    document.head.appendChild(s);
+    setTimeout(()=>{ if(window[cbName]){ delete window[cbName]; reject(new Error("timeout")); } },10000);
+  });
+}
+async function sheetsRead(spreadsheetId, sheetName){
+  try{
+    const raw = await gvizFetch(spreadsheetId, sheetName);
+    const cols = (raw.table?.cols||[]).map(c=>c.label||c.id||"");
+    const rows = (raw.table?.rows||[]).map(r=>{
+      const obj={}; (r.c||[]).forEach((cell,i)=>{ obj[cols[i]] = cell?.v??cell?.f??""; }); return obj;
+    });
+    return rows.filter(r=>Object.values(r).some(v=>v!==null&&v!==""));
+  }catch(e){ return null; }
+}
+
+// ─── GOOGLE SHEETS API WRITE ────────────────────────────────────────────────
+async function sheetsApiWrite(token, spreadsheetId, tabName, headers, rows){
+  const body = [headers, ...rows.map(r=>headers.map(h=>r[h]??""  ))];
+  const range = `${tabName}!A1`;
+  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, {
+    method:"PUT", headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json"},
+    body:JSON.stringify({range,majorDimension:"ROWS",values:body})
+  });
+}
+async function sheetsEnsure(token, spreadsheetId, tabName, headers){
+  // Add sheet tab if missing
+  const meta = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties.title`,
+    {headers:{"Authorization":"Bearer "+token}}).then(r=>r.json());
+  const exists = (meta.sheets||[]).some(s=>s.properties.title===tabName);
+  if(!exists){
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,{
+      method:"POST", headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json"},
+      body:JSON.stringify({requests:[{addSheet:{properties:{title:tabName}}}]})
+    });
+    // Write header row
+    await sheetsApiWrite(token, spreadsheetId, tabName, headers, []);
+  }
+}
+
+// ─── AUTH STATE ─────────────────────────────────────────────────────────────
+function useAuth(){
+  const [token,setToken] = useState(null);
+  const [gisReady,setGisReady] = useState(false);
+  const clientRef = useRef(null);
+
+  useEffect(()=>{
+    const s=document.createElement("script"); s.src="https://accounts.google.com/gsi/client"; s.async=true;
+    s.onload=()=>setGisReady(true); document.head.appendChild(s);
+  },[]);
+
+  const initClient = useCallback(()=>{
+    if(!gisReady||clientRef.current) return;
+    clientRef.current = google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID, scope: SCOPES,
+      callback:(resp)=>{ if(resp.access_token){ setToken(resp.access_token); } }
+    });
+  },[gisReady]);
+
+  useEffect(()=>{ initClient(); },[initClient]);
+
+  const login = useCallback(()=>{ if(clientRef.current) clientRef.current.requestAccessToken(); },[]);
+
+  return { token, login, gisReady };
+}
+
+// ─── useSave HOOK ────────────────────────────────────────────────────────────
+function useSave(tabName, headers, initial){
+  const [data,   setData]   = useState(initial);
+  const [synced, setSynced] = useState(false);
+  const [dirty,  setDirty]  = useState(false);
+  const tokenRef  = useRef(null);
+  const emptyRef  = useRef(false); // true if sheet was empty on load
+
+  // expose token setter; if sheet was empty, trigger immediate push
+  const setToken = useCallback((t)=>{
+    tokenRef.current = t;
+    if(emptyRef.current) setDirty(true); // push seed data on first login
+  },[]);
+
+  // load from sheets once
+  useEffect(()=>{
+    if(SPREADSHEET_ID==="YOUR_SPREADSHEET_ID_HERE") return;
+    sheetsRead(SPREADSHEET_ID, tabName).then(rows=>{
+      if(rows&&rows.length>0){
+        setData(rows);
+      } else {
+        emptyRef.current = true; // sheet empty – seed data needs pushing
+      }
+      setSynced(true);
+    }).catch(()=>{ emptyRef.current=true; setSynced(true); });
+  },[tabName]);
+
+  // save on change
+  useEffect(()=>{
+    if(!dirty||!tokenRef.current||SPREADSHEET_ID==="YOUR_SPREADSHEET_ID_HERE") return;
+    const t = setTimeout(async ()=>{
+      await sheetsEnsure(tokenRef.current, SPREADSHEET_ID, tabName, headers);
+      await sheetsApiWrite(tokenRef.current, SPREADSHEET_ID, tabName, headers, data);
+      setDirty(false);
+      emptyRef.current = false;
+    },1200);
+    return ()=>clearTimeout(t);
+  },[data, dirty, tabName, headers]);
+
+  // force push all data (called by Sync button)
+  const forcePush = useCallback(()=>{ if(tokenRef.current) setDirty(true); },[]);
+
+  const update = useCallback((fn)=>{ setData(fn); setDirty(true); },[]);
+  return [data, update, synced, setToken, forcePush];
+}
+
+
+</script>
+
+<script type="text/babel">
+// ─── SHARED UI COMPONENTS ───────────────────────────────────────────────────
+function StatusBadge({status}){
+  const cfg = STATUS_CFG[status]||{bg:"bg-gray-100",text:"text-gray-600",dot:"bg-gray-400"};
+  return <span className={`badge ${cfg.bg} ${cfg.text} gap-1.5`}>
+    <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`}/>
+    {status}
+  </span>;
+}
+
+function Modal({open,onClose,title,children,wide}){
+  if(!open)return null;
+  return <div className="modal-overlay">
+    <div className="modal-box" style={{maxWidth:wide?768:520}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:22}}>
+        <h3 style={{fontSize:18,fontWeight:700,color:"#111827",margin:0}}>{title}</h3>
+        <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",
+          fontSize:22,color:"#9ca3af",lineHeight:1,padding:"2px 6px",borderRadius:6}}>×</button>
+      </div>
+      {children}
+    </div>
+  </div>;
+}
+
+function ConfirmModal({open,title,message,onConfirm,onCancel,danger}){
+  if(!open)return null;
+  return <div className="modal-overlay">
+    <div className="modal-box" style={{maxWidth:420}}>
+      <h3 style={{fontSize:17,fontWeight:700,color:"#111827",margin:"0 0 8px"}}>{title}</h3>
+      <p style={{fontSize:14,color:"#6b7280",margin:"0 0 24px",lineHeight:1.6}}>{message}</p>
+      <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+        <button onClick={onCancel} className="btn-ghost">Cancel</button>
+        <button onClick={onConfirm} style={{padding:"9px 20px",borderRadius:12,border:"none",cursor:"pointer",
+          fontSize:14,fontWeight:600,color:"#fff",
+          background:danger?"#ef4444":"#0d9488"}}>Confirm</button>
+      </div>
+    </div>
+  </div>;
+}
+
+function KpiCard({label,value,sub,color}){
+  return <div className="card p-5">
+    <p style={{fontSize:11,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:".06em",marginBottom:4}}>{label}</p>
+    <p style={{fontSize:30,fontWeight:800,margin:"4px 0 2px"}} className={color||""}>{value}</p>
+    {sub&&<p style={{fontSize:12,color:"#9ca3af"}}>{sub}</p>}
+  </div>;
+}
+
+function SectionHeader({title,action}){
+  return <div className="flex items-center justify-between mb-5">
+    <h2 style={{fontSize:22,fontWeight:700,color:"#111827",margin:0}}>{title}</h2>
+    {action}
+  </div>;
+}
+
+// ─── DASHBOARD PAGE ─────────────────────────────────────────────────────────
+function DashboardPage({orders,customers,queue}){
+  const active  = orders.filter(o=>!["Delivered","Rejected"].includes(o.status));
+  const pending = orders.filter(o=>["Initiated","Processing","Quotation Sent"].includes(o.status));
+  const brewing = orders.filter(o=>["Scheduled","Brewing","Tasting","Packaging"].includes(o.status));
+  const ready   = orders.filter(o=>o.status==="Ready");
+
+  // pipeline counts
+  const pipelineCounts = CONTRACT_STATUSES.filter(s=>s!=="Rejected").map(s=>({
+    status:s, count:orders.filter(o=>o.status===s).length
+  })).filter(x=>x.count>0);
+
+  const recentOrders = [...orders].sort((a,b)=>(b.order_no||"").localeCompare(a.order_no||"")).slice(0,6);
+
+  return <div className="space-y-6">
+    <div>
+      <h2 className="text-2xl font-bold text-gray-900 mb-1">Dashboard</h2>
+      <p className="text-sm text-gray-400">Contract brewing overview</p>
+    </div>
+
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <KpiCard label="Active Orders" value={active.length} color="text-blue-600"/>
+      <KpiCard label="Pending Quote" value={pending.length} color="text-yellow-600"/>
+      <KpiCard label="In Production" value={brewing.length} color="text-teal-600"/>
+      <KpiCard label="Ready to Ship" value={ready.length} color="text-green-600"/>
+    </div>
+
+    <div className="grid lg:grid-cols-2 gap-6">
+      {/* Pipeline */}
+      <div className="card p-5">
+        <h3 className="font-semibold text-gray-800 mb-4">Order Pipeline</h3>
+        <div className="space-y-2">
+          {pipelineCounts.length===0
+            ? <p className="text-sm text-gray-400">No active orders</p>
+            : pipelineCounts.map(({status,count})=>{
+                const cfg = STATUS_CFG[status]||{};
+                return <div key={status} className="flex items-center gap-3">
+                  <StatusBadge status={status}/>
+                  <div className="flex-1 bg-gray-100 rounded-full h-2">
+                    <div className={`h-2 rounded-full ${cfg.dot||"bg-gray-300"}`} style={{width:`${Math.min(100,count*20)}%`}}/>
+                  </div>
+                  <span className="text-sm font-medium text-gray-600 w-6 text-right">{count}</span>
+                </div>;
+              })
+          }
+        </div>
+      </div>
+
+      {/* Recent orders */}
+      <div className="card p-5">
+        <h3 className="font-semibold text-gray-800 mb-4">Recent Orders</h3>
+        {recentOrders.length===0
+          ? <p className="text-sm text-gray-400">No orders yet</p>
+          : <div className="space-y-2">
+              {recentOrders.map(o=><div key={o.id} className="flex items-start justify-between py-2 border-b border-gray-50 last:border-0">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">{o.beer_name||"—"}</p>
+                  <p className="text-xs text-gray-400">{o.customer_name} · #{o.order_no}</p>
+                </div>
+                <StatusBadge status={o.status}/>
+              </div>)}
+            </div>
+        }
+      </div>
+    </div>
+
+    {/* Customers summary */}
+    <div className="card p-5">
+      <h3 className="font-semibold text-gray-800 mb-3">Customers ({customers.length})</h3>
+      {customers.length===0
+        ? <p className="text-sm text-gray-400">No customers yet. Add your first customer in the Customers section.</p>
+        : <div className="flex flex-wrap gap-2">
+            {customers.map(c=>{
+              const cnt = orders.filter(o=>o.customer_id===c.id).length;
+              return <div key={c.id} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
+                <div className="w-7 h-7 rounded-full bg-teal-100 flex items-center justify-center text-xs font-bold text-teal-700">
+                  {(c.name||"?")[0].toUpperCase()}
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-800">{c.name}</p>
+                  <p className="text-xs text-gray-400">{cnt} order{cnt!==1?"s":""}</p>
+                </div>
+              </div>;
+            })}
+          </div>
+      }
+    </div>
+  </div>;
+}
+
+// ─── CUSTOMERS PAGE ──────────────────────────────────────────────────────────
+function CustomersPage({customers,setCustomers,cbeers,setCbeers,orders}){
+  const [showModal,setShowModal] = useState(false);
+  const [editId, setEditId]      = useState(null);
+  const [form,setForm]           = useState({name:"",contact_name:"",phone:"",email:"",address:"",notes:""});
+  const [view,setView]           = useState(null); // customer id being viewed
+  const [delId,setDelId]         = useState(null);
+  const [beerModal,setBeerModal] = useState(false);
+  const [beerForm,setBeerForm]   = useState({brand:"",beer_name:"",style:"",abv:"",recipe_id:"",notes:""});
+  const [editBeerId,setEditBeerId]=useState(null);
+
+  const openAdd  = ()=>{ setForm({name:"",contact_name:"",phone:"",email:"",address:"",notes:""}); setEditId(null); setShowModal(true); };
+  const openEdit = (c)=>{ setForm({name:c.name,contact_name:c.contact_name||"",phone:c.phone||"",email:c.email||"",address:c.address||"",notes:c.notes||""}); setEditId(c.id); setShowModal(true); };
+
+  const handleSave = (e)=>{
+    e.preventDefault();
+    if(editId){
+      setCustomers(p=>p.map(c=>c.id===editId?{...c,...form}:c));
+    } else {
+      setCustomers(p=>[...p,{id:uid(),...form,created_date:today()}]);
+    }
+    setShowModal(false);
+  };
+
+  const handleDelete = ()=>{
+    setCustomers(p=>p.filter(c=>c.id!==delId));
+    setCbeers(p=>p.filter(b=>b.customer_id!==delId));
+    if(view===delId) setView(null);
+    setDelId(null);
+  };
+
+  // Beer management for viewed customer
+  const openAddBeer = ()=>{ setBeerForm({brand:"",beer_name:"",style:"",abv:"",recipe_id:"",notes:""}); setEditBeerId(null); setBeerModal(true); };
+  const openEditBeer= (b)=>{ setBeerForm({brand:b.brand||"",beer_name:b.beer_name||"",style:b.style||"",abv:b.abv||"",recipe_id:b.recipe_id||"",notes:b.notes||""}); setEditBeerId(b.id); setBeerModal(true); };
+  const handleSaveBeer=(e)=>{
+    e.preventDefault();
+    if(editBeerId){
+      setCbeers(p=>p.map(b=>b.id===editBeerId?{...b,...beerForm}:b));
+    } else {
+      setCbeers(p=>[...p,{id:uid(),customer_id:view,...beerForm}]);
+    }
+    setBeerModal(false);
+  };
+
+  const viewedCustomer = customers.find(c=>c.id===view);
+  const viewedBeers    = cbeers.filter(b=>b.customer_id===view);
+  const viewedOrders   = orders.filter(o=>o.customer_id===view);
+
+  if(view && viewedCustomer) return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <button onClick={()=>setView(null)} className="btn-ghost text-sm">← Back</button>
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">{viewedCustomer.name}</h2>
+          <p className="text-sm text-gray-400">{viewedCustomer.contact_name} · {viewedCustomer.phone} · {viewedCustomer.email}</p>
+        </div>
+        <button onClick={()=>openEdit(viewedCustomer)} className="ml-auto btn-ghost text-sm">Edit Profile</button>
+      </div>
+
+      {/* Beer list for customer */}
+      <div className="card p-5">
+        <SectionHeader title="Their Beers" action={<button onClick={openAddBeer} className="btn-primary text-xs px-3 py-2">+ Add Beer</button>}/>
+        {viewedBeers.length===0
+          ? <p className="text-sm text-gray-400">No beers added yet.</p>
+          : <div className="table-scroll">
+              <table className="w-full text-sm">
+                <thead><tr className="text-left text-xs text-gray-400 border-b border-gray-100">
+                  <th className="pb-2 font-medium">Brand</th><th className="pb-2 font-medium">Beer Name</th>
+                  <th className="pb-2 font-medium">Style</th><th className="pb-2 font-medium">ABV</th><th className="pb-2"/>
+                </tr></thead>
+                <tbody>{viewedBeers.map(b=><tr key={b.id} className="border-b border-gray-50 hover:bg-gray-50">
+                  <td className="py-2 pr-3 font-medium text-gray-800">{b.brand||"—"}</td>
+                  <td className="py-2 pr-3">{b.beer_name}</td>
+                  <td className="py-2 pr-3 text-gray-500">{b.style||"—"}</td>
+                  <td className="py-2 pr-3 text-gray-500">{b.abv||"—"}%</td>
+                  <td className="py-2 flex gap-2 justify-end">
+                    <button onClick={()=>openEditBeer(b)} className="text-xs text-indigo-500 hover:text-indigo-700">Edit</button>
+                    <button onClick={()=>setCbeers(p=>p.filter(x=>x.id!==b.id))} className="text-xs text-red-400 hover:text-red-600">Del</button>
+                  </td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+        }
+      </div>
+
+      {/* Order history */}
+      <div className="card p-5">
+        <SectionHeader title={`Order History (${viewedOrders.length})`}/>
+        {viewedOrders.length===0
+          ? <p className="text-sm text-gray-400">No orders yet.</p>
+          : <div className="space-y-2">
+              {viewedOrders.map(o=><div key={o.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">{o.beer_name}</p>
+                  <p className="text-xs text-gray-400">#{o.order_no} · {o.volume_litres}L · {o.brew_date||"—"}</p>
+                </div>
+                <StatusBadge status={o.status}/>
+              </div>)}
+            </div>
+        }
+      </div>
+
+      {/* Beer modal */}
+      <Modal open={beerModal} onClose={()=>setBeerModal(false)} title={editBeerId?"Edit Beer":"Add Beer"}>
+        <form onSubmit={handleSaveBeer} className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="form-label">Brand</label><input className="input-cls" value={beerForm.brand} onChange={e=>setBeerForm(f=>({...f,brand:e.target.value}))}/></div>
+            <div><label className="form-label">Beer Name *</label><input required className="input-cls" value={beerForm.beer_name} onChange={e=>setBeerForm(f=>({...f,beer_name:e.target.value}))}/></div>
+            <div><label className="form-label">Style</label><input className="input-cls" value={beerForm.style} onChange={e=>setBeerForm(f=>({...f,style:e.target.value}))}/></div>
+            <div><label className="form-label">ABV %</label><input type="number" step="0.1" className="input-cls" value={beerForm.abv} onChange={e=>setBeerForm(f=>({...f,abv:e.target.value}))}/></div>
+          </div>
+          <div><label className="form-label">Notes</label><textarea className="input-cls" rows={2} value={beerForm.notes} onChange={e=>setBeerForm(f=>({...f,notes:e.target.value}))}/></div>
+          <div className="flex gap-3 justify-end pt-2">
+            <button type="button" onClick={()=>setBeerModal(false)} className="btn-ghost">Cancel</button>
+            <button type="submit" className="btn-primary">Save</button>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      <SectionHeader title="Customers" action={<button onClick={openAdd} className="btn-primary">+ Add Customer</button>}/>
+
+      {customers.length===0
+        ? <div className="card p-10 text-center text-gray-400">No customers yet. Add your first client.</div>
+        : <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {customers.map(c=>{
+              const cnt = orders.filter(o=>o.customer_id===c.id).length;
+              return <div key={c.id} className="card p-5 cursor-pointer hover:shadow-md transition-shadow" onClick={()=>setView(c.id)}>
+                <div className="flex items-start justify-between mb-3">
+                  <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-lg font-bold text-teal-700">
+                    {(c.name||"?")[0].toUpperCase()}
+                  </div>
+                  <div className="flex gap-1" onClick={e=>e.stopPropagation()}>
+                    <button onClick={()=>openEdit(c)} className="p-1 rounded hover:bg-gray-100 text-gray-400 text-sm">✏️</button>
+                    <button onClick={()=>setDelId(c.id)} className="p-1 rounded hover:bg-gray-100 text-red-300 text-sm">🗑</button>
+                  </div>
+                </div>
+                <p className="font-semibold text-gray-900">{c.name}</p>
+                <p className="text-sm text-gray-500">{c.contact_name}</p>
+                <p className="text-xs text-gray-400 mt-1">{c.email}</p>
+                <p className="text-xs text-gray-400">{c.phone}</p>
+                <div className="mt-3 pt-3 border-t border-gray-100 flex gap-4 text-xs text-gray-400">
+                  <span>{cnt} order{cnt!==1?"s":""}</span>
+                  <span>{cbeers.filter(b=>b.customer_id===c.id).length} beer{cbeers.filter(b=>b.customer_id===c.id).length!==1?"s":""}</span>
+                </div>
+              </div>;
+            })}
+          </div>
+      }
+
+      {/* Add/Edit modal */}
+      <Modal open={showModal} onClose={()=>setShowModal(false)} title={editId?"Edit Customer":"New Customer"}>
+        <form onSubmit={handleSave} className="space-y-3">
+          <div><label className="form-label">Company / Customer Name *</label><input required className="input-cls" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="form-label">Contact Person</label><input className="input-cls" value={form.contact_name} onChange={e=>setForm(f=>({...f,contact_name:e.target.value}))}/></div>
+            <div><label className="form-label">Phone</label><input className="input-cls" value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))}/></div>
+            <div><label className="form-label">Email</label><input type="email" className="input-cls" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))}/></div>
+            <div><label className="form-label">Address</label><input className="input-cls" value={form.address} onChange={e=>setForm(f=>({...f,address:e.target.value}))}/></div>
+          </div>
+          <div><label className="form-label">Notes</label><textarea className="input-cls" rows={2} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/></div>
+          <div className="flex gap-3 justify-end pt-2">
+            <button type="button" onClick={()=>setShowModal(false)} className="btn-ghost">Cancel</button>
+            <button type="submit" className="btn-primary">Save</button>
+          </div>
+        </form>
+      </Modal>
+
+      <ConfirmModal open={!!delId} danger title="Delete Customer"
+        message="This will also delete all their beers. Orders will remain. Continue?"
+        onConfirm={handleDelete} onCancel={()=>setDelId(null)}/>
+    </div>
+  );
+}
+
+// ─── INGREDIENTS PAGE ────────────────────────────────────────────────────────
+function IngredientsPage({ingredients,setIngredients}){
+  const [catFilter,setCatFilter] = useState("All");
+  const [search,setSearch]       = useState("");
+  const [showModal,setShowModal] = useState(false);
+  const [editId,setEditId]       = useState(null);
+  const emptyForm = ()=>({category:"Misc",supplier:"",name:"",purchase_size:"",purchase_unit:"kg",purchase_price:"",use_qty:"",use_unit:"g",cost_per_unit:""});
+  const [form,setForm] = useState(emptyForm());
+
+  const categories = ["All","Malt","Hop","Yeast","Misc"];
+  const filtered = useMemo(()=> ingredients.filter(i=>{
+    const catOk = catFilter==="All"||i.category===catFilter;
+    const srchOk = !search||(i.name||"").toLowerCase().includes(search.toLowerCase())||(i.supplier||"").toLowerCase().includes(search.toLowerCase());
+    return catOk&&srchOk;
+  }),[ingredients,catFilter,search]);
+
+  const openAdd  = ()=>{ setForm(emptyForm()); setEditId(null); setShowModal(true); };
+  const openEdit = (ing)=>{ setForm({...ing}); setEditId(ing.id); setShowModal(true); };
+
+  const autoCalc = (f)=>{
+    const ps = parseFloat(f.purchase_size)||1;
+    const pp = parseFloat(f.purchase_price)||0;
+    const uq = parseFloat(f.use_qty)||1;
+    // cost_per_unit = price / (purchase_size * 1000 / use_qty) when units match
+    // simplified: price per use_unit = pp / (ps * factor)
+    const cpu = ps>0 && uq>0 ? pp/ps/(uq>0?uq:1) : 0;
+    return {...f, cost_per_unit: cpu>0?+cpu.toFixed(4):f.cost_per_unit};
+  };
+
+  const handleSave=(e)=>{
+    e.preventDefault();
+    const calc = autoCalc(form);
+    if(editId){
+      setIngredients(p=>p.map(i=>i.id===editId?{...i,...calc}:i));
+    } else {
+      const maxId = ingredients.reduce((m,i)=>Math.max(m,+i.id||0),0);
+      setIngredients(p=>[...p,{id:maxId+1,...calc}]);
+    }
+    setShowModal(false);
+  };
+
+  const catColors = {Malt:"bg-amber-100 text-amber-700",Hop:"bg-green-100 text-green-700",Yeast:"bg-purple-100 text-purple-700",Misc:"bg-gray-100 text-gray-600"};
+
+  return <div className="space-y-5">
+    <SectionHeader title="Ingredients & Pricing" action={<button onClick={openAdd} className="btn-primary">+ Add Ingredient</button>}/>
+
+    <div className="flex flex-wrap gap-3">
+      <input className="input-cls flex-1 min-w-40 max-w-64" placeholder="Search name or supplier…" value={search} onChange={e=>setSearch(e.target.value)}/>
+      <div className="flex gap-1 flex-wrap">
+        {categories.map(c=><button key={c} onClick={()=>setCatFilter(c)}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${catFilter===c?"bg-teal-600 text-white":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"}`}>{c}</button>)}
+      </div>
+    </div>
+
+    <div className="card table-scroll">
+      <table className="w-full text-sm">
+        <thead className="bg-gray-50 border-b border-gray-100">
+          <tr className="text-left text-xs text-gray-400">
+            <th className="px-4 py-3 font-medium">Category</th>
+            <th className="px-4 py-3 font-medium">Name</th>
+            <th className="px-4 py-3 font-medium">Supplier</th>
+            <th className="px-4 py-3 font-medium text-right">Pack Size</th>
+            <th className="px-4 py-3 font-medium text-right">Pack Price (฿)</th>
+            <th className="px-4 py-3 font-medium text-right">Use Qty</th>
+            <th className="px-4 py-3 font-medium text-right">Cost/Unit (฿)</th>
+            <th className="px-4 py-3 font-medium"/>
+          </tr>
+        </thead>
+        <tbody>
+          {filtered.length===0
+            ? <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No ingredients match filter</td></tr>
+            : filtered.map(ing=><tr key={ing.id} className="border-b border-gray-50 hover:bg-gray-50">
+                <td className="px-4 py-2.5"><span className={`badge ${catColors[ing.category]||"bg-gray-100 text-gray-600"}`}>{ing.category}</span></td>
+                <td className="px-4 py-2.5 font-medium text-gray-800">{ing.name}</td>
+                <td className="px-4 py-2.5 text-gray-500">{ing.supplier||"—"}</td>
+                <td className="px-4 py-2.5 text-right text-gray-500">{ing.purchase_size} {ing.purchase_unit}</td>
+                <td className="px-4 py-2.5 text-right text-gray-700">฿{(+ing.purchase_price||0).toLocaleString()}</td>
+                <td className="px-4 py-2.5 text-right text-gray-500">{ing.use_qty} {ing.use_unit}</td>
+                <td className="px-4 py-2.5 text-right font-medium text-teal-700">฿{(+ing.cost_per_unit||0).toFixed(3)}</td>
+                <td className="px-4 py-2.5 text-right">
+                  <button onClick={()=>openEdit(ing)} className="text-xs text-indigo-500 hover:text-indigo-700 mr-2">Edit</button>
+                  <button onClick={()=>setIngredients(p=>p.filter(x=>x.id!==ing.id))} className="text-xs text-red-400 hover:text-red-600">Del</button>
+                </td>
+              </tr>)
+          }
+        </tbody>
+      </table>
+    </div>
+    <p className="text-xs text-gray-400">{filtered.length} of {ingredients.length} ingredients</p>
+
+    <Modal open={showModal} onClose={()=>setShowModal(false)} title={editId?"Edit Ingredient":"Add Ingredient"}>
+      <form onSubmit={handleSave} className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="form-label">Category</label>
+            <select className="input-cls" value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}>
+              {["Misc","Malt","Hop","Yeast"].map(c=><option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <div><label className="form-label">Name *</label><input required className="input-cls" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></div>
+          <div><label className="form-label">Supplier</label><input className="input-cls" value={form.supplier} onChange={e=>setForm(f=>({...f,supplier:e.target.value}))}/></div>
+          <div className="grid grid-cols-2 gap-2">
+            <div><label className="form-label">Pack Size</label><input type="number" step="0.001" className="input-cls" value={form.purchase_size} onChange={e=>setForm(f=>({...f,purchase_size:e.target.value}))}/></div>
+            <div><label className="form-label">Unit</label>
+              <select className="input-cls" value={form.purchase_unit} onChange={e=>setForm(f=>({...f,purchase_unit:e.target.value}))}>
+                {["kg","g","L","mL","tablet","sachet","packet"].map(u=><option key={u}>{u}</option>)}
+              </select>
+            </div>
+          </div>
+          <div><label className="form-label">Pack Price (฿)</label><input type="number" step="0.01" className="input-cls" value={form.purchase_price} onChange={e=>setForm(f=>({...f,purchase_price:e.target.value}))}/></div>
+          <div className="grid grid-cols-2 gap-2">
+            <div><label className="form-label">Use Qty</label><input type="number" step="0.001" className="input-cls" value={form.use_qty} onChange={e=>setForm(f=>({...f,use_qty:e.target.value}))}/></div>
+            <div><label className="form-label">Use Unit</label>
+              <select className="input-cls" value={form.use_unit} onChange={e=>setForm(f=>({...f,use_unit:e.target.value}))}>
+                {["g","kg","mL","L","tablet","sachet"].map(u=><option key={u}>{u}</option>)}
+              </select>
+            </div>
+          </div>
+          <div><label className="form-label">Cost / Use Unit (฿) <span className="text-teal-500">(auto)</span></label>
+            <input type="number" step="0.0001" className="input-cls" value={form.cost_per_unit} onChange={e=>setForm(f=>({...f,cost_per_unit:e.target.value}))}/>
+          </div>
+        </div>
+        <div className="flex gap-3 justify-end pt-2">
+          <button type="button" onClick={()=>setShowModal(false)} className="btn-ghost">Cancel</button>
+          <button type="submit" className="btn-primary">Save</button>
+        </div>
+      </form>
+    </Modal>
+  </div>;
+}
+
+</script>
+
+<script type="text/babel">
+// ─── RECIPES PAGE ────────────────────────────────────────────────────────────
+function RecipesPage({recipes,setRecipes,ringredients,setRingredients,ingredients,customers,cbeers}){
+  const [showModal,setShowModal] = useState(false);
+  const [editId,setEditId]       = useState(null);
+  const [viewId,setViewId]       = useState(null);
+  const [delId,setDelId]         = useState(null);
+  const [ingSearch,setIngSearch] = useState("");
+
+  const emptyForm = ()=>({
+    recipe_code:"", customer_id:"", beer_id:"", beer_name:"", brand:"", style:"", abv:"",
+    batch_size_litres:1000, misc_pct:5, notes:""
+  });
+  const [form,setForm]   = useState(emptyForm());
+  const [ingLines,setIngLines] = useState([]);
+
+  // Beers filtered by selected customer
+  const customerBeers = useMemo(()=>
+    form.customer_id ? cbeers.filter(b=>b.customer_id===form.customer_id) : []
+  ,[form.customer_id, cbeers]);
+
+  // Auto-fill beer info when beer_id changes
+  const handleBeerSelect = (beer_id)=>{
+    const b = cbeers.find(x=>x.id===beer_id);
+    setForm(f=>({...f, beer_id,
+      beer_name: b?.beer_name||"", brand: b?.brand||"",
+      style: b?.style||"", abv: b?.abv||"",
+    }));
+  };
+
+  // Auto-generate recipe code
+  const autoCode = useCallback((custId, beerName)=>{
+    const c = customers.find(x=>x.id===custId);
+    const cPart = (c?.name||"RCP").replace(/\s+/g,"").toUpperCase().slice(0,4);
+    const bPart = (beerName||"BEER").replace(/\s+/g,"").toUpperCase().slice(0,5);
+    const seq   = String(recipes.filter(r=>r.customer_id===custId).length+1).padStart(3,"0");
+    return `${cPart}-${bPart}-${seq}`;
+  },[customers,recipes]);
+
+  const openAdd = ()=>{
+    setForm(emptyForm()); setIngLines([]); setEditId(null); setShowModal(true);
+  };
+  const openEdit = (r)=>{
+    const b = cbeers.find(x=>x.beer_name===r.beer_name && x.customer_id===r.customer_id);
+    setForm({recipe_code:r.recipe_code||"",customer_id:r.customer_id||"",
+      beer_id:b?.id||"", beer_name:r.beer_name||"", brand:r.brand||"",
+      style:r.style||"", abv:r.abv||"",
+      batch_size_litres:r.batch_size_litres||1000, misc_pct:r.misc_pct||5, notes:r.notes||""});
+    setIngLines(ringredients.filter(ri=>ri.recipe_id===r.id).map(ri=>({...ri})));
+    setEditId(r.id); setShowModal(true);
+  };
+
+  // When customer+beer set and no code yet, auto-generate
+  useEffect(()=>{
+    if(!editId && form.customer_id && form.beer_name && !form.recipe_code){
+      setForm(f=>({...f, recipe_code: autoCode(f.customer_id, f.beer_name)}));
+    }
+  },[form.customer_id, form.beer_name]);
+
+  // Ingredient search suggest
+  const ingSuggest = useMemo(()=>{
+    if(!ingSearch) return [];
+    const q = ingSearch.toLowerCase();
+    return ingredients.filter(i=>(i.name||"").toLowerCase().includes(q)).slice(0,8);
+  },[ingredients, ingSearch]);
+
+  const addIngLine = (ing)=>{
+    if(ingLines.some(l=>l.ingredient_name===ing.name)) return;
+    setIngLines(p=>[...p,{
+      id:uid(), ingredient_name:ing.name,
+      purchase_size:ing.purchase_size, purchase_unit:ing.purchase_unit,
+      cost_per_unit:ing.cost_per_unit,
+      yield_pct:100, use_qty:ing.use_qty, use_unit:ing.use_unit,
+      line_cost:0
+    }]);
+    setIngSearch("");
+  };
+
+  const updateLine = (idx,field,val)=>{
+    setIngLines(p=>p.map((l,i)=>{
+      if(i!==idx) return l;
+      const upd = {...l,[field]:val};
+      const actualCost = (parseFloat(upd.cost_per_unit)||0) / ((parseFloat(upd.yield_pct)||100)/100);
+      upd.line_cost = (parseFloat(upd.use_qty)||0) * actualCost;
+      return upd;
+    }));
+  };
+
+  const rmCost   = useMemo(()=>ingLines.reduce((s,l)=>{
+    const ac = (parseFloat(l.cost_per_unit)||0)/((parseFloat(l.yield_pct)||100)/100);
+    return s+(parseFloat(l.use_qty)||0)*ac;
+  },0),[ingLines]);
+  const miscCost = rmCost*(parseFloat(form.misc_pct)||0)/100;
+  const totalCost= rmCost+miscCost;
+
+  const handleSave=(e)=>{
+    e.preventDefault();
+    const rid = editId||uid();
+    const perL = form.batch_size_litres>0 ? totalCost/(+form.batch_size_litres) : 0;
+    const saveForm = {...form, per_litre:perL};
+    if(editId){
+      setRecipes(p=>p.map(r=>r.id===editId?{...r,...saveForm,total_cost:totalCost}:r));
+      setRingredients(p=>[...p.filter(ri=>ri.recipe_id!==editId),...ingLines.map(l=>({...l,recipe_id:editId}))]);
+    } else {
+      setRecipes(p=>[...p,{id:rid,...saveForm,total_cost:totalCost}]);
+      setRingredients(p=>[...p,...ingLines.map(l=>({...l,id:uid(),recipe_id:rid}))]);
+    }
+    setShowModal(false);
+  };
+
+  const handleDelete=()=>{
+    setRecipes(p=>p.filter(r=>r.id!==delId));
+    setRingredients(p=>p.filter(ri=>ri.recipe_id!==delId));
+    if(viewId===delId) setViewId(null);
+    setDelId(null);
+  };
+
+  const getCustomerName=(id)=>customers.find(c=>c.id===id)?.name||"—";
+
+  // ── DETAIL VIEW ────────────────────────────────────────────────────────────
+  const viewedRecipe = recipes.find(r=>r.id===viewId);
+  const viewedLines  = ringredients.filter(ri=>ri.recipe_id===viewId);
+
+  if(viewId && viewedRecipe){
+    const rm2 = viewedLines.reduce((s,l)=>{
+      const ac=(parseFloat(l.cost_per_unit)||0)/((parseFloat(l.yield_pct)||100)/100);
+      return s+(parseFloat(l.use_qty)||0)*ac;
+    },0);
+    const misc2  = rm2*(+viewedRecipe.misc_pct||0)/100;
+    const total2 = rm2+misc2;
+    const perL2  = viewedRecipe.batch_size_litres>0 ? total2/(+viewedRecipe.batch_size_litres) : 0;
+    const custName = getCustomerName(viewedRecipe.customer_id);
+
+    return <div className="space-y-5">
+      {/* Toolbar */}
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <button onClick={()=>setViewId(null)} className="btn-ghost" style={{fontSize:13}}>← Back</button>
+        <div style={{flex:1}}/>
+        <button onClick={()=>openEdit(viewedRecipe)} className="btn-ghost" style={{fontSize:13}}>✏️ Edit</button>
+        <button onClick={()=>setDelId(viewId)} style={{padding:"9px 14px",borderRadius:12,border:"1.5px solid #fca5a5",background:"#fff",color:"#ef4444",fontSize:13,fontWeight:600,cursor:"pointer"}}>🗑 Delete</button>
+      </div>
+
+      {/* Excel-style header card */}
+      <div className="card" style={{overflow:"hidden"}}>
+        {/* Title banner */}
+        <div style={{background:"#1e4d6b",color:"#fff",padding:"10px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{fontSize:16,fontWeight:700,letterSpacing:".04em"}}>UPB Beer Recipe</span>
+          <span style={{fontSize:12,opacity:.7,fontFamily:"monospace"}}>{viewedRecipe.recipe_code}</span>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:0}}>
+          {/* Left: header fields */}
+          <div style={{padding:"16px 20px",borderRight:"1px solid #f3f4f6"}}>
+            {[["Brand", viewedRecipe.brand||custName],["Beer Name",viewedRecipe.beer_name],
+              ["Style",viewedRecipe.style||"—"],["Batch Volume",`${viewedRecipe.batch_size_litres} L`]
+            ].map(([k,v])=><div key={k} style={{display:"flex",gap:12,padding:"4px 0",borderBottom:"1px solid #f9fafb"}}>
+              <span style={{width:110,fontSize:13,fontWeight:600,color:"#374151",flexShrink:0}}>{k}</span>
+              <span style={{fontSize:13,color:"#111827"}}>{v}</span>
+            </div>)}
+          </div>
+          {/* Right: cost summary */}
+          <div style={{padding:"16px 24px",background:"#fafafa",minWidth:220}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>Cost Summary</div>
+            {[
+              ["Ingredients",fmtThb(rm2),"#0d9488"],
+              [`Misc (${viewedRecipe.misc_pct}%)`,fmtThb(misc2),"#d97706"],
+              ["Per Litre",fmtThb(perL2),"#6366f1"],
+              ["Total Cost",fmtThb(total2),"#e76f51"],
+            ].map(([k,v,clr])=><div key={k} style={{display:"flex",justifyContent:"space-between",gap:16,padding:"5px 0",borderBottom:"1px solid #f3f4f6"}}>
+              <span style={{fontSize:13,color:"#6b7280"}}>{k}</span>
+              <span style={{fontSize:14,fontWeight:700,color:clr}}>{v}</span>
+            </div>)}
+          </div>
+        </div>
+      </div>
+
+      {/* Ingredient table */}
+      <div className="card table-scroll">
+        <table style={{width:"100%",fontSize:13,borderCollapse:"collapse"}}>
+          <thead>
+            <tr style={{background:"#1e4d6b",color:"#fff"}}>
+              <th style={{padding:"10px 12px",textAlign:"left",fontWeight:600,width:32}}>No.</th>
+              <th style={{padding:"10px 12px",textAlign:"left",fontWeight:600}}>วัตถุดิบ</th>
+              <th style={{padding:"10px 12px",textAlign:"right",fontWeight:600}}>ปริมาณซื้อ</th>
+              <th style={{padding:"10px 12px",textAlign:"left",fontWeight:600}}>หน่วยซื้อ</th>
+              <th style={{padding:"10px 12px",textAlign:"right",fontWeight:600}}>ต้นทุน/หน่วย (฿)</th>
+              <th style={{padding:"10px 12px",textAlign:"right",fontWeight:600}}>Yield (%)</th>
+              <th style={{padding:"10px 12px",textAlign:"right",fontWeight:600}}>ต้นทุนจริง</th>
+              <th style={{padding:"10px 10px",textAlign:"right",fontWeight:600,background:"#2a9d8f"}}>ปริมาณใช้</th>
+              <th style={{padding:"10px 8px",textAlign:"left",fontWeight:600,background:"#2a9d8f"}}>หน่วยใช้</th>
+              <th style={{padding:"10px 12px",textAlign:"right",fontWeight:600,background:"#2a9d8f"}}>ต้นทุน (฿)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {viewedLines.map((l,idx)=>{
+              const ac = (parseFloat(l.cost_per_unit)||0)/((parseFloat(l.yield_pct)||100)/100);
+              const lc = (parseFloat(l.use_qty)||0)*ac;
+              const isEven = idx%2===0;
+              return <tr key={l.id} style={{background:isEven?"#fff":"#f8fafc"}}>
+                <td style={{padding:"8px 12px",color:"#9ca3af",textAlign:"center"}}>{idx+1}</td>
+                <td style={{padding:"8px 12px",fontWeight:600,color:"#111827"}}>{l.ingredient_name}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",color:"#374151"}}>{(+l.purchase_size||0).toLocaleString()}</td>
+                <td style={{padding:"8px 12px",color:"#6b7280"}}>{l.purchase_unit||"—"}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",color:"#374151"}}>{(+l.cost_per_unit||0).toFixed(4)}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",color:"#374151"}}>{l.yield_pct||100}%</td>
+                <td style={{padding:"8px 12px",textAlign:"right",color:"#374151"}}>{ac.toFixed(4)}</td>
+                <td style={{padding:"8px 10px",textAlign:"right",fontWeight:600,color:"#1e4d6b",background:isEven?"#f0fdfa":"#e6faf7"}}>{(+l.use_qty||0).toLocaleString()}</td>
+                <td style={{padding:"8px 8px",color:"#6b7280",background:isEven?"#f0fdfa":"#e6faf7"}}>{l.use_unit}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",fontWeight:700,color:"#0d9488",background:isEven?"#f0fdfa":"#e6faf7"}}>{lc.toFixed(2)}</td>
+              </tr>;
+            })}
+            {/* Totals */}
+            <tr style={{background:"#f1f5f9",borderTop:"2px solid #e2e8f0"}}>
+              <td colSpan={7} style={{padding:"10px 12px",textAlign:"right",fontWeight:600,color:"#374151",fontSize:13}}>RM + MG Total</td>
+              <td colSpan={2} style={{background:"#e6faf7"}}/>
+              <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#0d9488",fontSize:14,background:"#e6faf7"}}>฿{rm2.toFixed(2)}</td>
+            </tr>
+            <tr style={{background:"#fffbeb"}}>
+              <td colSpan={7} style={{padding:"8px 12px",textAlign:"right",fontWeight:600,color:"#92400e",fontSize:13}}>{`Misc (${viewedRecipe.misc_pct}%)`}</td>
+              <td colSpan={2}/>
+              <td style={{padding:"8px 12px",textAlign:"right",fontWeight:700,color:"#d97706"}}>฿{misc2.toFixed(2)}</td>
+            </tr>
+            <tr style={{background:"#1e4d6b"}}>
+              <td colSpan={7} style={{padding:"10px 12px",textAlign:"right",fontWeight:700,color:"#fff",fontSize:13}}>TOTAL COST</td>
+              <td colSpan={2} style={{background:"#2a9d8f"}}/>
+              <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#e9c46a",fontSize:15,background:"#2a9d8f"}}>฿{total2.toFixed(2)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      {viewedRecipe.notes&&<div className="card p-5"><p style={{fontSize:13,color:"#4b5563",whiteSpace:"pre-wrap"}}>{viewedRecipe.notes}</p></div>}
+      <ConfirmModal open={!!delId} danger title="Delete Recipe" message="Delete this recipe and all ingredients?" onConfirm={handleDelete} onCancel={()=>setDelId(null)}/>
+    </div>;
+  }
+
+  // ── LIST VIEW ──────────────────────────────────────────────────────────────
+  return <div className="space-y-5">
+    <SectionHeader title="Recipes" action={<button onClick={openAdd} className="btn-primary">+ New Recipe</button>}/>
+    {recipes.length===0
+      ? <div className="card p-10 text-center" style={{color:"#9ca3af"}}>No recipes yet. Click + New Recipe to get started.</div>
+      : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16}}>
+          {recipes.map(r=>{
+            const lines=ringredients.filter(ri=>ri.recipe_id===r.id);
+            return <div key={r.id} className="card" style={{cursor:"pointer",transition:"box-shadow .15s"}}
+              onClick={()=>setViewId(r.id)}
+              onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 16px rgba(0,0,0,.1)"}
+              onMouseLeave={e=>e.currentTarget.style.boxShadow=""}>
+              <div style={{background:"#1e4d6b",borderRadius:"16px 16px 0 0",padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{fontFamily:"monospace",fontSize:12,color:"#7dd3fc",fontWeight:700}}>{r.recipe_code||"NO CODE"}</span>
+                <div style={{display:"flex",gap:4}} onClick={e=>e.stopPropagation()}>
+                  <button onClick={()=>openEdit(r)} style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:14,padding:"2px 5px"}}>✏️</button>
+                  <button onClick={()=>setDelId(r.id)} style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:14,padding:"2px 5px"}}>🗑</button>
+                </div>
+              </div>
+              <div style={{padding:"14px 16px"}}>
+                <p style={{fontWeight:700,fontSize:15,color:"#111827",margin:"0 0 2px"}}>{r.beer_name||"Unnamed"}</p>
+                <p style={{fontSize:12,color:"#9ca3af",margin:"0 0 10px"}}>{r.brand||getCustomerName(r.customer_id)} · {r.batch_size_litres}L</p>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
+                  <span style={{color:"#9ca3af"}}>{lines.length} ingredients</span>
+                  <span style={{fontWeight:700,color:"#0d9488"}}>{fmtThb(+r.total_cost||0)}</span>
+                </div>
+              </div>
+            </div>;
+          })}
+        </div>
+    }
+
+    {/* Add/Edit Modal */}
+    <Modal open={showModal} onClose={()=>setShowModal(false)} title={editId?"Edit Recipe":"New Recipe"} wide>
+      <form onSubmit={handleSave} className="space-y-4">
+        {/* Row 1: customer + code */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+          <div>
+            <label className="form-label">Customer</label>
+            <select className="input-cls" value={form.customer_id}
+              onChange={e=>setForm(f=>({...f,customer_id:e.target.value,beer_id:"",beer_name:"",brand:"",recipe_code:""}))}>
+              <option value="">— Select customer —</option>
+              {customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="form-label">Recipe Code <span style={{fontWeight:400,color:"#2dd4bf"}}>(auto)</span></label>
+            <input className="input-cls" style={{fontFamily:"monospace"}} value={form.recipe_code}
+              onChange={e=>setForm(f=>({...f,recipe_code:e.target.value}))}
+              placeholder={form.customer_id&&form.beer_name ? autoCode(form.customer_id,form.beer_name) : "Select customer & beer first"}/>
+          </div>
+        </div>
+
+        {/* Row 2: beer from list + batch + misc */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 120px 100px",gap:14}}>
+          <div>
+            <label className="form-label">Beer Name *</label>
+            {customerBeers.length>0
+              ? <select required className="input-cls" value={form.beer_id}
+                  onChange={e=>handleBeerSelect(e.target.value)}>
+                  <option value="">— Select beer —</option>
+                  {customerBeers.map(b=><option key={b.id} value={b.id}>{b.brand ? `${b.brand} – ` : ""}{b.beer_name}</option>)}
+                </select>
+              : <input required className="input-cls" placeholder={form.customer_id?"No beers for this customer — add in Customers first":"Select a customer first"}
+                  value={form.beer_name} onChange={e=>setForm(f=>({...f,beer_name:e.target.value}))}
+                  style={{color: form.customer_id&&!form.beer_name?"#9ca3af":"#111827"}}/>
+            }
+          </div>
+          <div>
+            <label className="form-label">Batch (L)</label>
+            <input type="number" className="input-cls" value={form.batch_size_litres}
+              onChange={e=>setForm(f=>({...f,batch_size_litres:e.target.value}))}/>
+          </div>
+          <div>
+            <label className="form-label">Misc %</label>
+            <input type="number" step="0.1" className="input-cls" value={form.misc_pct}
+              onChange={e=>setForm(f=>({...f,misc_pct:e.target.value}))}/>
+          </div>
+        </div>
+
+        {/* Ingredient builder */}
+        <div style={{borderTop:"1px solid #f3f4f6",paddingTop:14}}>
+          <label className="form-label" style={{marginBottom:8}}>Ingredients</label>
+          {/* Search */}
+          <div style={{position:"relative",marginBottom:10}}>
+            <input className="input-cls" placeholder="🔍 Search & add ingredient…"
+              value={ingSearch} onChange={e=>setIngSearch(e.target.value)}/>
+            {ingSuggest.length>0&&<div style={{position:"absolute",zIndex:20,width:"100%",marginTop:4,
+              background:"#fff",border:"1.5px solid #e5e7eb",borderRadius:12,boxShadow:"0 8px 24px rgba(0,0,0,.1)",maxHeight:220,overflowY:"auto"}}>
+              {ingSuggest.map(i=><button type="button" key={i.id} onClick={()=>addIngLine(i)}
+                style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                  width:"100%",textAlign:"left",padding:"10px 14px",fontSize:13,background:"none",
+                  border:"none",borderBottom:"1px solid #f9fafb",cursor:"pointer",color:"#111827"}}>
+                <span>{i.name} <span style={{color:"#9ca3af",fontSize:11}}>({i.category})</span></span>
+                <span style={{color:"#0d9488",fontWeight:600,fontSize:12}}>฿{i.cost_per_unit}/unit</span>
+              </button>)}
+            </div>}
+          </div>
+
+          {/* Table */}
+          {ingLines.length>0&&<div style={{border:"1.5px solid #e5e7eb",borderRadius:12,overflow:"hidden"}}>
+            <table style={{width:"100%",fontSize:12,borderCollapse:"collapse"}}>
+              <thead>
+                <tr style={{background:"#1e4d6b",color:"#fff"}}>
+                  <th style={{padding:"8px 10px",textAlign:"left",fontWeight:600}}>Ingredient</th>
+                  <th style={{padding:"8px 8px",textAlign:"right",fontWeight:600,width:80}}>Use Qty</th>
+                  <th style={{padding:"8px 6px",textAlign:"left",fontWeight:600,width:50}}>Unit</th>
+                  <th style={{padding:"8px 8px",textAlign:"right",fontWeight:600,width:70}}>Yield %</th>
+                  <th style={{padding:"8px 8px",textAlign:"right",fontWeight:600,width:90}}>Line Cost</th>
+                  <th style={{padding:"8px 6px",width:28}}/>
+                </tr>
+              </thead>
+              <tbody>
+                {ingLines.map((l,i)=>{
+                  const ac=(parseFloat(l.cost_per_unit)||0)/((parseFloat(l.yield_pct)||100)/100);
+                  const lc=(parseFloat(l.use_qty)||0)*ac;
+                  return <tr key={l.id||i} style={{background:i%2?"#f8fafc":"#fff",borderTop:"1px solid #f3f4f6"}}>
+                    <td style={{padding:"6px 10px",fontWeight:600,color:"#111827"}}>{l.ingredient_name}</td>
+                    <td style={{padding:"6px 8px"}}>
+                      <input type="number" step="0.001" value={l.use_qty}
+                        onChange={e=>updateLine(i,"use_qty",e.target.value)}
+                        style={{width:"100%",border:"1px solid #e5e7eb",borderRadius:6,padding:"3px 6px",fontSize:12,textAlign:"right"}}/>
+                    </td>
+                    <td style={{padding:"6px 6px",color:"#6b7280"}}>{l.use_unit}</td>
+                    <td style={{padding:"6px 8px"}}>
+                      <input type="number" step="1" min="1" max="100" value={l.yield_pct}
+                        onChange={e=>updateLine(i,"yield_pct",e.target.value)}
+                        style={{width:"100%",border:"1px solid #e5e7eb",borderRadius:6,padding:"3px 6px",fontSize:12,textAlign:"right"}}/>
+                    </td>
+                    <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:"#0d9488"}}>฿{lc.toFixed(2)}</td>
+                    <td style={{padding:"6px 6px",textAlign:"center"}}>
+                      <button type="button" onClick={()=>setIngLines(p=>p.filter((_,j)=>j!==i))}
+                        style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:14,fontWeight:700}}>×</button>
+                    </td>
+                  </tr>;
+                })}
+              </tbody>
+            </table>
+          </div>}
+
+          {/* Cost footer */}
+          <div style={{display:"flex",gap:20,marginTop:10,fontSize:13,flexWrap:"wrap"}}>
+            <span>RM+MG: <strong style={{color:"#0d9488"}}>฿{rmCost.toFixed(2)}</strong></span>
+            <span>{`Misc (${form.misc_pct}%)`}: <strong style={{color:"#d97706"}}>฿{miscCost.toFixed(2)}</strong></span>
+            <span>Per Litre: <strong style={{color:"#6366f1"}}>฿{form.batch_size_litres>0?(totalCost/+form.batch_size_litres).toFixed(2):"—"}</strong></span>
+            <span style={{fontWeight:800,color:"#111827"}}>Total: ฿{totalCost.toFixed(2)}</span>
+          </div>
+        </div>
+
+        <div><label className="form-label">Notes</label>
+          <textarea className="input-cls" rows={2} value={form.notes}
+            onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/></div>
+
+        <div style={{display:"flex",gap:10,justifyContent:"flex-end",paddingTop:8}}>
+          <button type="button" onClick={()=>setShowModal(false)} className="btn-ghost">Cancel</button>
+          <button type="submit" className="btn-primary">Save Recipe</button>
+        </div>
+      </form>
+    </Modal>
+    <ConfirmModal open={!!delId} danger title="Delete Recipe" message="Delete this recipe and all ingredients?" onConfirm={handleDelete} onCancel={()=>setDelId(null)}/>
+  </div>;
+}
+
+
+// ─── ORDERS PAGE ─────────────────────────────────────────────────────────────
+function OrdersPage({orders,setOrders,customers,cbeers,recipes,setPage}){
+  const [showModal,setShowModal]     = useState(false);
+  const [editId,setEditId]           = useState(null);
+  const [statusFilter,setStatusFilter]=useState("All");
+  const [search,setSearch]           = useState("");
+  const [viewId,setViewId]           = useState(null);
+  const [delId,setDelId]             = useState(null);
+
+  const emptyForm = ()=>({
+    order_no:"", customer_id:"", customer_name:"", beer_name:"", style:"", abv:"",
+    volume_litres:"", status:"Initiated",
+    quotation_no:"", order_price:"", round_no:"", batch_no:"",
+    deposit_date:"", deposit_amount:"", balance_date:"", balance_amount:"",
+    final_date:"", final_amount:"", brewing_date:"", deliver_date:"",
+    recipe_id:"", notes:""
+  });
+  const [form,setForm] = useState(emptyForm());
+
+  const openAdd = ()=>{ setForm(emptyForm()); setEditId(null); setShowModal(true); };
+  const openEdit=(o)=>{
+    setForm({order_no:o.order_no||"",customer_id:o.customer_id||"",customer_name:o.customer_name||"",
+      beer_name:o.beer_name||"",style:o.style||"",abv:o.abv||"",volume_litres:o.volume_litres||"",
+      status:o.status||"Initiated",
+      quotation_no:o.quotation_no||"",order_price:o.order_price||"",round_no:o.round_no||"",batch_no:o.batch_no||"",
+      deposit_date:o.deposit_date||"",deposit_amount:o.deposit_amount||"",
+      balance_date:o.balance_date||"",balance_amount:o.balance_amount||"",
+      final_date:o.final_date||"",final_amount:o.final_amount||"",
+      brewing_date:o.brewing_date||"",deliver_date:o.deliver_date||"",
+      recipe_id:o.recipe_id||"",notes:o.notes||""});
+    setEditId(o.id); setShowModal(true);
+  };
+
+  const handleSave=(e)=>{
+    e.preventDefault();
+    const cust = customers.find(c=>c.id===form.customer_id);
+    const data = {...form, customer_name:cust?.name||form.customer_name};
+    if(editId){
+      setOrders(p=>p.map(o=>o.id===editId?{...o,...data}:o));
+    } else {
+      const nextNo = "ORD-"+(String(orders.length+1).padStart(4,"0"));
+      setOrders(p=>[...p,{id:uid(),order_no:form.order_no||nextNo,...data}]);
+    }
+    setShowModal(false);
+  };
+
+  const advanceStatus=(order)=>{
+    const next = NEXT_STATUS[order.status];
+    if(!next) return;
+    setOrders(p=>p.map(o=>o.id===order.id?{...o,status:next}:o));
+  };
+  const rejectOrder=(order)=>{
+    setOrders(p=>p.map(o=>o.id===order.id?{...o,status:"Rejected"}:o));
+  };
+
+  const filtered = useMemo(()=> orders.filter(o=>{
+    const stOk = statusFilter==="All"||o.status===statusFilter;
+    const srOk = !search||(o.customer_name||"").toLowerCase().includes(search.toLowerCase())||(o.beer_name||"").toLowerCase().includes(search.toLowerCase())||(o.order_no||"").toLowerCase().includes(search.toLowerCase());
+    return stOk&&srOk;
+  }),[orders,statusFilter,search]);
+
+  const viewedOrder = orders.find(o=>o.id===viewId);
+  const getRecipeCost=(rid)=>{ const r=recipes.find(x=>x.id===rid); return r?+r.total_cost||0:0; };
+
+  if(viewId && viewedOrder){
+    const o=viewedOrder;
+    const rcost = getRecipeCost(o.recipe_id);
+    const dep   = +o.deposit_amount||0;
+    const bal   = +o.balance_amount||0;
+    const fin   = +o.final_amount||0;
+    const paid  = dep+bal+fin;
+    const steps = CONTRACT_STATUSES.filter(s=>s!=="Rejected");
+    const curIdx= steps.indexOf(o.status);
+    return <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <button onClick={()=>setViewId(null)} className="btn-ghost text-sm">← Back</button>
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Order #{o.order_no}</h2>
+          <p className="text-sm text-gray-400">{o.customer_name} · {o.beer_name}</p>
+        </div>
+        <div className="ml-auto flex gap-2">
+          <button onClick={()=>openEdit(o)} className="btn-ghost text-sm">Edit</button>
+          {NEXT_STATUS[o.status]&&<button onClick={()=>advanceStatus(o)} className="btn-primary text-sm">
+            Advance → {NEXT_STATUS[o.status]}
+          </button>}
+          {!["Rejected","Delivered"].includes(o.status)&&
+            <button onClick={()=>rejectOrder(o)} className="px-3 py-2 text-sm text-red-500 hover:bg-red-50 rounded-xl border border-red-200">Reject</button>}
+        </div>
+      </div>
+
+      {/* Status progress bar */}
+      <div className="card p-5">
+        <div className="flex items-center gap-1 flex-wrap">
+          {steps.map((s,i)=>{
+            const done = curIdx>i;
+            const curr = curIdx===i;
+            return <React.Fragment key={s}>
+              <div className={`flex flex-col items-center`}>
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${done?"bg-teal-500 text-white":curr?"bg-brand text-white":"bg-gray-200 text-gray-400"}`}>
+                  {done?"✓":i+1}
+                </div>
+                <span className={`text-[10px] mt-1 max-w-16 text-center leading-tight ${curr?"text-brand font-semibold":"text-gray-400"}`}>{s}</span>
+              </div>
+              {i<steps.length-1&&<div className={`flex-1 h-0.5 min-w-4 ${done?"bg-teal-400":"bg-gray-200"} mb-4`}/>}
+            </React.Fragment>;
+          })}
+        </div>
+        {o.status==="Rejected"&&<div className="mt-2"><StatusBadge status="Rejected"/></div>}
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-6">
+        {/* Order details */}
+        <div className="card p-5 space-y-3">
+          <h3 className="font-semibold text-gray-800 mb-2">Order Details</h3>
+          {[["Customer",o.customer_name],["Beer",o.beer_name],["Style",o.style||"—"],["ABV",o.abv?o.abv+"%":"—"],["Volume",o.volume_litres?o.volume_litres+"L":"—"],["Quotation No.",o.quotation_no||"—"],["Order Price",o.order_price?fmtThb(o.order_price):"—"],["Round No.",o.round_no||"—"],["Batch No.",o.batch_no||"—"],["Brew Date",o.brewing_date||"—"],["Deliver Date",o.deliver_date||"—"],["Recipe Cost",rcost?fmtThb(rcost):"—"]].map(([k,v])=>
+            <div key={k} className="flex justify-between text-sm"><span className="text-gray-400">{k}</span><span className="font-medium text-gray-800">{v}</span></div>
+          )}
+        </div>
+        {/* Payment milestones */}
+        <div className="card p-5">
+          <h3 className="font-semibold text-gray-800 mb-3">Payment Milestones</h3>
+          <div className="space-y-3">
+            {[
+              {label:"Deposit (10k + 30% RM+MG)",date:o.deposit_date,amount:dep},
+              {label:"Balance (70% RM+MG)",date:o.balance_date,amount:bal},
+              {label:"Final (Tax + Storage)",date:o.final_date,amount:fin},
+            ].map(pm=><div key={pm.label} className={`flex items-center justify-between p-3 rounded-xl ${pm.amount?"bg-green-50 border border-green-100":"bg-gray-50"}`}>
+              <div>
+                <p className="text-xs font-medium text-gray-700">{pm.label}</p>
+                <p className="text-xs text-gray-400">{pm.date||"Not set"}</p>
+              </div>
+              <span className={`text-sm font-bold ${pm.amount?"text-green-600":"text-gray-300"}`}>{pm.amount?fmtThb(pm.amount):"—"}</span>
+            </div>)}
+            <div className="flex justify-between pt-2 border-t border-gray-100">
+              <span className="text-sm font-semibold text-gray-700">Total Paid</span>
+              <span className="text-sm font-bold text-teal-700">{fmtThb(paid)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      {o.notes&&<div className="card p-5"><h3 className="font-semibold text-gray-800 mb-2">Notes</h3><p className="text-sm text-gray-600 whitespace-pre-wrap">{o.notes}</p></div>}
+    </div>;
+  }
+
+  return <div className="space-y-5">
+    <SectionHeader title="Orders" action={<button onClick={openAdd} className="btn-primary">+ New Order</button>}/>
+
+    <div className="flex flex-wrap gap-3">
+      <input className="input-cls flex-1 min-w-40 max-w-64" placeholder="Search order, customer, beer…" value={search} onChange={e=>setSearch(e.target.value)}/>
+      <select className="input-cls w-auto" value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}>
+        <option value="All">All Statuses</option>
+        {CONTRACT_STATUSES.map(s=><option key={s}>{s}</option>)}
+      </select>
+    </div>
+
+    {filtered.length===0
+      ? <div className="card p-10 text-center text-gray-400">No orders match.</div>
+      : <div className="card table-scroll">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr className="text-left text-xs text-gray-400">
+                <th className="px-4 py-3 font-medium">#</th>
+                <th className="px-4 py-3 font-medium">Customer</th>
+                <th className="px-4 py-3 font-medium">Beer</th>
+                <th className="px-4 py-3 font-medium">Volume</th>
+                <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 font-medium">Brew Date</th>
+                <th className="px-4 py-3 font-medium"/>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(o=><tr key={o.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={()=>setViewId(o.id)}>
+                <td className="px-4 py-3 font-mono text-xs text-gray-500">{o.order_no}</td>
+                <td className="px-4 py-3 font-medium text-gray-800">{o.customer_name||"—"}</td>
+                <td className="px-4 py-3 text-gray-700">{o.beer_name||"—"}</td>
+                <td className="px-4 py-3 text-gray-500">{o.volume_litres?o.volume_litres+"L":"—"}</td>
+                <td className="px-4 py-3"><StatusBadge status={o.status}/></td>
+                <td className="px-4 py-3 text-gray-500">{o.brewing_date||"—"}</td>
+                <td className="px-4 py-3 text-right" onClick={e=>e.stopPropagation()}>
+                  <button onClick={()=>openEdit(o)} className="text-xs text-indigo-500 hover:text-indigo-700 mr-2">Edit</button>
+                  <button onClick={()=>setDelId(o.id)} className="text-xs text-red-400 hover:text-red-600">Del</button>
+                </td>
+              </tr>)}
+            </tbody>
+          </table>
+        </div>
+    }
+
+    {/* Add/Edit Order Modal */}
+    <Modal open={showModal} onClose={()=>setShowModal(false)} title={editId?"Edit Order":"New Order"} wide>
+      <form onSubmit={handleSave} className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className="form-label">Order #</label><input className="input-cls font-mono" placeholder="auto" value={form.order_no} onChange={e=>setForm(f=>({...f,order_no:e.target.value}))}/></div>
+          <div><label className="form-label">Status</label>
+            <select className="input-cls" value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}>
+              {CONTRACT_STATUSES.map(s=><option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div><label className="form-label">Customer</label>
+            <select className="input-cls" value={form.customer_id} onChange={e=>setForm(f=>({...f,customer_id:e.target.value}))}>
+              <option value="">— Select —</option>
+              {customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="form-label">Beer Name *</label>
+            {form.customer_id && cbeers && cbeers.filter(b=>b.customer_id===form.customer_id).length>0
+              ? <select required className="input-cls" value={form.beer_name}
+                  onChange={e=>{
+                    const b=cbeers.find(x=>x.customer_id===form.customer_id&&x.beer_name===e.target.value);
+                    setForm(f=>({...f,beer_name:e.target.value,style:b?.style||f.style,abv:b?.abv||f.abv}));
+                  }}>
+                  <option value="">— Select beer —</option>
+                  {cbeers.filter(b=>b.customer_id===form.customer_id).map(b=><option key={b.id} value={b.beer_name}>{b.brand?b.brand+" – ":""}{b.beer_name}</option>)}
+                </select>
+              : <input required className="input-cls" placeholder="Enter beer name" value={form.beer_name} onChange={e=>setForm(f=>({...f,beer_name:e.target.value}))}/>
+            }
+          </div>
+          <div><label className="form-label">Style</label><input className="input-cls" value={form.style} onChange={e=>setForm(f=>({...f,style:e.target.value}))}/></div>
+          <div><label className="form-label">ABV %</label><input type="number" step="0.1" className="input-cls" value={form.abv} onChange={e=>setForm(f=>({...f,abv:e.target.value}))}/></div>
+          <div><label className="form-label">Volume (L)</label><input type="number" className="input-cls" value={form.volume_litres} onChange={e=>setForm(f=>({...f,volume_litres:e.target.value}))}/></div>
+          <div><label className="form-label">Recipe</label>
+            <select className="input-cls" value={form.recipe_id} onChange={e=>setForm(f=>({...f,recipe_id:e.target.value}))}>
+              <option value="">— None —</option>
+              {recipes.map(r=><option key={r.id} value={r.id}>{r.recipe_code} {r.beer_name}</option>)}
+            </select>
+          </div>
+        </div>
+        {/* ── Quotation / Batch fields ─────────────────────────────── */}
+        <div style={{background:"#f8fafc",borderRadius:12,padding:"14px 16px",border:"1px solid #e5e7eb"}}>
+          <p style={{fontSize:11,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>Quotation &amp; Batch Info</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="form-label">Quotation No.</label>
+              <input className="input-cls" placeholder="e.g. QT-2025-001" value={form.quotation_no} onChange={e=>setForm(f=>({...f,quotation_no:e.target.value}))}/>
+            </div>
+            <div>
+              <label className="form-label">Order Price / Quotation (฿)</label>
+              <input type="number" step="0.01" className="input-cls" placeholder="Total quoted price" value={form.order_price} onChange={e=>setForm(f=>({...f,order_price:e.target.value}))}/>
+            </div>
+            <div>
+              <label className="form-label">Round No.</label>
+              <input type="number" min="1" className="input-cls" placeholder="Production round" value={form.round_no} onChange={e=>setForm(f=>({...f,round_no:e.target.value}))}/>
+            </div>
+            <div>
+              <label className="form-label">Batch No. <span style={{fontSize:11,color:"#9ca3af",fontWeight:400}}>(optional)</span></label>
+              <input type="number" min="1" className="input-cls" placeholder="Batch number" value={form.batch_no} onChange={e=>setForm(f=>({...f,batch_no:e.target.value}))}/>
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <div><label className="form-label">Deposit Date</label><input type="date" className="input-cls" value={form.deposit_date} onChange={e=>setForm(f=>({...f,deposit_date:e.target.value}))}/></div>
+          <div><label className="form-label">Deposit Amount</label><input type="number" className="input-cls" value={form.deposit_amount} onChange={e=>setForm(f=>({...f,deposit_amount:e.target.value}))}/></div>
+          <div/>
+          <div><label className="form-label">Balance Date</label><input type="date" className="input-cls" value={form.balance_date} onChange={e=>setForm(f=>({...f,balance_date:e.target.value}))}/></div>
+          <div><label className="form-label">Balance Amount</label><input type="number" className="input-cls" value={form.balance_amount} onChange={e=>setForm(f=>({...f,balance_amount:e.target.value}))}/></div>
+          <div/>
+          <div><label className="form-label">Final Date</label><input type="date" className="input-cls" value={form.final_date} onChange={e=>setForm(f=>({...f,final_date:e.target.value}))}/></div>
+          <div><label className="form-label">Final Amount</label><input type="number" className="input-cls" value={form.final_amount} onChange={e=>setForm(f=>({...f,final_amount:e.target.value}))}/></div>
+          <div/>
+          <div><label className="form-label">Brew Date</label><input type="date" className="input-cls" value={form.brewing_date} onChange={e=>setForm(f=>({...f,brewing_date:e.target.value}))}/></div>
+          <div><label className="form-label">Deliver Date</label><input type="date" className="input-cls" value={form.deliver_date} onChange={e=>setForm(f=>({...f,deliver_date:e.target.value}))}/></div>
+        </div>
+        <div><label className="form-label">Notes</label><textarea className="input-cls" rows={2} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/></div>
+        <div className="flex gap-3 justify-end pt-2">
+          <button type="button" onClick={()=>setShowModal(false)} className="btn-ghost">Cancel</button>
+          <button type="submit" className="btn-primary">Save Order</button>
+        </div>
+      </form>
+    </Modal>
+    <ConfirmModal open={!!delId} danger title="Delete Order" message="Delete this order permanently?" onConfirm={()=>{ setOrders(p=>p.filter(o=>o.id!==delId)); setDelId(null); }} onCancel={()=>setDelId(null)}/>
+  </div>;
+}
+
+// ─── QUEUE PAGE ──────────────────────────────────────────────────────────────
+function QueuePage({queue,setQueue,orders,customers}){
+  const [showModal,setShowModal] = useState(false);
+  const [editId,setEditId]       = useState(null);
+  const [filter,setFilter]       = useState("All");
+  const emptyForm = ()=>({batch_id:"",type:"Contract",order_id:"",brand:"",beer_name:"",brew_date:"",volume:"",status:"Scheduled",fermenter:"",notes:""});
+  const [form,setForm] = useState(emptyForm());
+  const [delId,setDelId] = useState(null);
+
+  const openAdd  = ()=>{ setForm(emptyForm()); setEditId(null); setShowModal(true); };
+  const openEdit = (q)=>{ setForm({batch_id:q.batch_id||"",type:q.type||"Contract",order_id:q.order_id||"",brand:q.brand||"",beer_name:q.beer_name||"",brew_date:q.brew_date||"",volume:q.volume||"",status:q.status||"Scheduled",fermenter:q.fermenter||"",notes:q.notes||""}); setEditId(q.id); setShowModal(true); };
+
+  const handleSave=(e)=>{
+    e.preventDefault();
+    if(editId){
+      setQueue(p=>p.map(q=>q.id===editId?{...q,...form}:q));
+    } else {
+      setQueue(p=>[...p,{id:uid(),...form}]);
+    }
+    setShowModal(false);
+  };
+
+  // Merge contract orders that are Scheduled/Brewing into queue view
+  const scheduledOrders = orders.filter(o=>["Scheduled","Brewing","Tasting","Packaging"].includes(o.status));
+  const combined = useMemo(()=>{
+    const manual = queue.map(q=>({...q, _src:"manual"}));
+    // Auto-add scheduled orders not already in queue by order_id
+    const autoEntries = scheduledOrders
+      .filter(o=>!queue.some(q=>q.order_id===o.id))
+      .map(o=>({
+        id:"auto_"+o.id, batch_id:"", type:"Contract",
+        order_id:o.id, brand:"", beer_name:o.beer_name,
+        brew_date:o.brewing_date||"", volume:o.volume_litres||"",
+        status:o.status, fermenter:"", notes:o.customer_name,
+        _src:"auto", _order:o
+      }));
+    return [...manual,...autoEntries];
+  },[queue,orders,scheduledOrders]);
+
+  const filtered = useMemo(()=>{
+    if(filter==="All") return combined;
+    if(filter==="Contract") return combined.filter(q=>q.type==="Contract"||q._src==="auto");
+    return combined.filter(q=>q.type===filter);
+  },[combined,filter]);
+
+  // Sort by brew_date
+  const sorted = useMemo(()=>[...filtered].sort((a,b)=>{
+    if(!a.brew_date&&!b.brew_date) return 0;
+    if(!a.brew_date) return 1; if(!b.brew_date) return -1;
+    return a.brew_date.localeCompare(b.brew_date);
+  }),[filtered]);
+
+  const QUEUE_STATUS_COLORS = {
+    "Scheduled":"bg-purple-100 text-purple-700","Brewing":"bg-teal-100 text-teal-700",
+    "Tasting":"bg-cyan-100 text-cyan-700","Packaging":"bg-indigo-100 text-indigo-700",
+    "Planned":"bg-indigo-50 text-indigo-400","Done":"bg-green-100 text-green-700",
+  };
+
+  return <div className="space-y-5">
+    <SectionHeader title="Brew Queue" action={<button onClick={openAdd} className="btn-primary">+ Add to Queue</button>}/>
+    <p className="text-xs text-gray-400 -mt-3">Combined view of in-house and contract scheduled brews. Contract orders at Scheduled+ appear automatically.</p>
+
+    <div className="flex gap-2">
+      {["All","Contract","In-house"].map(f=><button key={f} onClick={()=>setFilter(f)}
+        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filter===f?"bg-teal-600 text-white":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"}`}>{f}</button>)}
+    </div>
+
+    {sorted.length===0
+      ? <div className="card p-10 text-center text-gray-400">No brews in queue.</div>
+      : <div className="card table-scroll">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr className="text-left text-xs text-gray-400">
+                <th className="px-4 py-3 font-medium">Type</th>
+                <th className="px-4 py-3 font-medium">Beer</th>
+                <th className="px-4 py-3 font-medium">Customer / Notes</th>
+                <th className="px-4 py-3 font-medium">Brew Date</th>
+                <th className="px-4 py-3 font-medium">Volume</th>
+                <th className="px-4 py-3 font-medium">Fermenter</th>
+                <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 font-medium"/>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map(q=>{
+                const isAuto = q._src==="auto";
+                const sc = QUEUE_STATUS_COLORS[q.status]||"bg-gray-100 text-gray-600";
+                return <tr key={q.id} className={`border-b border-gray-50 hover:bg-gray-50 ${isAuto?"italic text-gray-500":""}`}>
+                  <td className="px-4 py-3">
+                    <span className={`badge ${q.type==="Contract"||isAuto?"bg-blue-100 text-blue-700":"bg-amber-100 text-amber-700"}`}>
+                      {isAuto?"Contract":q.type}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 font-medium text-gray-800">{q.beer_name||"—"}</td>
+                  <td className="px-4 py-3 text-gray-500 text-xs">{q.notes||q.brand||"—"}</td>
+                  <td className="px-4 py-3 text-gray-600">{q.brew_date||"—"}</td>
+                  <td className="px-4 py-3 text-gray-500">{q.volume?q.volume+"L":"—"}</td>
+                  <td className="px-4 py-3 text-gray-500">{q.fermenter||"—"}</td>
+                  <td className="px-4 py-3"><span className={`badge ${sc}`}>{q.status}</span></td>
+                  <td className="px-4 py-3 text-right">
+                    {!isAuto&&<>
+                      <button onClick={()=>openEdit(q)} className="text-xs text-indigo-500 hover:text-indigo-700 mr-2">Edit</button>
+                      <button onClick={()=>setDelId(q.id)} className="text-xs text-red-400 hover:text-red-600">Del</button>
+                    </>}
+                    {isAuto&&<span className="text-xs text-gray-300">auto</span>}
+                  </td>
+                </tr>;
+              })}
+            </tbody>
+          </table>
+        </div>
+    }
+
+    <Modal open={showModal} onClose={()=>setShowModal(false)} title={editId?"Edit Queue Entry":"Add to Queue"}>
+      <form onSubmit={handleSave} className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className="form-label">Type</label>
+            <select className="input-cls" value={form.type} onChange={e=>setForm(f=>({...f,type:e.target.value}))}>
+              <option>Contract</option><option>In-house</option>
+            </select>
+          </div>
+          <div><label className="form-label">Batch ID</label><input className="input-cls font-mono" value={form.batch_id} onChange={e=>setForm(f=>({...f,batch_id:e.target.value}))}/></div>
+          {form.type==="Contract"&&<div><label className="form-label">Linked Order</label>
+            <select className="input-cls" value={form.order_id} onChange={e=>setForm(f=>({...f,order_id:e.target.value}))}>
+              <option value="">— None —</option>
+              {orders.map(o=><option key={o.id} value={o.id}>#{o.order_no} {o.beer_name}</option>)}
+            </select>
+          </div>}
+          <div><label className="form-label">Beer Name *</label><input required className="input-cls" value={form.beer_name} onChange={e=>setForm(f=>({...f,beer_name:e.target.value}))}/></div>
+          <div><label className="form-label">Brew Date</label><input type="date" className="input-cls" value={form.brew_date} onChange={e=>setForm(f=>({...f,brew_date:e.target.value}))}/></div>
+          <div><label className="form-label">Volume (L)</label><input type="number" className="input-cls" value={form.volume} onChange={e=>setForm(f=>({...f,volume:e.target.value}))}/></div>
+          <div><label className="form-label">Fermenter</label><input className="input-cls" value={form.fermenter} onChange={e=>setForm(f=>({...f,fermenter:e.target.value}))}/></div>
+          <div><label className="form-label">Status</label>
+            <select className="input-cls" value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}>
+              {["Planned","Scheduled","Brewing","Tasting","Packaging","Done"].map(s=><option key={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+        <div><label className="form-label">Notes / Brand</label><input className="input-cls" value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/></div>
+        <div className="flex gap-3 justify-end pt-2">
+          <button type="button" onClick={()=>setShowModal(false)} className="btn-ghost">Cancel</button>
+          <button type="submit" className="btn-primary">Save</button>
+        </div>
+      </form>
+    </Modal>
+    <ConfirmModal open={!!delId} danger title="Remove from Queue" message="Remove this entry from the queue?" onConfirm={()=>{ setQueue(p=>p.filter(q=>q.id!==delId)); setDelId(null); }} onCancel={()=>setDelId(null)}/>
+  </div>;
+}
+
+// ─── MODEL CALCULATION PAGE ──────────────────────────────────────────────────
+// Tax constants from Beer Tax Structure sheet
+const TAX_VALUE_RATE  = 22;     // % of SRP ex-VAT
+const TAX_VOLUME_RATE = 430;    // THB per litre of pure alcohol
+const TAX_SURCHARGE   = 1.175;  // includes 10% local + 7.5% fund surcharge
+const VAT_RATE        = 1.07;
+const KEG_SIZE_L      = 20;     // static
+const LABOUR_CONTRACT = 17345;
+const LABOUR_OWN      = 9000;
+const SERVICE_FEE_B1  = 20000;
+const SERVICE_FEE_B23 = 10000;
+const GLASSES_PER_KEG = 45;
+
+function CalcPage({recipes, ringredients, ingredients, customers, cbeers}){
+  const [form, setForm] = useState({
+    model_type:"Contract Brewing",
+    brand:"", beer_name:"", style:"", abv:5,
+    srp_with_vat:1800,
+    kegs:18, rm:0, packaging_per_keg:150, batch_no:1,
+    other_price:7000,
+    recipe_id:"",
+  });
+
+  // Pull RM from recipe if selected
+  const recipeOptions = recipes.map(r=>({...r}));
+  const handleRecipeSelect = (rid)=>{
+    if(!rid){ setForm(f=>({...f,recipe_id:"",rm:0})); return; }
+    const r = recipes.find(x=>x.id===rid);
+    if(!r){ setForm(f=>({...f,recipe_id:rid})); return; }
+    // Get ingredient cost from ringredients
+    const lines = ringredients.filter(ri=>ri.recipe_id===rid);
+    const rmCost = lines.reduce((s,l)=>{
+      const ac=(parseFloat(l.cost_per_unit)||0)/((parseFloat(l.yield_pct)||100)/100);
+      return s+(parseFloat(l.use_qty)||0)*ac;
+    },0);
+    const miscCost = rmCost*(+r.misc_pct||0)/100;
+    setForm(f=>({...f, recipe_id:rid, rm: +(rmCost+miscCost).toFixed(2),
+      beer_name:r.beer_name||f.beer_name, brand:r.brand||f.brand }));
+  };
+
+  const f = form;
+
+  // ── CALCULATIONS ──────────────────────────────────────────────────────────
+  const srp_ex_vat   = (+f.srp_with_vat||0) / VAT_RATE;
+  const labour       = f.model_type==="Contract Brewing" ? LABOUR_CONTRACT : LABOUR_OWN;
+  const tax_value    = srp_ex_vat * (TAX_VALUE_RATE/100);
+  const tax_volume   = (+f.abv||0) * KEG_SIZE_L * (TAX_VOLUME_RATE/100);
+  const tax_per_keg  = (tax_value + tax_volume) * TAX_SURCHARGE;
+  const tax_total    = tax_per_keg * (+f.kegs||0);
+  const pkg_total    = (+f.packaging_per_keg||0) * (+f.kegs||0);
+  const service_fee  = f.model_type!=="Contract Brewing" ? 0
+    : +f.batch_no===1 ? SERVICE_FEE_B1
+    : (+f.batch_no===2||+f.batch_no===3) ? SERVICE_FEE_B23 : 0;
+  const total        = (+f.rm||0) + labour + tax_total + pkg_total + service_fee;
+  const per_keg      = (+f.kegs||0)>0 ? total/(+f.kegs) : 0;
+  const per_keg_vat  = per_keg * VAT_RATE;
+  const price_upb    = f.model_type==="UPB Own" ? per_keg_vat : per_keg_vat * 1.25;
+  const price_branch = per_keg_vat * 1.8;
+  const gb_pays      = (+f.other_price||0) * 0.8;
+  const cost_per_glass= price_upb / GLASSES_PER_KEG;
+  const bar_price    = f.model_type==="UPB Own" ? cost_per_glass*3 : cost_per_glass*2;
+
+  const fB = (n)=>n.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const set = (k)=>(e)=>setForm(f=>({...f,[k]:e.target.value}));
+
+  // input row helper
+  const Row = ({label,value,unit,highlight,desc})=>(
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+      padding:"8px 14px",borderBottom:"1px solid #f3f4f6",
+      background:highlight?"#f0fdfa":"transparent"}}>
+      <span style={{fontSize:13,color:"#4b5563"}}>{label}</span>
+      <div style={{textAlign:"right"}}>
+        <span style={{fontSize:14,fontWeight:700,color:highlight?"#0d9488":"#111827"}}>
+          {value}{unit?" ":""}{unit&&<span style={{fontSize:11,color:"#9ca3af",fontWeight:400}}>{unit}</span>}
+        </span>
+        {desc&&<div style={{fontSize:10,color:"#9ca3af"}}>{desc}</div>}
+      </div>
+    </div>
+  );
+
+  return <div style={{maxWidth:1100}}>
+    <SectionHeader title="💰 Model Calculation" action={
+      <span style={{fontSize:12,color:"#9ca3af"}}>โครงสร้างการคิดราคาเบียร์ Contract Brewing</span>}/>
+
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
+
+      {/* ── LEFT: INPUTS ───────────────────────────────────────────────────── */}
+      <div className="space-y-4">
+        {/* Model type */}
+        <div className="card p-5">
+          <p style={{fontSize:11,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:".06em",marginBottom:12}}>Model Info</p>
+          <div style={{display:"grid",gap:12}}>
+            <div>
+              <label className="form-label">Model Type</label>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {["Contract Brewing","Brand Own","UPB Own"].map(m=>(
+                  <button key={m} type="button"
+                    onClick={()=>setForm(f=>({...f,model_type:m}))}
+                    style={{padding:"7px 14px",borderRadius:10,fontSize:13,fontWeight:600,cursor:"pointer",
+                      border:f.model_type===m?"none":"1.5px solid #e5e7eb",
+                      background:f.model_type===m?"#1e4d6b":"#fff",
+                      color:f.model_type===m?"#fff":"#374151"}}>
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <div>
+                <label className="form-label">Customer</label>
+                <select className="input-cls" value={f.customer_id||""}
+                  onChange={e=>{
+                    setForm(fd=>({...fd,customer_id:e.target.value,beer_name:"",brand:"",style:"",abv:5}));
+                  }}>
+                  <option value="">— Any / manual —</option>
+                  {customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="form-label">Beer Name</label>
+                {f.customer_id && cbeers && cbeers.filter(b=>b.customer_id===f.customer_id).length>0
+                  ? <select className="input-cls" value={f.beer_name}
+                      onChange={e=>{
+                        const b=cbeers.find(x=>x.customer_id===f.customer_id&&x.beer_name===e.target.value);
+                        setForm(fd=>({...fd,beer_name:e.target.value,brand:b?.brand||fd.brand,style:b?.style||fd.style,abv:b?.abv?+b.abv:fd.abv}));
+                      }}>
+                      <option value="">— Select beer —</option>
+                      {cbeers.filter(b=>b.customer_id===f.customer_id).map(b=><option key={b.id} value={b.beer_name}>{b.brand?b.brand+" – ":""}{b.beer_name}</option>)}
+                    </select>
+                  : <input className="input-cls" value={f.beer_name} onChange={set("beer_name")} placeholder="Enter manually"/>
+                }
+              </div>
+              <div><label className="form-label">Brand</label>
+                <input className="input-cls" value={f.brand} onChange={set("brand")}/></div>
+              <div><label className="form-label">Style</label>
+                <input className="input-cls" value={f.style} onChange={set("style")}/></div>
+              <div><label className="form-label">ABV (%)</label>
+                <input type="number" step="0.1" min="0" max="20" className="input-cls" value={f.abv} onChange={set("abv")}/></div>
+            </div>
+          </div>
+        </div>
+
+        {/* Batch inputs */}
+        <div className="card p-5">
+          <p style={{fontSize:11,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:".06em",marginBottom:12}}>Batch Parameters</p>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div>
+              <label className="form-label">SRP (incl. VAT, ฿)</label>
+              <input type="number" step="1" className="input-cls" value={f.srp_with_vat} onChange={set("srp_with_vat")}/>
+              <p style={{fontSize:11,color:"#9ca3af",marginTop:3}}>Ex-VAT: ฿{fB(srp_ex_vat)}</p>
+            </div>
+            <div>
+              <label className="form-label">Kegs Produced (ถัง)</label>
+              <input type="number" className="input-cls" value={f.kegs} onChange={set("kegs")}/>
+              <p style={{fontSize:11,color:"#9ca3af",marginTop:3}}>Keg size: {KEG_SIZE_L}L (fixed)</p>
+            </div>
+            <div>
+              <label className="form-label">Packaging / keg (฿)</label>
+              <input type="number" step="1" className="input-cls" value={f.packaging_per_keg} onChange={set("packaging_per_keg")}/>
+            </div>
+            {f.model_type==="Contract Brewing"&&<div>
+              <label className="form-label">Batch Number</label>
+              <input type="number" min="1" className="input-cls" value={f.batch_no} onChange={set("batch_no")}/>
+              <p style={{fontSize:11,color:"#9ca3af",marginTop:3}}>
+                Fee: {+f.batch_no===1?"฿20,000":(+f.batch_no===2||+f.batch_no===3)?"฿10,000":"฿0 (free)"}
+              </p>
+            </div>}
+          </div>
+        </div>
+
+        {/* RM cost */}
+        <div className="card p-5">
+          <p style={{fontSize:11,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:".06em",marginBottom:12}}>Raw Material (RM) Cost</p>
+          <div style={{marginBottom:10}}>
+            <label className="form-label">Link Recipe (auto-fill RM)</label>
+            <select className="input-cls" value={f.recipe_id} onChange={e=>handleRecipeSelect(e.target.value)}>
+              <option value="">— Enter manually —</option>
+              {recipeOptions.map(r=><option key={r.id} value={r.id}>{r.recipe_code||"—"} · {r.beer_name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="form-label">RM Total Cost (฿)</label>
+            <input type="number" step="0.01" className="input-cls" value={f.rm} onChange={set("rm")}
+              style={{background:f.recipe_id?"#f0fdfa":"#fff"}}/>
+            {f.recipe_id&&<p style={{fontSize:11,color:"#0d9488",marginTop:3}}>✓ Pulled from recipe</p>}
+          </div>
+        </div>
+
+        {/* Other pricing */}
+        <div className="card p-5">
+          <p style={{fontSize:11,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:".06em",marginBottom:12}}>External Sale Price</p>
+          <div>
+            <label className="form-label">ขายลูกค้าร้านอื่น / keg (฿)</label>
+            <input type="number" step="1" className="input-cls" value={f.other_price} onChange={set("other_price")}/>
+          </div>
+        </div>
+      </div>
+
+      {/* ── RIGHT: RESULTS ─────────────────────────────────────────────────── */}
+      <div className="space-y-4">
+
+        {/* Cost breakdown */}
+        <div className="card" style={{overflow:"hidden"}}>
+          <div style={{background:"#1e4d6b",padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:14,fontWeight:700,color:"#fff"}}>ต้นทุนต่อแบช / Batch Cost</span>
+            <span style={{fontSize:11,color:"#7dd3fc"}}>{f.brand||"—"} · {f.beer_name||"—"}</span>
+          </div>
+          <div>
+            <Row label="RM (วัตถุดิบ)" value={"฿"+fB(+f.rm||0)} desc="Raw materials incl. misc"/>
+            <Row label={`Labour & Utilities (${f.model_type})`} value={"฿"+fB(labour)} desc={f.model_type==="Contract Brewing"?"฿17,345 contract rate":"฿9,000 own-brand rate"}/>
+            <div style={{padding:"8px 14px",borderBottom:"1px solid #f3f4f6",background:"#fafafa"}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <span style={{fontSize:12,color:"#9ca3af",fontWeight:600}}>Tax Breakdown</span>
+                <span style={{fontSize:12,color:"#9ca3af"}}>×{f.kegs} kegs = ฿{fB(tax_total)}</span>
+              </div>
+              {[
+                ["ภาษีตามมูลค่า (22% of SRP)", "฿"+fB(tax_value)+"/keg"],
+                ["ภาษีตามปริมาณ (ABV×"+KEG_SIZE_L+"L×฿4.30)", "฿"+fB(tax_volume)+"/keg"],
+                ["รวม ×1.175 (incl. surcharges)", "฿"+fB(tax_per_keg)+"/keg"],
+              ].map(([k,v])=>(
+                <div key={k} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"2px 0"}}>
+                  <span style={{color:"#6b7280"}}>{k}</span>
+                  <span style={{color:"#374151",fontWeight:600}}>{v}</span>
+                </div>
+              ))}
+            </div>
+            <Row label="Packaging" value={"฿"+fB(pkg_total)} desc={`฿${f.packaging_per_keg}/keg × ${f.kegs} kegs`}/>
+            {f.model_type==="Contract Brewing"&&
+              <Row label={`Service Fee (Batch ${f.batch_no})`} value={"฿"+fB(service_fee)}
+                desc={+f.batch_no===1?"Batch 1: ฿20,000":(+f.batch_no<=3)?"Batch 2–3: ฿10,000":"Batch 4+: free"}/>}
+            <div style={{background:"#1e4d6b",display:"flex",justifyContent:"space-between",padding:"12px 14px"}}>
+              <span style={{fontSize:14,fontWeight:700,color:"#fff"}}>รวมทั้งหมด (Total)</span>
+              <span style={{fontSize:16,fontWeight:800,color:"#e9c46a"}}>฿{fB(total)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Per-keg pricing */}
+        <div className="card" style={{overflow:"hidden"}}>
+          <div style={{background:"#2a9d8f",padding:"10px 16px"}}>
+            <span style={{fontSize:14,fontWeight:700,color:"#fff"}}>ราคาต่อถัง / Keg Pricing</span>
+          </div>
+          <div>
+            <Row label="ต้นทุน / keg (ex-VAT)" value={"฿"+fB(per_keg)}/>
+            <Row label="ต้นทุน / keg (incl. VAT 7%)" value={"฿"+fB(per_keg_vat)} highlight/>
+            <Row label={f.model_type==="UPB Own"?"ขายเข้าสห (no markup)":"ขายเข้าสห (+25%)"}
+              value={"฿"+fB(price_upb)} highlight desc={f.model_type==="UPB Own"?"same as VAT price":"×1.25"}/>
+            <Row label="ขายเข้าสาขาและพาร์ทเนอร์ (+80%)" value={"฿"+fB(price_branch)} desc="×1.8"/>
+            <Row label="ขายลูกค้าร้านอื่น" value={"฿"+fB(+f.other_price||0)}/>
+            <Row label="GB จ่ายให้ (GP 20%)" value={"฿"+fB(gb_pays)} desc="×0.8"/>
+          </div>
+        </div>
+
+        {/* Per-glass pricing */}
+        <div className="card" style={{overflow:"hidden"}}>
+          <div style={{background:"#e9c46a",padding:"10px 16px"}}>
+            <span style={{fontSize:14,fontWeight:700,color:"#1e4d6b"}}>ราคาต่อแก้ว / Glass Pricing ({GLASSES_PER_KEG} glasses/keg)</span>
+          </div>
+          <div>
+            <Row label="ต้นทุนต่อแก้ว" value={"฿"+fB(cost_per_glass)}/>
+            <Row label={f.model_type==="UPB Own"?"ราคาขายบาร์สห (×3)":"ราคาขายบาร์สห (×2)"}
+              value={"฿"+fB(bar_price)} highlight
+              desc={f.model_type==="UPB Own"?"UPB Own ×3 markup":"Contract/Brand Own ×2 markup"}/>
+          </div>
+        </div>
+
+        {/* Summary box */}
+        <div className="card p-5" style={{background:"linear-gradient(135deg,#1e4d6b,#2a9d8f)",border:"none"}}>
+          <p style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.6)",textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>
+            Quick Summary — {f.model_type}
+          </p>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            {[
+              ["Batch Total", "฿"+fB(total), "#e9c46a"],
+              ["Per Keg (VAT)", "฿"+fB(per_keg_vat), "#fff"],
+              ["สห Price", "฿"+fB(price_upb), "#a7f3d0"],
+              ["Bar Price/glass", "฿"+fB(bar_price), "#fca5a5"],
+            ].map(([k,v,clr])=>(
+              <div key={k} style={{textAlign:"center",padding:"10px 8px",background:"rgba(255,255,255,.08)",borderRadius:10}}>
+                <p style={{fontSize:11,color:"rgba(255,255,255,.55)",margin:"0 0 4px"}}>{k}</p>
+                <p style={{fontSize:17,fontWeight:800,color:clr,margin:0}}>{v}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>;
+}
+
+// ─── SIDEBAR ─────────────────────────────────────────────────────────────────
+const NAV_ITEMS = [
+  {id:"dashboard",  label:"Dashboard",    icon:"📊"},
+  {id:"customers",  label:"Customers",    icon:"👥"},
+  {id:"ingredients",label:"Ingredients",  icon:"🌾"},
+  {id:"recipes",    label:"Recipes",      icon:"📋"},
+  {id:"calc",       label:"Model Calc",   icon:"💰"},
+  {id:"orders",     label:"Orders",       icon:"📦"},
+  {id:"queue",      label:"Brew Queue",   icon:"🍺"},
+];
+
+function Sidebar({page,setPage,token,onLogin,onSync,syncing}){
+  return <div className="w-56 flex-shrink-0 bg-white border-r border-gray-100 h-screen flex flex-col">
+    {/* Logo */}
+    <div className="px-5 py-5 border-b border-gray-100">
+      <div className="flex items-center gap-2">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm font-bold" style={{background:"#1e4d6b"}}>🍺</div>
+        <div>
+          <p className="text-sm font-bold text-gray-900">UPB Contract</p>
+          <p className="text-xs text-gray-400">Brewing Portal</p>
+        </div>
+      </div>
+    </div>
+    {/* Nav */}
+    <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+      {NAV_ITEMS.map(n=><button key={n.id} onClick={()=>setPage(n.id)}
+        className={`sidebar-link w-full text-left ${page===n.id?"active":""}`}>
+        <span>{n.icon}</span><span>{n.label}</span>
+      </button>)}
+    </nav>
+    {/* Google auth + sync */}
+    <div className="px-4 py-4 border-t border-gray-100 space-y-2">
+      {token
+        ? <>
+            <div style={{display:"flex",alignItems:"center",gap:7,fontSize:12,color:"#059669"}}>
+              <span style={{width:8,height:8,borderRadius:9999,background:"#10b981",display:"inline-block",flexShrink:0}}/>
+              Sheets connected
+            </div>
+            <button onClick={onSync} disabled={syncing}
+              style={{width:"100%",padding:"7px 10px",borderRadius:10,border:"1.5px solid #e5e7eb",
+                background:syncing?"#f0fdfa":"#fff",cursor:syncing?"default":"pointer",
+                fontSize:12,fontWeight:600,color:syncing?"#0d9488":"#374151",
+                display:"flex",alignItems:"center",justifyContent:"center",gap:6,
+                fontFamily:"Inter,sans-serif"}}>
+              {syncing ? "⟳ Syncing…" : "☁ Push to Sheets"}
+            </button>
+          </>
+        : <div style={{fontSize:12,color:"#9ca3af",display:"flex",alignItems:"center",gap:6}}>
+            <span style={{width:8,height:8,borderRadius:9999,background:"#fbbf24",display:"inline-block",flexShrink:0}}/>
+            Sign in to sync data
+          </div>
+      }
+    </div>
+  </div>;
+}
+
+// ─── AUTH GATE (Google-only) ─────────────────────────────────────────────────
+function AuthGate({children, token, login, gisReady}){
+  if(token) return children;
+  return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",
+    background:"linear-gradient(135deg,#1e4d6b 0%,#2a9d8f 100%)"}}>
+    <div style={{background:"#fff",borderRadius:24,padding:"40px 44px",width:"100%",maxWidth:420,
+      boxShadow:"0 24px 64px rgba(0,0,0,.22)",textAlign:"center"}}>
+      {/* Logo */}
+      <div style={{display:"inline-flex",alignItems:"center",justifyContent:"center",
+        width:64,height:64,borderRadius:20,background:"#1e4d6b",marginBottom:20,fontSize:28}}>🍺</div>
+      <h1 style={{fontSize:24,fontWeight:700,color:"#111827",margin:"0 0 4px"}}>UPB Contract</h1>
+      <p style={{fontSize:14,color:"#9ca3af",margin:"0 0 32px"}}>Contract Brewing Portal</p>
+
+      {gisReady
+        ? <button onClick={login} style={{display:"inline-flex",alignItems:"center",gap:12,
+            padding:"12px 28px",borderRadius:12,border:"1.5px solid #e5e7eb",background:"#fff",
+            cursor:"pointer",fontSize:15,fontWeight:600,color:"#374151",
+            boxShadow:"0 2px 8px rgba(0,0,0,.08)",transition:"all .15s",width:"100%",
+            justifyContent:"center"}}>
+            <svg width="20" height="20" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+            </svg>
+            Sign in with Google
+          </button>
+        : <div style={{color:"#9ca3af",fontSize:14}}>Loading…</div>
+      }
+      <p style={{fontSize:12,color:"#d1d5db",marginTop:20}}>
+        Access limited to authorised UPB team members
+      </p>
+    </div>
+  </div>;
+}
+
+// ─── APP ─────────────────────────────────────────────────────────────────────
+function App(){
+  const {token,login,gisReady} = useAuth();
+  const [page,setPage] = useState("dashboard");
+
+  const [customers,    setCustomers,    ,setTkC,  fpC]  = useSave("Customers",         SHEETS.Customers,         INITIAL_CUSTOMERS);
+  const [cbeers,       setCbeers,       ,setTkCB, fpCB] = useSave("CustomerBeers",     SHEETS.CustomerBeers,     INITIAL_CBEERS);
+  const [ingredients,  setIngredients,  ,setTkI,  fpI]  = useSave("Ingredients",       SHEETS.Ingredients,       INITIAL_INGREDIENTS);
+  const [recipes,      setRecipes,      ,setTkR,  fpR]  = useSave("Recipes",           SHEETS.Recipes,           INITIAL_RECIPES);
+  const [ringredients, setRingredients, ,setTkRI, fpRI] = useSave("RecipeIngredients", SHEETS.RecipeIngredients, INITIAL_RINGSREDIENTS);
+  const [orders,       setOrders,       ,setTkO,  fpO]  = useSave("Orders",            SHEETS.Orders,            INITIAL_ORDERS);
+  const [queue,        setQueue,        ,setTkQ,  fpQ]  = useSave("Queue",             SHEETS.Queue,             INITIAL_QUEUE);
+
+  const [syncing, setSyncing] = useState(false);
+
+  // push token to all save hooks
+  useEffect(()=>{
+    if(!token) return;
+    [setTkC,setTkCB,setTkI,setTkR,setTkRI,setTkO,setTkQ].forEach(fn=>fn(token));
+  },[token]);
+
+  const syncAll = ()=>{
+    if(!token) return;
+    setSyncing(true);
+    [fpC,fpCB,fpI,fpR,fpRI,fpO,fpQ].forEach(fn=>fn());
+    setTimeout(()=>setSyncing(false), 3000);
+  };
+
+  const renderPage=()=>{
+    switch(page){
+      case "dashboard":   return <DashboardPage orders={orders} customers={customers} queue={queue}/>;
+      case "customers":   return <CustomersPage customers={customers} setCustomers={setCustomers} cbeers={cbeers} setCbeers={setCbeers} orders={orders}/>;
+      case "ingredients": return <IngredientsPage ingredients={ingredients} setIngredients={setIngredients}/>;
+      case "recipes":     return <RecipesPage recipes={recipes} setRecipes={setRecipes} ringredients={ringredients} setRingredients={setRingredients} ingredients={ingredients} customers={customers} cbeers={cbeers}/>;
+      case "calc":        return <CalcPage recipes={recipes} ringredients={ringredients} ingredients={ingredients} customers={customers} cbeers={cbeers}/>;
+      case "orders":      return <OrdersPage orders={orders} setOrders={setOrders} customers={customers} cbeers={cbeers} recipes={recipes}/>;
+      case "queue":       return <QueuePage queue={queue} setQueue={setQueue} orders={orders} customers={customers}/>;
+      default: return null;
+    }
+  };
+
+  return (
+    <AuthGate token={token} login={login} gisReady={gisReady}>
+      <div style={{display:"flex",height:"100vh",overflow:"hidden"}}>
+        <Sidebar page={page} setPage={setPage} token={token} onLogin={login} onSync={syncAll} syncing={syncing}/>
+        <main style={{flex:1,overflowY:"auto",padding:24,background:"#f1f5f9"}}>
+          {renderPage()}
+        </main>
+      </div>
+    </AuthGate>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
