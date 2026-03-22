@@ -611,19 +611,23 @@ function DashboardPage({orders,customers,queue}){
       {/* Pipeline */}
       <div className="card p-5">
         <h3 className="font-semibold text-gray-800 mb-4">Order Pipeline</h3>
-        <div className="space-y-2">
+        <div className="space-y-3">
           {pipelineCounts.length===0
             ? <p className="text-sm text-gray-400">No active orders</p>
-            : pipelineCounts.map(({status,count})=>{
-                const cfg = STATUS_CFG[status]||{};
-                return <div key={status} className="flex items-center gap-3">
-                  <StatusBadge status={status}/>
-                  <div className="flex-1 bg-gray-100 rounded-full h-2">
-                    <div className={`h-2 rounded-full ${cfg.dot||"bg-gray-300"}`} style={{width:`${Math.min(100,count*20)}%`}}/>
-                  </div>
-                  <span className="text-sm font-medium text-gray-600 w-6 text-right">{count}</span>
-                </div>;
-              })
+            : (()=>{
+                const maxCnt = Math.max(1,...pipelineCounts.map(x=>x.count));
+                return pipelineCounts.map(({status,count})=>{
+                  const cfg = STATUS_CFG[status]||{};
+                  const pct = Math.round((count/maxCnt)*100);
+                  return <div key={status} className="flex items-center gap-3">
+                    <div style={{width:140,flexShrink:0}}><StatusBadge status={status}/></div>
+                    <div className="flex-1 bg-gray-100 rounded-full h-2.5" style={{minWidth:0}}>
+                      <div className={`h-2.5 rounded-full ${cfg.dot||"bg-gray-300"}`} style={{width:`${pct}%`,transition:"width .4s ease"}}/>
+                    </div>
+                    <span className="text-sm font-medium text-gray-600 w-6 text-right">{count}</span>
+                  </div>;
+                });
+              })()
           }
         </div>
       </div>
@@ -676,6 +680,8 @@ function CustomersPage({customers,setCustomers,cbeers,setCbeers,orders}){
   const [editId, setEditId]      = useState(null);
   const [form,setForm]           = useState({name:"",contact_name:"",phone:"",email:"",address:"",notes:""});
   const [view,setView]           = useState(null); // customer id being viewed
+  const [custViewMode,setCustViewMode] = useState("card"); // "card" | "list"
+  const [custSearch,setCustSearch]    = useState("");
   const [delId,setDelId]         = useState(null);
   const [beerModal,setBeerModal] = useState(false);
   const [beerForm,setBeerForm]   = useState({brand:"",beer_name:"",style:"",abv:"",recipe_id:"",notes:""});
@@ -731,7 +737,7 @@ function CustomersPage({customers,setCustomers,cbeers,setCbeers,orders}){
 
       {/* Beer list for customer */}
       <div className="card p-5">
-        <SectionHeader title="Their Beers" action={<button onClick={openAddBeer} className="btn-primary text-xs px-3 py-2">+ Add Beer</button>}/>
+        <SectionHeader title="Beer List" action={<button onClick={openAddBeer} className="btn-primary text-xs px-3 py-2">+ Add Beer</button>}/>
         {viewedBeers.length===0
           ? <p className="text-sm text-gray-400">No beers added yet.</p>
           : <div className="table-scroll">
@@ -793,35 +799,94 @@ function CustomersPage({customers,setCustomers,cbeers,setCbeers,orders}){
 
   return (
     <div className="space-y-6">
-      <SectionHeader title="Customers" action={<button onClick={openAdd} className="btn-primary">+ Add Customer</button>}/>
+      <div className="flex items-center gap-3 flex-wrap mb-1">
+        <h2 style={{fontSize:22,fontWeight:700,color:"#111827",margin:0}}>Customers</h2>
+        <button onClick={openAdd} className="btn-primary">+ Add Customer</button>
+        <div className="flex-1"/>
+        <input className="input-cls" style={{width:200}} placeholder="🔍 Search customers…"
+          value={custSearch} onChange={e=>setCustSearch(e.target.value)}/>
+        <div className="flex gap-1">
+          {[["card","⊞ Cards"],["list","≡ List"]].map(([m,lbl])=>(
+            <button key={m} onClick={()=>setCustViewMode(m)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${custViewMode===m?"bg-teal-600 text-white border-teal-600":"bg-white border-gray-200 text-gray-600 hover:bg-gray-50"}`}>{lbl}</button>
+          ))}
+        </div>
+      </div>
 
-      {customers.length===0
-        ? <div className="card p-10 text-center text-gray-400">No customers yet. Add your first client.</div>
-        : <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {customers.map(c=>{
-              const cnt = orders.filter(o=>o.customer_id===c.id).length;
-              return <div key={c.id} className="card p-5 cursor-pointer hover:shadow-md transition-shadow" onClick={()=>setView(c.id)}>
-                <div className="flex items-start justify-between mb-3">
-                  <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-lg font-bold text-teal-700">
-                    {(c.name||"?")[0].toUpperCase()}
+      {(()=>{
+        const q=custSearch.toLowerCase();
+        const visibleCustomers = custSearch
+          ? customers.filter(c=>(c.name||"").toLowerCase().includes(q)||(c.contact_name||"").toLowerCase().includes(q)||(c.email||"").toLowerCase().includes(q)||(c.phone||"").includes(q))
+          : customers;
+        return visibleCustomers.length===0
+          ? <div className="card p-10 text-center text-gray-400">{custSearch?"No customers match your search.":"No customers yet. Add your first client."}</div>
+          : custViewMode==="card"
+          ? <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {visibleCustomers.map(c=>{
+                const cnt = orders.filter(o=>o.customer_id===c.id).length;
+                const beerCnt = cbeers.filter(b=>b.customer_id===c.id).length;
+                return <div key={c.id} className="card p-5 cursor-pointer hover:shadow-md transition-shadow" onClick={()=>setView(c.id)}>
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-lg font-bold text-teal-700">
+                      {(c.name||"?")[0].toUpperCase()}
+                    </div>
+                    <div className="flex gap-1" onClick={e=>e.stopPropagation()}>
+                      <button onClick={()=>openEdit(c)} className="p-1 rounded hover:bg-gray-100 text-gray-400 text-sm">✏️</button>
+                      <button onClick={()=>setDelId(c.id)} className="p-1 rounded hover:bg-gray-100 text-red-300 text-sm">🗑</button>
+                    </div>
                   </div>
-                  <div className="flex gap-1" onClick={e=>e.stopPropagation()}>
-                    <button onClick={()=>openEdit(c)} className="p-1 rounded hover:bg-gray-100 text-gray-400 text-sm">✏️</button>
-                    <button onClick={()=>setDelId(c.id)} className="p-1 rounded hover:bg-gray-100 text-red-300 text-sm">🗑</button>
+                  <p className="font-semibold text-gray-900">{c.name}</p>
+                  <p className="text-sm text-gray-500">{c.contact_name}</p>
+                  <p className="text-xs text-gray-400 mt-1">{c.email}</p>
+                  <p className="text-xs text-gray-400">{c.phone}</p>
+                  <div className="mt-3 pt-3 border-t border-gray-100 flex gap-4 text-xs text-gray-400">
+                    <span>{cnt} order{cnt!==1?"s":""}</span>
+                    <span>{beerCnt} beer{beerCnt!==1?"s":""}</span>
                   </div>
-                </div>
-                <p className="font-semibold text-gray-900">{c.name}</p>
-                <p className="text-sm text-gray-500">{c.contact_name}</p>
-                <p className="text-xs text-gray-400 mt-1">{c.email}</p>
-                <p className="text-xs text-gray-400">{c.phone}</p>
-                <div className="mt-3 pt-3 border-t border-gray-100 flex gap-4 text-xs text-gray-400">
-                  <span>{cnt} order{cnt!==1?"s":""}</span>
-                  <span>{cbeers.filter(b=>b.customer_id===c.id).length} beer{cbeers.filter(b=>b.customer_id===c.id).length!==1?"s":""}</span>
-                </div>
-              </div>;
-            })}
-          </div>
-      }
+                </div>;
+              })}
+            </div>
+          : <div className="card table-scroll">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr className="text-left text-xs text-gray-400">
+                    <th className="px-4 py-3 font-medium">Company / Name</th>
+                    <th className="px-4 py-3 font-medium">Contact</th>
+                    <th className="px-4 py-3 font-medium">Phone</th>
+                    <th className="px-4 py-3 font-medium">Email</th>
+                    <th className="px-4 py-3 font-medium text-center">Orders</th>
+                    <th className="px-4 py-3 font-medium text-center">Beers</th>
+                    <th className="px-4 py-3 font-medium"/>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleCustomers.map(c=>{
+                    const cnt=orders.filter(o=>o.customer_id===c.id).length;
+                    const beerCnt=cbeers.filter(b=>b.customer_id===c.id).length;
+                    return <tr key={c.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={()=>setView(c.id)}>
+                      <td className="px-4 py-3 font-semibold text-gray-900">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-full bg-teal-100 flex items-center justify-center text-xs font-bold text-teal-700 flex-shrink-0">
+                            {(c.name||"?")[0].toUpperCase()}
+                          </div>
+                          {c.name}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">{c.contact_name||"—"}</td>
+                      <td className="px-4 py-3 text-gray-500">{c.phone||"—"}</td>
+                      <td className="px-4 py-3 text-gray-500">{c.email||"—"}</td>
+                      <td className="px-4 py-3 text-center"><span className="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{cnt}</span></td>
+                      <td className="px-4 py-3 text-center"><span className="text-xs font-semibold text-teal-600 bg-teal-50 px-2 py-0.5 rounded-full">{beerCnt}</span></td>
+                      <td className="px-4 py-3 text-right" onClick={e=>e.stopPropagation()}>
+                        <button onClick={()=>openEdit(c)} className="text-xs text-indigo-500 hover:text-indigo-700 mr-2">Edit</button>
+                        <button onClick={()=>setDelId(c.id)} className="text-xs text-red-400 hover:text-red-600">Del</button>
+                      </td>
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
+            </div>;
+      })()}
 
       {/* Add/Edit modal */}
       <Modal open={showModal} onClose={()=>setShowModal(false)} title={editId?"Edit Customer":"New Customer"}>
@@ -852,17 +917,24 @@ function CustomersPage({customers,setCustomers,cbeers,setCbeers,orders}){
 function IngredientsPage({ingredients,setIngredients}){
   const [catFilter,setCatFilter] = useState("All");
   const [search,setSearch]       = useState("");
+  const [ingPage,setIngPage]     = useState(1);
+  const ING_PER_PAGE = 50;
   const [showModal,setShowModal] = useState(false);
   const [editId,setEditId]       = useState(null);
   const emptyForm = ()=>({category:"Misc",supplier:"",name:"",purchase_size:"",purchase_unit:"kg",purchase_price:"",use_qty:"",use_unit:"g",cost_per_unit:""});
   const [form,setForm] = useState(emptyForm());
 
   const categories = ["All","Malt","Hop","Yeast","Misc"];
-  const filtered = useMemo(()=> ingredients.filter(i=>{
-    const catOk = catFilter==="All"||i.category===catFilter;
-    const srchOk = !search||(i.name||"").toLowerCase().includes(search.toLowerCase())||(i.supplier||"").toLowerCase().includes(search.toLowerCase());
-    return catOk&&srchOk;
-  }),[ingredients,catFilter,search]);
+  const filtered = useMemo(()=>{
+    setIngPage(1);
+    return ingredients.filter(i=>{
+      const catOk = catFilter==="All"||i.category===catFilter;
+      const srchOk = !search||(i.name||"").toLowerCase().includes(search.toLowerCase())||(i.supplier||"").toLowerCase().includes(search.toLowerCase());
+      return catOk&&srchOk;
+    });
+  },[ingredients,catFilter,search]);
+  const ingTotalPages = Math.max(1,Math.ceil(filtered.length/ING_PER_PAGE));
+  const ingPageData   = filtered.slice((ingPage-1)*ING_PER_PAGE, ingPage*ING_PER_PAGE);
 
   const openAdd  = ()=>{ setForm(emptyForm()); setEditId(null); setShowModal(true); };
   const openEdit = (ing)=>{ setForm({...ing}); setEditId(ing.id); setShowModal(true); };
@@ -917,9 +989,9 @@ function IngredientsPage({ingredients,setIngredients}){
           </tr>
         </thead>
         <tbody>
-          {filtered.length===0
+          {ingPageData.length===0
             ? <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No ingredients match filter</td></tr>
-            : filtered.map(ing=><tr key={ing.id} className="border-b border-gray-50 hover:bg-gray-50">
+            : ingPageData.map(ing=><tr key={ing.id} className="border-b border-gray-50 hover:bg-gray-50">
                 <td className="px-4 py-2.5"><span className={`badge ${catColors[ing.category]||"bg-gray-100 text-gray-600"}`}>{ing.category}</span></td>
                 <td className="px-4 py-2.5 font-medium text-gray-800">{ing.name}</td>
                 <td className="px-4 py-2.5 text-gray-500">{ing.supplier||"—"}</td>
@@ -936,7 +1008,25 @@ function IngredientsPage({ingredients,setIngredients}){
         </tbody>
       </table>
     </div>
-    <p className="text-xs text-gray-400">{filtered.length} of {ingredients.length} ingredients</p>
+    <div className="flex items-center justify-between text-xs text-gray-400">
+      <span>{filtered.length} of {ingredients.length} ingredients · Page {ingPage} of {ingTotalPages}</span>
+      {ingTotalPages>1&&<div className="flex items-center gap-1">
+        <button onClick={()=>setIngPage(1)} disabled={ingPage===1}
+          className="px-2 py-1 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-40">«</button>
+        <button onClick={()=>setIngPage(p=>Math.max(1,p-1))} disabled={ingPage===1}
+          className="px-2 py-1 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-40">‹ Prev</button>
+        {Array.from({length:ingTotalPages},(_, i)=>i+1).filter(n=>n===1||n===ingTotalPages||Math.abs(n-ingPage)<=1).reduce((acc,n,i,arr)=>{
+          if(i>0&&n-arr[i-1]>1) acc.push(<span key={"e"+n} className="px-1">…</span>);
+          acc.push(<button key={n} onClick={()=>setIngPage(n)}
+            className={`px-2 py-1 rounded border ${ingPage===n?"bg-teal-600 text-white border-teal-600":"border-gray-200 hover:bg-gray-50"}`}>{n}</button>);
+          return acc;
+        },[])}
+        <button onClick={()=>setIngPage(p=>Math.min(ingTotalPages,p+1))} disabled={ingPage===ingTotalPages}
+          className="px-2 py-1 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-40">Next ›</button>
+        <button onClick={()=>setIngPage(ingTotalPages)} disabled={ingPage===ingTotalPages}
+          className="px-2 py-1 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-40">»</button>
+      </div>}
+    </div>
 
     <Modal open={showModal} onClose={()=>setShowModal(false)} title={editId?"Edit Ingredient":"Add Ingredient"}>
       <form onSubmit={handleSave} className="space-y-3">
@@ -984,11 +1074,13 @@ function IngredientsPage({ingredients,setIngredients}){
 <script type="text/babel">
 // ─── RECIPES PAGE ────────────────────────────────────────────────────────────
 function RecipesPage({recipes,setRecipes,ringredients,setRingredients,ingredients,customers,cbeers}){
-  const [showModal,setShowModal] = useState(false);
-  const [editId,setEditId]       = useState(null);
-  const [viewId,setViewId]       = useState(null);
-  const [delId,setDelId]         = useState(null);
-  const [ingSearch,setIngSearch] = useState("");
+  const [showModal,setShowModal]     = useState(false);
+  const [editId,setEditId]           = useState(null);
+  const [viewId,setViewId]           = useState(null);
+  const [delId,setDelId]             = useState(null);
+  const [ingSearch,setIngSearch]     = useState("");
+  const [recipeView,setRecipeView]   = useState("card"); // "card" | "list" | "customer"
+  const [recipeSearch,setRecipeSearch] = useState("");
 
   const emptyForm = ()=>({
     recipe_code:"", customer_id:"", beer_id:"", beer_name:"", brand:"", style:"", abv:"",
@@ -1099,6 +1191,29 @@ function RecipesPage({recipes,setRecipes,ringredients,setRingredients,ingredient
   };
 
   const getCustomerName=(id)=>customers.find(c=>c.id===id)?.name||"—";
+
+  // ── Hooks that must stay above early return ─────────────────────────────────
+  const recipesByCustomer = useMemo(()=>{
+    const map={};
+    recipes.forEach(r=>{
+      const cid=r.customer_id||"__none__";
+      if(!map[cid]) map[cid]={customer:customers.find(c=>c.id===cid)||{id:cid,name:"(No Customer)"},items:[]};
+      map[cid].items.push(r);
+    });
+    return Object.values(map).sort((a,b)=>(a.customer.name||"").localeCompare(b.customer.name||""));
+  },[recipes,customers]);
+
+  const visibleRecipes = useMemo(()=>{
+    if(!recipeSearch) return recipes;
+    const q=recipeSearch.toLowerCase();
+    return recipes.filter(r=>
+      (r.recipe_code||"").toLowerCase().includes(q)||
+      (r.beer_name||"").toLowerCase().includes(q)||
+      (r.brand||"").toLowerCase().includes(q)||
+      (getCustomerName(r.customer_id)||"").toLowerCase().includes(q)||
+      (r.style||"").toLowerCase().includes(q)
+    );
+  },[recipes,recipeSearch,customers]);
 
   // ── DETAIL VIEW ────────────────────────────────────────────────────────────
   const viewedRecipe = recipes.find(r=>r.id===viewId);
@@ -1216,36 +1331,120 @@ function RecipesPage({recipes,setRecipes,ringredients,setRingredients,ingredient
     </div>;
   }
 
-  // ── LIST VIEW ──────────────────────────────────────────────────────────────
+  // ── MAIN VIEW ──────────────────────────────────────────────────────────────
   return <div className="space-y-5">
-    <SectionHeader title="Recipes" action={<button onClick={openAdd} className="btn-primary">+ New Recipe</button>}/>
+    <div className="flex items-center gap-3 flex-wrap mb-1">
+      <h2 style={{fontSize:22,fontWeight:700,color:"#111827",margin:0}}>Recipes</h2>
+      <button onClick={openAdd} className="btn-primary">+ New Recipe</button>
+      <div className="flex-1"/>
+      <input className="input-cls" style={{width:220}} placeholder="🔍 Search recipe, beer, customer…"
+        value={recipeSearch} onChange={e=>setRecipeSearch(e.target.value)}/>
+      <div className="flex gap-1">
+        {[["card","⊞ Cards"],["list","≡ List"],["customer","👥 By Customer"]].map(([m,lbl])=>(
+          <button key={m} onClick={()=>setRecipeView(m)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${recipeView===m?"bg-teal-600 text-white border-teal-600":"bg-white border-gray-200 text-gray-600 hover:bg-gray-50"}`}>{lbl}</button>
+        ))}
+      </div>
+    </div>
+
     {recipes.length===0
       ? <div className="card p-10 text-center" style={{color:"#9ca3af"}}>No recipes yet. Click + New Recipe to get started.</div>
-      : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16}}>
-          {recipes.map(r=>{
-            const lines=ringredients.filter(ri=>ri.recipe_id===r.id);
-            return <div key={r.id} className="card" style={{cursor:"pointer",transition:"box-shadow .15s"}}
-              onClick={()=>setViewId(r.id)}
-              onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 16px rgba(0,0,0,.1)"}
-              onMouseLeave={e=>e.currentTarget.style.boxShadow=""}>
-              <div style={{background:"#1e4d6b",borderRadius:"16px 16px 0 0",padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <span style={{fontFamily:"monospace",fontSize:12,color:"#7dd3fc",fontWeight:700}}>{r.recipe_code||"NO CODE"}</span>
-                <div style={{display:"flex",gap:4}} onClick={e=>e.stopPropagation()}>
-                  <button onClick={()=>openEdit(r)} style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:14,padding:"2px 5px"}}>✏️</button>
-                  <button onClick={()=>setDelId(r.id)} style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:14,padding:"2px 5px"}}>🗑</button>
+      : visibleRecipes.length===0
+      ? <div className="card p-10 text-center" style={{color:"#9ca3af"}}>No recipes match your search.</div>
+      : recipeView==="card"
+        ? <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16}}>
+            {visibleRecipes.map(r=>{
+              const lines=ringredients.filter(ri=>ri.recipe_id===r.id);
+              return <div key={r.id} className="card" style={{cursor:"pointer",transition:"box-shadow .15s"}}
+                onClick={()=>setViewId(r.id)}
+                onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 16px rgba(0,0,0,.1)"}
+                onMouseLeave={e=>e.currentTarget.style.boxShadow=""}>
+                <div style={{background:"#1e4d6b",borderRadius:"16px 16px 0 0",padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontFamily:"monospace",fontSize:12,color:"#7dd3fc",fontWeight:700}}>{r.recipe_code||"NO CODE"}</span>
+                  <div style={{display:"flex",gap:4}} onClick={e=>e.stopPropagation()}>
+                    <button onClick={()=>openEdit(r)} style={{background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:14,padding:"2px 5px"}}>✏️</button>
+                    <button onClick={()=>setDelId(r.id)} style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:14,padding:"2px 5px"}}>🗑</button>
+                  </div>
                 </div>
-              </div>
-              <div style={{padding:"14px 16px"}}>
-                <p style={{fontWeight:700,fontSize:15,color:"#111827",margin:"0 0 2px"}}>{r.beer_name||"Unnamed"}</p>
-                <p style={{fontSize:12,color:"#9ca3af",margin:"0 0 10px"}}>{r.brand||getCustomerName(r.customer_id)} · {r.batch_size_litres}L</p>
-                <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
-                  <span style={{color:"#9ca3af"}}>{lines.length} ingredients</span>
-                  <span style={{fontWeight:700,color:"#0d9488"}}>{fmtThb(+r.total_cost||0)}</span>
+                <div style={{padding:"14px 16px"}}>
+                  <p style={{fontWeight:700,fontSize:15,color:"#111827",margin:"0 0 2px"}}>{r.beer_name||"Unnamed"}</p>
+                  <p style={{fontSize:12,color:"#9ca3af",margin:"0 0 10px"}}>{r.brand||getCustomerName(r.customer_id)} · {r.batch_size_litres}L</p>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
+                    <span style={{color:"#9ca3af"}}>{lines.length} ingredients</span>
+                    <span style={{fontWeight:700,color:"#0d9488"}}>{fmtThb(+r.total_cost||0)}</span>
+                  </div>
                 </div>
-              </div>
-            </div>;
-          })}
-        </div>
+              </div>;
+            })}
+          </div>
+        : recipeView==="list"
+          ? <div className="card table-scroll">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr className="text-left text-xs text-gray-400">
+                    <th className="px-4 py-3 font-medium">Code</th>
+                    <th className="px-4 py-3 font-medium">Beer Name</th>
+                    <th className="px-4 py-3 font-medium">Customer</th>
+                    <th className="px-4 py-3 font-medium">Style</th>
+                    <th className="px-4 py-3 font-medium text-right">Batch (L)</th>
+                    <th className="px-4 py-3 font-medium text-right">Ingredients</th>
+                    <th className="px-4 py-3 font-medium text-right">Total Cost</th>
+                    <th className="px-4 py-3 font-medium"/>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleRecipes.map(r=>{
+                    const lines=ringredients.filter(ri=>ri.recipe_id===r.id);
+                    return <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={()=>setViewId(r.id)}>
+                      <td className="px-4 py-2.5 font-mono text-xs font-bold text-blue-700">{r.recipe_code||"—"}</td>
+                      <td className="px-4 py-2.5 font-semibold text-gray-800">{r.beer_name||"—"}</td>
+                      <td className="px-4 py-2.5 text-gray-500">{getCustomerName(r.customer_id)}</td>
+                      <td className="px-4 py-2.5 text-gray-400">{r.style||"—"}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-600">{(+r.batch_size_litres||0).toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-400">{lines.length}</td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-teal-700">{fmtThb(+r.total_cost||0)}</td>
+                      <td className="px-4 py-2.5 text-right" onClick={e=>e.stopPropagation()}>
+                        <button onClick={()=>openEdit(r)} className="text-xs text-indigo-500 hover:text-indigo-700 mr-2">Edit</button>
+                        <button onClick={()=>setDelId(r.id)} className="text-xs text-red-400 hover:text-red-600">Del</button>
+                      </td>
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
+            </div>
+          : /* Customer view */
+            <div className="space-y-4">
+              {recipesByCustomer.map(({customer,items})=>({customer,items:items.filter(r=>visibleRecipes.includes(r))})).filter(g=>g.items.length>0).map(({customer,items})=>(
+                <div key={customer.id} className="card overflow-hidden">
+                  <div style={{background:"#1e4d6b",padding:"10px 18px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                    <div className="flex items-center gap-3">
+                      <div style={{width:32,height:32,borderRadius:"50%",background:"rgba(255,255,255,.15)",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,color:"#e9c46a",fontSize:14}}>
+                        {(customer.name||"?")[0].toUpperCase()}
+                      </div>
+                      <span style={{fontWeight:700,color:"#fff",fontSize:15}}>{customer.name}</span>
+                    </div>
+                    <span style={{fontSize:12,color:"#7dd3fc",fontWeight:600}}>{items.length} recipe{items.length!==1?"s":""}</span>
+                  </div>
+                  <div className="divide-y divide-gray-50">
+                    {items.map(r=>{
+                      const lines=ringredients.filter(ri=>ri.recipe_id===r.id);
+                      return <div key={r.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer" onClick={()=>setViewId(r.id)}>
+                        <span style={{fontFamily:"monospace",fontSize:11,fontWeight:700,color:"#1e4d6b",background:"#e0f2fe",padding:"2px 7px",borderRadius:6,flexShrink:0}}>{r.recipe_code||"—"}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-sm text-gray-800 truncate">{r.beer_name||"Unnamed"}</p>
+                          <p className="text-xs text-gray-400">{r.style||"—"} · {r.batch_size_litres}L · {lines.length} ingredients</p>
+                        </div>
+                        <span className="text-sm font-bold text-teal-700 flex-shrink-0">{fmtThb(+r.total_cost||0)}</span>
+                        <div className="flex gap-1 flex-shrink-0" onClick={e=>e.stopPropagation()}>
+                          <button onClick={()=>openEdit(r)} className="text-xs text-indigo-400 hover:text-indigo-600 px-1">✏️</button>
+                          <button onClick={()=>setDelId(r.id)} className="text-xs text-red-300 hover:text-red-500 px-1">🗑</button>
+                        </div>
+                      </div>;
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
     }
 
     {/* Add/Edit Modal */}
@@ -1707,7 +1906,9 @@ function OrdersPage({orders,setOrders,customers,cbeers,recipes,setPage}){
   </div>;
 }
 
+</script>
 
+<script type="text/babel">
 // ─── QUEUE PAGE ──────────────────────────────────────────────────────────────
 const FERMENTERS = ["F01","F02","F03","F04","F05","F06","F07","F08","F09","F10","F11","F12","F13","F14"];
 const QUEUE_STATUSES = ["Planned","Scheduled","Brewing","Tasting","Packaging","Done"];
@@ -1722,6 +1923,7 @@ function QueuePage({queue,setQueue,orders,customers,cbeers}){
   const [editId,setEditId]       = useState(null);
   const [editingAutoId,setEditingAutoId] = useState(null); // for auto entry editing
   const [filter,setFilter]       = useState("All");
+  const [queueSearch,setQueueSearch] = useState("");
   const [viewMode,setViewMode]   = useState("list"); // "list" | "calendar"
   const [calMonth,setCalMonth]   = useState(()=>{ const d=new Date(); return {y:d.getFullYear(),m:d.getMonth()}; });
   const [delId,setDelId]         = useState(null);
@@ -1797,11 +1999,25 @@ function QueuePage({queue,setQueue,orders,customers,cbeers}){
     return combined.filter(q=>q.type===filter);
   },[combined,filter]);
 
-  const sorted = useMemo(()=>[...filtered].sort((a,b)=>{
-    if(!a.brew_date&&!b.brew_date) return 0;
-    if(!a.brew_date) return 1; if(!b.brew_date) return -1;
-    return a.brew_date.localeCompare(b.brew_date);
-  }),[filtered]);
+  const sorted = useMemo(()=>{
+    let arr = [...filtered];
+    if(queueSearch){
+      const q=queueSearch.toLowerCase();
+      arr=arr.filter(x=>
+        (x.beer_name||"").toLowerCase().includes(q)||
+        (x.brand||"").toLowerCase().includes(q)||
+        (x.notes||"").toLowerCase().includes(q)||
+        (x.fermenter||"").toLowerCase().includes(q)||
+        (x.status||"").toLowerCase().includes(q)||
+        (customers.find(c=>c.id===x.customer_id)?.name||"").toLowerCase().includes(q)
+      );
+    }
+    return arr.sort((a,b)=>{
+      if(!a.brew_date&&!b.brew_date) return 0;
+      if(!a.brew_date) return 1; if(!b.brew_date) return -1;
+      return a.brew_date.localeCompare(b.brew_date);
+    });
+  },[filtered,queueSearch,customers]);
 
   // ── CALENDAR HELPERS ────────────────────────────────────────────────────────
   const calEntries = useMemo(()=>{
@@ -1888,9 +2104,13 @@ function QueuePage({queue,setQueue,orders,customers,cbeers}){
     <p className="text-xs text-gray-400 -mt-3">Contract orders at Scheduled+ appear automatically. Click "Assign" to set fermenter / batch details.</p>
 
     {viewMode==="calendar" ? renderCalendar() : <>
-      <div className="flex gap-2">
-        {["All","Contract","In-house"].map(f=><button key={f} onClick={()=>setFilter(f)}
+      <div className="flex flex-wrap gap-2 items-center">
+        <div className="flex gap-1">
+          {["All","Contract","In-house"].map(f=><button key={f} onClick={()=>setFilter(f)}
           className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filter===f?"bg-teal-600 text-white":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"}`}>{f}</button>)}
+        </div>
+        <input className="input-cls" style={{width:220}} placeholder="🔍 Search beer, customer, fermenter…"
+          value={queueSearch} onChange={e=>setQueueSearch(e.target.value)}/>
       </div>
 
       {sorted.length===0
