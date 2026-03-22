@@ -314,6 +314,7 @@ const INITIAL_RECIPES   = [];
 const INITIAL_RINGSREDIENTS = [];
 const INITIAL_ORDERS    = [];
 const INITIAL_QUEUE     = [];
+const INITIAL_SAVEDCALCS = [];
 
 </script>
 
@@ -334,6 +335,7 @@ const SHEETS = {
   RecipeIngredients:  ["id","recipe_id","ingredient_name","purchase_size","purchase_unit","cost_per_unit","yield_pct","use_qty","use_unit","line_cost"],
   Orders:             ["id","order_no","customer_id","customer_name","beer_name","style","abv","volume_litres","status","quotation_no","order_price","round_no","batch_no","deposit_date","deposit_amount","balance_date","balance_amount","final_date","final_amount","brewing_date","deliver_date","recipe_id","notes"],
   Queue:              ["id","batch_id","type","order_id","brand","beer_name","brew_date","volume","status","fermenter","notes"],
+  SavedCalcs:         ["id","name","model_type","brand","beer_name","style","abv","srp_with_vat","kegs","rm","packaging_per_keg","batch_no","other_price","recipe_id","total","per_keg_vat","price_upb","bar_price","notes","created_date"],
 };
 
 // ─── CONTRACT STATUS CONFIG ─────────────────────────────────────────────────
@@ -1459,7 +1461,7 @@ function OrdersPage({orders,setOrders,customers,cbeers,recipes,setPage}){
           <p className="text-sm text-gray-400">{o.customer_name} · {o.beer_name}</p>
         </div>
         <div className="ml-auto flex gap-2">
-          <button onClick={()=>openEdit(o)} className="btn-ghost text-sm">Edit</button>
+          <button onClick={()=>openEdit(o)} className="btn-ghost text-sm">✏️ Edit</button>
           {NEXT_STATUS[o.status]&&<button onClick={()=>advanceStatus(o)} className="btn-primary text-sm">
             Advance → {NEXT_STATUS[o.status]}
           </button>}
@@ -1472,31 +1474,33 @@ function OrdersPage({orders,setOrders,customers,cbeers,recipes,setPage}){
       <div className="card p-5">
         <div className="flex items-center gap-1 flex-wrap">
           {steps.map((s,i)=>{
-            const done = curIdx>i;
-            const curr = curIdx===i;
+            const done = i<curIdx; const cur = i===curIdx;
             return <React.Fragment key={s}>
-              <div className={`flex flex-col items-center`}>
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${done?"bg-teal-500 text-white":curr?"bg-brand text-white":"bg-gray-200 text-gray-400"}`}>
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",minWidth:60}}>
+                <div style={{width:24,height:24,borderRadius:9999,
+                  background:done?"#0d9488":cur?"#1e4d6b":"#e5e7eb",
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  color:"#fff",fontSize:11,fontWeight:700}}>
                   {done?"✓":i+1}
                 </div>
-                <span className={`text-[10px] mt-1 max-w-16 text-center leading-tight ${curr?"text-brand font-semibold":"text-gray-400"}`}>{s}</span>
+                <span style={{fontSize:9,marginTop:3,color:cur?"#1e4d6b":done?"#0d9488":"#9ca3af",
+                  fontWeight:cur?700:400,textAlign:"center",maxWidth:64}}>{s}</span>
               </div>
-              {i<steps.length-1&&<div className={`flex-1 h-0.5 min-w-4 ${done?"bg-teal-400":"bg-gray-200"} mb-4`}/>}
+              {i<steps.length-1&&<div style={{flex:1,height:2,background:done?"#0d9488":"#e5e7eb",minWidth:8}}/>}
             </React.Fragment>;
           })}
         </div>
-        {o.status==="Rejected"&&<div className="mt-2"><StatusBadge status="Rejected"/></div>}
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
-        {/* Order details */}
-        <div className="card p-5 space-y-3">
-          <h3 className="font-semibold text-gray-800 mb-2">Order Details</h3>
+      <div className="grid grid-cols-2 gap-5">
+        <div className="card p-5">
+          <h3 className="font-semibold text-gray-800 mb-3">Order Info</h3>
+          <div className="grid grid-cols-2 gap-y-3 gap-x-4">
           {[["Customer",o.customer_name],["Beer",o.beer_name],["Style",o.style||"—"],["ABV",o.abv?o.abv+"%":"—"],["Volume",o.volume_litres?o.volume_litres+"L":"—"],["Quotation No.",o.quotation_no||"—"],["Order Price",o.order_price?fmtThb(o.order_price):"—"],["Round No.",o.round_no||"—"],["Batch No.",o.batch_no||"—"],["Brew Date",o.brewing_date||"—"],["Deliver Date",o.deliver_date||"—"],["Recipe Cost",rcost?fmtThb(rcost):"—"]].map(([k,v])=>
-            <div key={k} className="flex justify-between text-sm"><span className="text-gray-400">{k}</span><span className="font-medium text-gray-800">{v}</span></div>
+            <div key={k}><p className="text-xs text-gray-400">{k}</p><p className="text-sm font-medium text-gray-800">{v}</p></div>
           )}
+          </div>
         </div>
-        {/* Payment milestones */}
         <div className="card p-5">
           <h3 className="font-semibold text-gray-800 mb-3">Payment Milestones</h3>
           <div className="space-y-3">
@@ -1519,6 +1523,73 @@ function OrdersPage({orders,setOrders,customers,cbeers,recipes,setPage}){
         </div>
       </div>
       {o.notes&&<div className="card p-5"><h3 className="font-semibold text-gray-800 mb-2">Notes</h3><p className="text-sm text-gray-600 whitespace-pre-wrap">{o.notes}</p></div>}
+      {/* Modal rendered here so edit button works in detail view */}
+      <Modal open={showModal} onClose={()=>setShowModal(false)} title={editId?"Edit Order":"New Order"} wide>
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="form-label">Order #</label><input className="input-cls font-mono" placeholder="auto" value={form.order_no} onChange={e=>setForm(f=>({...f,order_no:e.target.value}))}/></div>
+            <div><label className="form-label">Status</label>
+              <select className="input-cls" value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}>
+                {CONTRACT_STATUSES.map(s=><option key={s}>{s}</option>)}
+              </select>
+            </div>
+            <div><label className="form-label">Customer</label>
+              <select className="input-cls" value={form.customer_id} onChange={e=>setForm(f=>({...f,customer_id:e.target.value}))}>
+                <option value="">— Select —</option>
+                {customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="form-label">Beer Name *</label>
+              {form.customer_id && cbeers && cbeers.filter(b=>b.customer_id===form.customer_id).length>0
+                ? <select required className="input-cls" value={form.beer_name}
+                    onChange={e=>{ const b=cbeers.find(x=>x.customer_id===form.customer_id&&x.beer_name===e.target.value); setForm(f=>({...f,beer_name:e.target.value,style:b?.style||f.style,abv:b?.abv||f.abv})); }}>
+                    <option value="">— Select beer —</option>
+                    {cbeers.filter(b=>b.customer_id===form.customer_id).map(b=><option key={b.id} value={b.beer_name}>{b.brand?b.brand+" – ":""}{b.beer_name}</option>)}
+                  </select>
+                : <input required className="input-cls" placeholder="Enter beer name" value={form.beer_name} onChange={e=>setForm(f=>({...f,beer_name:e.target.value}))}/>
+              }
+            </div>
+            <div><label className="form-label">Style</label><input className="input-cls" value={form.style} onChange={e=>setForm(f=>({...f,style:e.target.value}))}/></div>
+            <div><label className="form-label">ABV %</label><input type="number" step="0.1" className="input-cls" value={form.abv} onChange={e=>setForm(f=>({...f,abv:e.target.value}))}/></div>
+            <div><label className="form-label">Volume (L)</label><input type="number" className="input-cls" value={form.volume_litres} onChange={e=>setForm(f=>({...f,volume_litres:e.target.value}))}/></div>
+            <div><label className="form-label">Recipe</label>
+              <select className="input-cls" value={form.recipe_id} onChange={e=>setForm(f=>({...f,recipe_id:e.target.value}))}>
+                <option value="">— None —</option>
+                {recipes.map(r=><option key={r.id} value={r.id}>{r.recipe_code} {r.beer_name}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{background:"#f8fafc",borderRadius:12,padding:"14px 16px",border:"1px solid #e5e7eb"}}>
+            <p style={{fontSize:11,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>Quotation &amp; Batch Info</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="form-label">Quotation No.</label><input className="input-cls" placeholder="e.g. QT-2025-001" value={form.quotation_no} onChange={e=>setForm(f=>({...f,quotation_no:e.target.value}))}/></div>
+              <div><label className="form-label">Order Price / Quotation (฿)</label><input type="number" step="0.01" className="input-cls" value={form.order_price} onChange={e=>setForm(f=>({...f,order_price:e.target.value}))}/></div>
+              <div><label className="form-label">Round No.</label><input type="number" min="1" className="input-cls" value={form.round_no} onChange={e=>setForm(f=>({...f,round_no:e.target.value}))}/></div>
+              <div><label className="form-label">Batch No. <span style={{fontSize:11,color:"#9ca3af",fontWeight:400}}>(optional)</span></label><input type="number" min="1" className="input-cls" value={form.batch_no} onChange={e=>setForm(f=>({...f,batch_no:e.target.value}))}/></div>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div><label className="form-label">Deposit Date</label><input type="date" className="input-cls" value={form.deposit_date} onChange={e=>setForm(f=>({...f,deposit_date:e.target.value}))}/></div>
+            <div><label className="form-label">Deposit Amount</label><input type="number" className="input-cls" value={form.deposit_amount} onChange={e=>setForm(f=>({...f,deposit_amount:e.target.value}))}/></div>
+            <div/>
+            <div><label className="form-label">Balance Date</label><input type="date" className="input-cls" value={form.balance_date} onChange={e=>setForm(f=>({...f,balance_date:e.target.value}))}/></div>
+            <div><label className="form-label">Balance Amount</label><input type="number" className="input-cls" value={form.balance_amount} onChange={e=>setForm(f=>({...f,balance_amount:e.target.value}))}/></div>
+            <div/>
+            <div><label className="form-label">Final Date</label><input type="date" className="input-cls" value={form.final_date} onChange={e=>setForm(f=>({...f,final_date:e.target.value}))}/></div>
+            <div><label className="form-label">Final Amount</label><input type="number" className="input-cls" value={form.final_amount} onChange={e=>setForm(f=>({...f,final_amount:e.target.value}))}/></div>
+            <div/>
+            <div><label className="form-label">Brew Date</label><input type="date" className="input-cls" value={form.brewing_date} onChange={e=>setForm(f=>({...f,brewing_date:e.target.value}))}/></div>
+            <div><label className="form-label">Deliver Date</label><input type="date" className="input-cls" value={form.deliver_date} onChange={e=>setForm(f=>({...f,deliver_date:e.target.value}))}/></div>
+          </div>
+          <div><label className="form-label">Notes</label><textarea className="input-cls" rows={2} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/></div>
+          <div className="flex gap-3 justify-end pt-2">
+            <button type="button" onClick={()=>setShowModal(false)} className="btn-ghost">Cancel</button>
+            <button type="submit" className="btn-primary">Save Order</button>
+          </div>
+        </form>
+      </Modal>
+      <ConfirmModal open={!!delId} danger title="Delete Order" message="Delete this order permanently?" onConfirm={()=>{ setOrders(p=>p.filter(o=>o.id!==delId)); setDelId(null); }} onCancel={()=>setDelId(null)}/>
     </div>;
   }
 
@@ -1538,11 +1609,11 @@ function OrdersPage({orders,setOrders,customers,cbeers,recipes,setPage}){
       : <div className="card table-scroll">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-100">
-              <tr className="text-left text-xs text-gray-400">
-                <th className="px-4 py-3 font-medium">#</th>
+              <tr className="text-left text-xs text-gray-400 uppercase tracking-wide">
+                <th className="px-4 py-3 font-medium">Order #</th>
                 <th className="px-4 py-3 font-medium">Customer</th>
                 <th className="px-4 py-3 font-medium">Beer</th>
-                <th className="px-4 py-3 font-medium">Volume</th>
+                <th className="px-4 py-3 font-medium">Vol.</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Brew Date</th>
                 <th className="px-4 py-3 font-medium"/>
@@ -1550,9 +1621,9 @@ function OrdersPage({orders,setOrders,customers,cbeers,recipes,setPage}){
             </thead>
             <tbody>
               {filtered.map(o=><tr key={o.id} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={()=>setViewId(o.id)}>
-                <td className="px-4 py-3 font-mono text-xs text-gray-500">{o.order_no}</td>
+                <td className="px-4 py-3 font-mono text-xs text-gray-500">#{o.order_no||"—"}</td>
                 <td className="px-4 py-3 font-medium text-gray-800">{o.customer_name||"—"}</td>
-                <td className="px-4 py-3 text-gray-700">{o.beer_name||"—"}</td>
+                <td className="px-4 py-3 text-gray-700">{o.beer_name}</td>
                 <td className="px-4 py-3 text-gray-500">{o.volume_litres?o.volume_litres+"L":"—"}</td>
                 <td className="px-4 py-3"><StatusBadge status={o.status}/></td>
                 <td className="px-4 py-3 text-gray-500">{o.brewing_date||"—"}</td>
@@ -1586,10 +1657,7 @@ function OrdersPage({orders,setOrders,customers,cbeers,recipes,setPage}){
             <label className="form-label">Beer Name *</label>
             {form.customer_id && cbeers && cbeers.filter(b=>b.customer_id===form.customer_id).length>0
               ? <select required className="input-cls" value={form.beer_name}
-                  onChange={e=>{
-                    const b=cbeers.find(x=>x.customer_id===form.customer_id&&x.beer_name===e.target.value);
-                    setForm(f=>({...f,beer_name:e.target.value,style:b?.style||f.style,abv:b?.abv||f.abv}));
-                  }}>
+                  onChange={e=>{ const b=cbeers.find(x=>x.customer_id===form.customer_id&&x.beer_name===e.target.value); setForm(f=>({...f,beer_name:e.target.value,style:b?.style||f.style,abv:b?.abv||f.abv})); }}>
                   <option value="">— Select beer —</option>
                   {cbeers.filter(b=>b.customer_id===form.customer_id).map(b=><option key={b.id} value={b.beer_name}>{b.brand?b.brand+" – ":""}{b.beer_name}</option>)}
                 </select>
@@ -1606,26 +1674,13 @@ function OrdersPage({orders,setOrders,customers,cbeers,recipes,setPage}){
             </select>
           </div>
         </div>
-        {/* ── Quotation / Batch fields ─────────────────────────────── */}
         <div style={{background:"#f8fafc",borderRadius:12,padding:"14px 16px",border:"1px solid #e5e7eb"}}>
           <p style={{fontSize:11,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>Quotation &amp; Batch Info</p>
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="form-label">Quotation No.</label>
-              <input className="input-cls" placeholder="e.g. QT-2025-001" value={form.quotation_no} onChange={e=>setForm(f=>({...f,quotation_no:e.target.value}))}/>
-            </div>
-            <div>
-              <label className="form-label">Order Price / Quotation (฿)</label>
-              <input type="number" step="0.01" className="input-cls" placeholder="Total quoted price" value={form.order_price} onChange={e=>setForm(f=>({...f,order_price:e.target.value}))}/>
-            </div>
-            <div>
-              <label className="form-label">Round No.</label>
-              <input type="number" min="1" className="input-cls" placeholder="Production round" value={form.round_no} onChange={e=>setForm(f=>({...f,round_no:e.target.value}))}/>
-            </div>
-            <div>
-              <label className="form-label">Batch No. <span style={{fontSize:11,color:"#9ca3af",fontWeight:400}}>(optional)</span></label>
-              <input type="number" min="1" className="input-cls" placeholder="Batch number" value={form.batch_no} onChange={e=>setForm(f=>({...f,batch_no:e.target.value}))}/>
-            </div>
+            <div><label className="form-label">Quotation No.</label><input className="input-cls" placeholder="e.g. QT-2025-001" value={form.quotation_no} onChange={e=>setForm(f=>({...f,quotation_no:e.target.value}))}/></div>
+            <div><label className="form-label">Order Price / Quotation (฿)</label><input type="number" step="0.01" className="input-cls" value={form.order_price} onChange={e=>setForm(f=>({...f,order_price:e.target.value}))}/></div>
+            <div><label className="form-label">Round No.</label><input type="number" min="1" className="input-cls" value={form.round_no} onChange={e=>setForm(f=>({...f,round_no:e.target.value}))}/></div>
+            <div><label className="form-label">Batch No. <span style={{fontSize:11,color:"#9ca3af",fontWeight:400}}>(optional)</span></label><input type="number" min="1" className="input-cls" value={form.batch_no} onChange={e=>setForm(f=>({...f,batch_no:e.target.value}))}/></div>
           </div>
         </div>
         <div className="grid grid-cols-3 gap-3">
@@ -1652,41 +1707,86 @@ function OrdersPage({orders,setOrders,customers,cbeers,recipes,setPage}){
   </div>;
 }
 
+
 // ─── QUEUE PAGE ──────────────────────────────────────────────────────────────
-function QueuePage({queue,setQueue,orders,customers}){
+const FERMENTERS = ["F01","F02","F03","F04","F05","F06","F07","F08","F09","F10","F11","F12","F13","F14"];
+const QUEUE_STATUSES = ["Planned","Scheduled","Brewing","Tasting","Packaging","Done"];
+const QUEUE_STATUS_COLORS = {
+  "Planned":"bg-indigo-50 text-indigo-400","Scheduled":"bg-purple-100 text-purple-700",
+  "Brewing":"bg-teal-100 text-teal-700","Tasting":"bg-cyan-100 text-cyan-700",
+  "Packaging":"bg-indigo-100 text-indigo-700","Done":"bg-green-100 text-green-700",
+};
+
+function QueuePage({queue,setQueue,orders,customers,cbeers}){
   const [showModal,setShowModal] = useState(false);
   const [editId,setEditId]       = useState(null);
+  const [editingAutoId,setEditingAutoId] = useState(null); // for auto entry editing
   const [filter,setFilter]       = useState("All");
-  const emptyForm = ()=>({batch_id:"",type:"Contract",order_id:"",brand:"",beer_name:"",brew_date:"",volume:"",status:"Scheduled",fermenter:"",notes:""});
-  const [form,setForm] = useState(emptyForm());
-  const [delId,setDelId] = useState(null);
+  const [viewMode,setViewMode]   = useState("list"); // "list" | "calendar"
+  const [calMonth,setCalMonth]   = useState(()=>{ const d=new Date(); return {y:d.getFullYear(),m:d.getMonth()}; });
+  const [delId,setDelId]         = useState(null);
 
-  const openAdd  = ()=>{ setForm(emptyForm()); setEditId(null); setShowModal(true); };
-  const openEdit = (q)=>{ setForm({batch_id:q.batch_id||"",type:q.type||"Contract",order_id:q.order_id||"",brand:q.brand||"",beer_name:q.beer_name||"",brew_date:q.brew_date||"",volume:q.volume||"",status:q.status||"Scheduled",fermenter:q.fermenter||"",notes:q.notes||""}); setEditId(q.id); setShowModal(true); };
+  const emptyForm = ()=>({
+    batch_id:"", type:"Contract", customer_id:"", order_id:"",
+    brand:"", beer_name:"", brew_date:"", volume:"",
+    status:"Scheduled", fermenter:"", notes:""
+  });
+  const [form,setForm] = useState(emptyForm());
+
+  const openAdd = ()=>{ setForm(emptyForm()); setEditId(null); setEditingAutoId(null); setShowModal(true); };
+
+  const openEdit = (q)=>{
+    setForm({batch_id:q.batch_id||"",type:q.type||"Contract",customer_id:q.customer_id||"",
+      order_id:q.order_id||"",brand:q.brand||"",beer_name:q.beer_name||"",
+      brew_date:q.brew_date||"",volume:q.volume||"",status:q.status||"Scheduled",
+      fermenter:q.fermenter||"",notes:q.notes||""});
+    setEditId(q._src==="auto"?null:q.id);
+    setEditingAutoId(q._src==="auto"?q.id:null);
+    setShowModal(true);
+  };
 
   const handleSave=(e)=>{
     e.preventDefault();
-    if(editId){
+    if(editingAutoId){
+      // Convert auto entry to a manual one linked to same order
+      const autoEntry = combined.find(q=>q.id===editingAutoId);
+      setQueue(p=>[...p,{id:uid(),...form, order_id:autoEntry?._order?.id||form.order_id}]);
+    } else if(editId){
       setQueue(p=>p.map(q=>q.id===editId?{...q,...form}:q));
     } else {
       setQueue(p=>[...p,{id:uid(),...form}]);
     }
     setShowModal(false);
+    setEditingAutoId(null);
   };
 
-  // Merge contract orders that are Scheduled/Brewing into queue view
+  // Auto-fill from linked order
+  const handleOrderSelect = (oid)=>{
+    const o = orders.find(x=>x.id===oid);
+    if(o) setForm(f=>({...f,order_id:oid,beer_name:o.beer_name||f.beer_name,
+      brand:f.brand,volume:o.volume_litres||f.volume,
+      brew_date:o.brewing_date||f.brew_date,customer_id:o.customer_id||f.customer_id}));
+    else setForm(f=>({...f,order_id:oid}));
+  };
+
+  // Auto-fill from customer beer
+  const handleCBeerSelect = (beerName)=>{
+    const b = cbeers.find(x=>x.customer_id===form.customer_id&&x.beer_name===beerName);
+    setForm(f=>({...f,beer_name:beerName,brand:b?.brand||f.brand}));
+  };
+
+  // Merge: manual + auto from scheduled orders
   const scheduledOrders = orders.filter(o=>["Scheduled","Brewing","Tasting","Packaging"].includes(o.status));
   const combined = useMemo(()=>{
     const manual = queue.map(q=>({...q, _src:"manual"}));
-    // Auto-add scheduled orders not already in queue by order_id
     const autoEntries = scheduledOrders
       .filter(o=>!queue.some(q=>q.order_id===o.id))
       .map(o=>({
         id:"auto_"+o.id, batch_id:"", type:"Contract",
-        order_id:o.id, brand:"", beer_name:o.beer_name,
-        brew_date:o.brewing_date||"", volume:o.volume_litres||"",
-        status:o.status, fermenter:"", notes:o.customer_name,
-        _src:"auto", _order:o
+        customer_id:o.customer_id||"", order_id:o.id, brand:"",
+        beer_name:o.beer_name, brew_date:o.brewing_date||"",
+        volume:o.volume_litres||"", status:o.status, fermenter:"",
+        notes:o.customer_name, _src:"auto", _order:o
       }));
     return [...manual,...autoEntries];
   },[queue,orders,scheduledOrders]);
@@ -1697,109 +1797,231 @@ function QueuePage({queue,setQueue,orders,customers}){
     return combined.filter(q=>q.type===filter);
   },[combined,filter]);
 
-  // Sort by brew_date
   const sorted = useMemo(()=>[...filtered].sort((a,b)=>{
     if(!a.brew_date&&!b.brew_date) return 0;
     if(!a.brew_date) return 1; if(!b.brew_date) return -1;
     return a.brew_date.localeCompare(b.brew_date);
   }),[filtered]);
 
-  const QUEUE_STATUS_COLORS = {
-    "Scheduled":"bg-purple-100 text-purple-700","Brewing":"bg-teal-100 text-teal-700",
-    "Tasting":"bg-cyan-100 text-cyan-700","Packaging":"bg-indigo-100 text-indigo-700",
-    "Planned":"bg-indigo-50 text-indigo-400","Done":"bg-green-100 text-green-700",
+  // ── CALENDAR HELPERS ────────────────────────────────────────────────────────
+  const calEntries = useMemo(()=>{
+    // All queue entries + orders with brew_date in this month
+    const all = [];
+    combined.forEach(q=>{ if(q.brew_date) all.push({date:q.brew_date,label:q.beer_name,color:"#1e4d6b",sub:q.fermenter||q.notes||"",type:"queue"}); });
+    orders.forEach(o=>{ if(o.deliver_date) all.push({date:o.deliver_date,label:o.beer_name,color:"#e9c46a",sub:"Deliver · "+o.customer_name,type:"deliver"}); });
+    return all;
+  },[combined,orders]);
+
+  const getDaysInMonth=(y,m)=>new Date(y,m+1,0).getDate();
+  const getFirstDay=(y,m)=>new Date(y,m,1).getDay();
+
+  const renderCalendar=()=>{
+    const {y,m} = calMonth;
+    const days = getDaysInMonth(y,m);
+    const firstDay = getFirstDay(y,m); // 0=Sun
+    const monthLabel = new Date(y,m,1).toLocaleString("en",{month:"long",year:"numeric"});
+    const cells = [];
+    for(let i=0;i<firstDay;i++) cells.push(null);
+    for(let d=1;d<=days;d++) cells.push(d);
+
+    const todayStr = new Date().toISOString().slice(0,10);
+
+    return <div className="card p-4">
+      {/* Month nav */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+        <button onClick={()=>setCalMonth(({y,m})=>m===0?{y:y-1,m:11}:{y,m:m-1})} className="btn-ghost" style={{padding:"6px 12px"}}>‹</button>
+        <span style={{fontWeight:700,fontSize:15,color:"#1e4d6b"}}>{monthLabel}</span>
+        <button onClick={()=>setCalMonth(({y,m})=>m===11?{y:y+1,m:0}:{y,m:m+1})} className="btn-ghost" style={{padding:"6px 12px"}}>›</button>
+      </div>
+      {/* Day headers */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:4}}>
+        {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>(
+          <div key={d} style={{textAlign:"center",fontSize:11,fontWeight:700,color:"#9ca3af",padding:"4px 0"}}>{d}</div>
+        ))}
+      </div>
+      {/* Cells */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
+        {cells.map((d,i)=>{
+          if(!d) return <div key={"e"+i}/>;
+          const dateStr = `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+          const dayEntries = calEntries.filter(e=>e.date===dateStr);
+          const isToday = dateStr===todayStr;
+          return <div key={d} style={{minHeight:72,border:"1px solid #f3f4f6",borderRadius:8,padding:4,
+            background:isToday?"#eff6ff":"#fff",position:"relative"}}>
+            <span style={{fontSize:11,fontWeight:isToday?700:400,color:isToday?"#1e4d6b":"#6b7280",
+              display:"block",textAlign:"right",marginBottom:2}}>{d}</span>
+            {dayEntries.slice(0,3).map((e,ei)=>(
+              <div key={ei} style={{fontSize:9,padding:"1px 4px",borderRadius:4,
+                marginBottom:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
+                background:e.color,color:"#fff",title:e.label+" – "+e.sub}}>
+                {e.type==="deliver"?"🚚":"🍺"} {e.label}
+              </div>
+            ))}
+            {dayEntries.length>3&&<div style={{fontSize:9,color:"#9ca3af"}}>+{dayEntries.length-3} more</div>}
+          </div>;
+        })}
+      </div>
+      {/* Legend */}
+      <div style={{display:"flex",gap:12,marginTop:12,fontSize:11,color:"#6b7280"}}>
+        <span><span style={{background:"#1e4d6b",borderRadius:3,padding:"1px 6px",color:"#fff",marginRight:4}}>🍺</span>Brew day</span>
+        <span><span style={{background:"#e9c46a",borderRadius:3,padding:"1px 6px",color:"#fff",marginRight:4}}>🚚</span>Delivery</span>
+      </div>
+    </div>;
   };
 
+  // ── RENDER ──────────────────────────────────────────────────────────────────
   return <div className="space-y-5">
-    <SectionHeader title="Brew Queue" action={<button onClick={openAdd} className="btn-primary">+ Add to Queue</button>}/>
-    <p className="text-xs text-gray-400 -mt-3">Combined view of in-house and contract scheduled brews. Contract orders at Scheduled+ appear automatically.</p>
-
-    <div className="flex gap-2">
-      {["All","Contract","In-house"].map(f=><button key={f} onClick={()=>setFilter(f)}
-        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filter===f?"bg-teal-600 text-white":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"}`}>{f}</button>)}
-    </div>
-
-    {sorted.length===0
-      ? <div className="card p-10 text-center text-gray-400">No brews in queue.</div>
-      : <div className="card table-scroll">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-100">
-              <tr className="text-left text-xs text-gray-400">
-                <th className="px-4 py-3 font-medium">Type</th>
-                <th className="px-4 py-3 font-medium">Beer</th>
-                <th className="px-4 py-3 font-medium">Customer / Notes</th>
-                <th className="px-4 py-3 font-medium">Brew Date</th>
-                <th className="px-4 py-3 font-medium">Volume</th>
-                <th className="px-4 py-3 font-medium">Fermenter</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium"/>
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map(q=>{
-                const isAuto = q._src==="auto";
-                const sc = QUEUE_STATUS_COLORS[q.status]||"bg-gray-100 text-gray-600";
-                return <tr key={q.id} className={`border-b border-gray-50 hover:bg-gray-50 ${isAuto?"italic text-gray-500":""}`}>
-                  <td className="px-4 py-3">
-                    <span className={`badge ${q.type==="Contract"||isAuto?"bg-blue-100 text-blue-700":"bg-amber-100 text-amber-700"}`}>
-                      {isAuto?"Contract":q.type}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 font-medium text-gray-800">{q.beer_name||"—"}</td>
-                  <td className="px-4 py-3 text-gray-500 text-xs">{q.notes||q.brand||"—"}</td>
-                  <td className="px-4 py-3 text-gray-600">{q.brew_date||"—"}</td>
-                  <td className="px-4 py-3 text-gray-500">{q.volume?q.volume+"L":"—"}</td>
-                  <td className="px-4 py-3 text-gray-500">{q.fermenter||"—"}</td>
-                  <td className="px-4 py-3"><span className={`badge ${sc}`}>{q.status}</span></td>
-                  <td className="px-4 py-3 text-right">
-                    {!isAuto&&<>
-                      <button onClick={()=>openEdit(q)} className="text-xs text-indigo-500 hover:text-indigo-700 mr-2">Edit</button>
-                      <button onClick={()=>setDelId(q.id)} className="text-xs text-red-400 hover:text-red-600">Del</button>
-                    </>}
-                    {isAuto&&<span className="text-xs text-gray-300">auto</span>}
-                  </td>
-                </tr>;
-              })}
-            </tbody>
-          </table>
+    <SectionHeader title="Brew Queue" action={
+      <div style={{display:"flex",gap:8}}>
+        <div style={{display:"flex",borderRadius:10,overflow:"hidden",border:"1.5px solid #e5e7eb"}}>
+          {["list","calendar"].map(v=>(
+            <button key={v} onClick={()=>setViewMode(v)}
+              style={{padding:"7px 14px",fontSize:12,fontWeight:600,border:"none",cursor:"pointer",
+                background:viewMode===v?"#1e4d6b":"#fff",color:viewMode===v?"#fff":"#374151",
+                fontFamily:"Inter,sans-serif"}}>
+              {v==="list"?"≡ List":"📅 Calendar"}
+            </button>
+          ))}
         </div>
-    }
+        <button onClick={openAdd} className="btn-primary">+ Add to Queue</button>
+      </div>}/>
+    <p className="text-xs text-gray-400 -mt-3">Contract orders at Scheduled+ appear automatically. Click "Assign" to set fermenter / batch details.</p>
 
-    <Modal open={showModal} onClose={()=>setShowModal(false)} title={editId?"Edit Queue Entry":"Add to Queue"}>
+    {viewMode==="calendar" ? renderCalendar() : <>
+      <div className="flex gap-2">
+        {["All","Contract","In-house"].map(f=><button key={f} onClick={()=>setFilter(f)}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filter===f?"bg-teal-600 text-white":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"}`}>{f}</button>)}
+      </div>
+
+      {sorted.length===0
+        ? <div className="card p-10 text-center text-gray-400">No brews in queue.</div>
+        : <div className="card table-scroll">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr className="text-left text-xs text-gray-400">
+                  <th className="px-4 py-3 font-medium">Type</th>
+                  <th className="px-4 py-3 font-medium">Beer</th>
+                  <th className="px-4 py-3 font-medium">Customer / Notes</th>
+                  <th className="px-4 py-3 font-medium">Brew Date</th>
+                  <th className="px-4 py-3 font-medium">Volume</th>
+                  <th className="px-4 py-3 font-medium">Fermenter</th>
+                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium"/>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map(q=>{
+                  const isAuto = q._src==="auto";
+                  const sc = QUEUE_STATUS_COLORS[q.status]||"bg-gray-100 text-gray-600";
+                  return <tr key={q.id} className={`border-b border-gray-50 hover:bg-gray-50 ${isAuto?"text-gray-400":""}`}>
+                    <td className="px-4 py-3">
+                      <span className={`badge ${q.type==="Contract"||isAuto?"bg-blue-100 text-blue-700":"bg-amber-100 text-amber-700"}`}>
+                        {isAuto?"Contract":q.type}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 font-medium text-gray-800">{q.beer_name||"—"}{isAuto&&<span style={{marginLeft:5,fontSize:10,background:"#fef3c7",color:"#92400e",borderRadius:4,padding:"1px 5px"}}>auto</span>}</td>
+                    <td className="px-4 py-3 text-xs">{q.notes||q.brand||"—"}</td>
+                    <td className="px-4 py-3 text-gray-600">{q.brew_date||"—"}</td>
+                    <td className="px-4 py-3 text-gray-500">{q.volume?q.volume+"L":"—"}</td>
+                    <td className="px-4 py-3">
+                      {q.fermenter
+                        ? <span style={{background:"#1e4d6b",color:"#fff",borderRadius:6,padding:"2px 8px",fontSize:12,fontWeight:700}}>{q.fermenter}</span>
+                        : <span style={{color:"#d1d5db",fontSize:12}}>—</span>}
+                    </td>
+                    <td className="px-4 py-3"><span className={`badge ${sc}`}>{q.status}</span></td>
+                    <td className="px-4 py-3 text-right" style={{whiteSpace:"nowrap"}}>
+                      {isAuto
+                        ? <button onClick={()=>openEdit(q)}
+                            style={{fontSize:11,padding:"4px 10px",borderRadius:8,border:"1.5px solid #1e4d6b",
+                              background:"#fff",color:"#1e4d6b",cursor:"pointer",fontWeight:600,fontFamily:"Inter,sans-serif"}}>
+                            Assign
+                          </button>
+                        : <>
+                            <button onClick={()=>openEdit(q)} className="text-xs text-indigo-500 hover:text-indigo-700 mr-2">Edit</button>
+                            <button onClick={()=>setDelId(q.id)} className="text-xs text-red-400 hover:text-red-600">Del</button>
+                          </>}
+                    </td>
+                  </tr>;
+                })}
+              </tbody>
+            </table>
+          </div>
+      }
+    </>}
+
+    {/* Add/Edit Modal */}
+    <Modal open={showModal} onClose={()=>setShowModal(false)}
+      title={editingAutoId?"Assign Batch Details":editId?"Edit Queue Entry":"Add to Queue"}>
       <form onSubmit={handleSave} className="space-y-3">
+        {editingAutoId&&<div style={{background:"#eff6ff",borderRadius:10,padding:"10px 14px",fontSize:13,color:"#1d4ed8",marginBottom:4}}>
+          ℹ️ Assigning details for auto-scheduled order. This will create a confirmed queue entry.
+        </div>}
         <div className="grid grid-cols-2 gap-3">
-          <div><label className="form-label">Type</label>
-            <select className="input-cls" value={form.type} onChange={e=>setForm(f=>({...f,type:e.target.value}))}>
+          {!editingAutoId&&<div><label className="form-label">Type</label>
+            <select className="input-cls" value={form.type} onChange={e=>setForm(f=>({...f,type:e.target.value,order_id:"",customer_id:"",beer_name:""}))}>
               <option>Contract</option><option>In-house</option>
             </select>
-          </div>
-          <div><label className="form-label">Batch ID</label><input className="input-cls font-mono" value={form.batch_id} onChange={e=>setForm(f=>({...f,batch_id:e.target.value}))}/></div>
-          {form.type==="Contract"&&<div><label className="form-label">Linked Order</label>
-            <select className="input-cls" value={form.order_id} onChange={e=>setForm(f=>({...f,order_id:e.target.value}))}>
-              <option value="">— None —</option>
-              {orders.map(o=><option key={o.id} value={o.id}>#{o.order_no} {o.beer_name}</option>)}
-            </select>
           </div>}
-          <div><label className="form-label">Beer Name *</label><input required className="input-cls" value={form.beer_name} onChange={e=>setForm(f=>({...f,beer_name:e.target.value}))}/></div>
-          <div><label className="form-label">Brew Date</label><input type="date" className="input-cls" value={form.brew_date} onChange={e=>setForm(f=>({...f,brew_date:e.target.value}))}/></div>
-          <div><label className="form-label">Volume (L)</label><input type="number" className="input-cls" value={form.volume} onChange={e=>setForm(f=>({...f,volume:e.target.value}))}/></div>
-          <div><label className="form-label">Fermenter</label><input className="input-cls" value={form.fermenter} onChange={e=>setForm(f=>({...f,fermenter:e.target.value}))}/></div>
+          <div><label className="form-label">Batch ID</label>
+            <input className="input-cls font-mono" placeholder="e.g. B2025-001" value={form.batch_id} onChange={e=>setForm(f=>({...f,batch_id:e.target.value}))}/>
+          </div>
+          {form.type==="Contract"&&!editingAutoId&&<>
+            <div><label className="form-label">Customer</label>
+              <select className="input-cls" value={form.customer_id} onChange={e=>setForm(f=>({...f,customer_id:e.target.value,order_id:"",beer_name:""}))}>
+                <option value="">— Select —</option>
+                {customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div><label className="form-label">Linked Order</label>
+              <select className="input-cls" value={form.order_id} onChange={e=>handleOrderSelect(e.target.value)}>
+                <option value="">— None —</option>
+                {orders.filter(o=>!form.customer_id||o.customer_id===form.customer_id)
+                  .map(o=><option key={o.id} value={o.id}>#{o.order_no} {o.beer_name}</option>)}
+              </select>
+            </div>
+            <div><label className="form-label">Beer</label>
+              {form.customer_id&&cbeers.filter(b=>b.customer_id===form.customer_id).length>0
+                ? <select className="input-cls" value={form.beer_name} onChange={e=>handleCBeerSelect(e.target.value)}>
+                    <option value="">— Select —</option>
+                    {cbeers.filter(b=>b.customer_id===form.customer_id).map(b=><option key={b.id} value={b.beer_name}>{b.brand?b.brand+" – ":""}{b.beer_name}</option>)}
+                  </select>
+                : <input required className="input-cls" value={form.beer_name} placeholder="Beer name" onChange={e=>setForm(f=>({...f,beer_name:e.target.value}))}/>}
+            </div>
+          </>}
+          {form.type==="In-house"&&!editingAutoId&&<div><label className="form-label">Beer Name *</label>
+            <input required className="input-cls" value={form.beer_name} placeholder="Beer name" onChange={e=>setForm(f=>({...f,beer_name:e.target.value}))}/>
+          </div>}
+          <div><label className="form-label">Brew Date</label>
+            <input type="date" className="input-cls" value={form.brew_date} onChange={e=>setForm(f=>({...f,brew_date:e.target.value}))}/>
+          </div>
+          <div><label className="form-label">Volume (L)</label>
+            <input type="number" className="input-cls" value={form.volume} onChange={e=>setForm(f=>({...f,volume:e.target.value}))}/>
+          </div>
+          <div><label className="form-label">Fermenter</label>
+            <select className="input-cls" value={form.fermenter} onChange={e=>setForm(f=>({...f,fermenter:e.target.value}))}>
+              <option value="">— Unassigned —</option>
+              {FERMENTERS.map(fm=><option key={fm} value={fm}>{fm}</option>)}
+            </select>
+          </div>
           <div><label className="form-label">Status</label>
             <select className="input-cls" value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}>
-              {["Planned","Scheduled","Brewing","Tasting","Packaging","Done"].map(s=><option key={s}>{s}</option>)}
+              {QUEUE_STATUSES.map(s=><option key={s}>{s}</option>)}
             </select>
           </div>
         </div>
-        <div><label className="form-label">Notes / Brand</label><input className="input-cls" value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/></div>
+        <div><label className="form-label">Notes</label>
+          <input className="input-cls" value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/>
+        </div>
         <div className="flex gap-3 justify-end pt-2">
           <button type="button" onClick={()=>setShowModal(false)} className="btn-ghost">Cancel</button>
-          <button type="submit" className="btn-primary">Save</button>
+          <button type="submit" className="btn-primary">{editingAutoId?"Confirm Assignment":"Save"}</button>
         </div>
       </form>
     </Modal>
     <ConfirmModal open={!!delId} danger title="Remove from Queue" message="Remove this entry from the queue?" onConfirm={()=>{ setQueue(p=>p.filter(q=>q.id!==delId)); setDelId(null); }} onCancel={()=>setDelId(null)}/>
   </div>;
 }
+
 
 // ─── MODEL CALCULATION PAGE ──────────────────────────────────────────────────
 // Tax constants from Beer Tax Structure sheet
@@ -1814,31 +2036,43 @@ const SERVICE_FEE_B1  = 20000;
 const SERVICE_FEE_B23 = 10000;
 const GLASSES_PER_KEG = 45;
 
-function CalcPage({recipes, ringredients, ingredients, customers, cbeers}){
-  const [form, setForm] = useState({
-    model_type:"Contract Brewing",
+function CalcPage({recipes, ringredients, ingredients, customers, cbeers, savedCalcs, setSavedCalcs}){
+  const DEFAULT_FORM = {
+    model_type:"Contract Brewing", customer_id:"",
     brand:"", beer_name:"", style:"", abv:5,
-    srp_with_vat:1800,
-    kegs:18, rm:0, packaging_per_keg:150, batch_no:1,
-    other_price:7000,
-    recipe_id:"",
-  });
+    srp_with_vat:1800, kegs:18, rm:0, packaging_per_keg:150,
+    batch_no:1, other_price:7000, recipe_id:"",
+  };
+  const [form, setForm] = useState({...DEFAULT_FORM});
+  const [saveModal, setSaveModal] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [saveNotes, setSaveNotes] = useState("");
+  const [viewSaved, setViewSaved] = useState(null); // id of saved calc to view
 
-  // Pull RM from recipe if selected
-  const recipeOptions = recipes.map(r=>({...r}));
+  // ── Clear: reset only identity/product fields, keep numeric defaults ────────
+  const handleClear = ()=>{
+    setForm(f=>({...f,
+      customer_id:"", brand:"", beer_name:"", style:"",
+      recipe_id:"", rm:0,
+      // Reset numerics to defaults
+      abv:5, srp_with_vat:1800, kegs:18, packaging_per_keg:150,
+      batch_no:1, other_price:7000,
+    }));
+  };
+
+  // Pull RM from recipe
   const handleRecipeSelect = (rid)=>{
     if(!rid){ setForm(f=>({...f,recipe_id:"",rm:0})); return; }
     const r = recipes.find(x=>x.id===rid);
     if(!r){ setForm(f=>({...f,recipe_id:rid})); return; }
-    // Get ingredient cost from ringredients
-    const lines = ringredients.filter(ri=>ri.recipe_id===rid);
-    const rmCost = lines.reduce((s,l)=>{
+    const lines2 = ringredients.filter(ri=>ri.recipe_id===rid);
+    const rmCost = lines2.reduce((s,l)=>{
       const ac=(parseFloat(l.cost_per_unit)||0)/((parseFloat(l.yield_pct)||100)/100);
       return s+(parseFloat(l.use_qty)||0)*ac;
     },0);
     const miscCost = rmCost*(+r.misc_pct||0)/100;
-    setForm(f=>({...f, recipe_id:rid, rm: +(rmCost+miscCost).toFixed(2),
-      beer_name:r.beer_name||f.beer_name, brand:r.brand||f.brand }));
+    setForm(f=>({...f, recipe_id:rid, rm:+(rmCost+miscCost).toFixed(2),
+      beer_name:r.beer_name||f.beer_name, brand:r.brand||f.brand}));
   };
 
   const f = form;
@@ -1863,10 +2097,45 @@ function CalcPage({recipes, ringredients, ingredients, customers, cbeers}){
   const cost_per_glass= price_upb / GLASSES_PER_KEG;
   const bar_price    = f.model_type==="UPB Own" ? cost_per_glass*3 : cost_per_glass*2;
 
-  const fB = (n)=>n.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const fB = (n)=>(+n||0).toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});
   const set = (k)=>(e)=>setForm(f=>({...f,[k]:e.target.value}));
 
-  // input row helper
+  // ── SAVE ─────────────────────────────────────────────────────────────────
+  const handleSave = ()=>{
+    if(!saveName.trim()) return;
+    const entry = {
+      id:uid(), name:saveName.trim(), notes:saveNotes,
+      model_type:f.model_type, brand:f.brand, beer_name:f.beer_name,
+      style:f.style, abv:f.abv, srp_with_vat:f.srp_with_vat, kegs:f.kegs,
+      rm:f.rm, packaging_per_keg:f.packaging_per_keg, batch_no:f.batch_no,
+      other_price:f.other_price, recipe_id:f.recipe_id,
+      total:+total.toFixed(2), per_keg_vat:+per_keg_vat.toFixed(2),
+      price_upb:+price_upb.toFixed(2), bar_price:+bar_price.toFixed(2),
+      created_date:today(),
+    };
+    setSavedCalcs(p=>[...(Array.isArray(p)?p:[]),entry]);
+    setSaveModal(false); setSaveName(""); setSaveNotes("");
+  };
+
+  // Load a saved calc back into the form
+  const handleLoad = (sc)=>{
+    setForm({
+      model_type:sc.model_type||DEFAULT_FORM.model_type,
+      customer_id:"", brand:sc.brand||"", beer_name:sc.beer_name||"",
+      style:sc.style||"", abv:+sc.abv||5, srp_with_vat:+sc.srp_with_vat||1800,
+      kegs:+sc.kegs||18, rm:+sc.rm||0, packaging_per_keg:+sc.packaging_per_keg||150,
+      batch_no:+sc.batch_no||1, other_price:+sc.other_price||7000,
+      recipe_id:sc.recipe_id||"",
+    });
+    setViewSaved(null);
+  };
+
+  const handleDelete = (id)=>{
+    setSavedCalcs(p=>p.filter(sc=>sc.id!==id));
+    if(viewSaved===id) setViewSaved(null);
+  };
+
+  // row helper
   const Row = ({label,value,unit,highlight,desc})=>(
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
       padding:"8px 14px",borderBottom:"1px solid #f3f4f6",
@@ -1881,9 +2150,15 @@ function CalcPage({recipes, ringredients, ingredients, customers, cbeers}){
     </div>
   );
 
+  // ── SAVED CALC DETAIL VIEW ─────────────────────────────────────────────────
+  const viewedSC = savedCalcs&&viewSaved ? savedCalcs.find(sc=>sc.id===viewSaved) : null;
+
   return <div style={{maxWidth:1100}}>
     <SectionHeader title="💰 Model Calculation" action={
-      <span style={{fontSize:12,color:"#9ca3af"}}>โครงสร้างการคิดราคาเบียร์ Contract Brewing</span>}/>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={handleClear} className="btn-ghost" style={{fontSize:13}}>↺ Clear</button>
+        <button onClick={()=>setSaveModal(true)} className="btn-primary" style={{fontSize:13}}>💾 Save Calc</button>
+      </div>}/>
 
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
 
@@ -1912,9 +2187,7 @@ function CalcPage({recipes, ringredients, ingredients, customers, cbeers}){
               <div>
                 <label className="form-label">Customer</label>
                 <select className="input-cls" value={f.customer_id||""}
-                  onChange={e=>{
-                    setForm(fd=>({...fd,customer_id:e.target.value,beer_name:"",brand:"",style:"",abv:5}));
-                  }}>
+                  onChange={e=>setForm(fd=>({...fd,customer_id:e.target.value,beer_name:"",brand:"",style:"",abv:5}))}>
                   <option value="">— Any / manual —</option>
                   {customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
@@ -1978,7 +2251,7 @@ function CalcPage({recipes, ringredients, ingredients, customers, cbeers}){
             <label className="form-label">Link Recipe (auto-fill RM)</label>
             <select className="input-cls" value={f.recipe_id} onChange={e=>handleRecipeSelect(e.target.value)}>
               <option value="">— Enter manually —</option>
-              {recipeOptions.map(r=><option key={r.id} value={r.id}>{r.recipe_code||"—"} · {r.beer_name}</option>)}
+              {recipes.map(r=><option key={r.id} value={r.id}>{r.recipe_code||"—"} · {r.beer_name}</option>)}
             </select>
           </div>
           <div>
@@ -2001,7 +2274,6 @@ function CalcPage({recipes, ringredients, ingredients, customers, cbeers}){
 
       {/* ── RIGHT: RESULTS ─────────────────────────────────────────────────── */}
       <div className="space-y-4">
-
         {/* Cost breakdown */}
         <div className="card" style={{overflow:"hidden"}}>
           <div style={{background:"#1e4d6b",padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -2088,9 +2360,93 @@ function CalcPage({recipes, ringredients, ingredients, customers, cbeers}){
         </div>
       </div>
     </div>
+
+    {/* ── SAVED CALCULATIONS LIST ─────────────────────────────────────────────── */}
+    {savedCalcs&&savedCalcs.length>0&&<div style={{marginTop:28}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <h3 style={{fontSize:15,fontWeight:700,color:"#1e4d6b",margin:0}}>📂 Saved Calculations ({savedCalcs.length})</h3>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:12}}>
+        {[...savedCalcs].reverse().map(sc=>{
+          const isViewing = viewSaved===sc.id;
+          return <div key={sc.id} className="card" style={{overflow:"hidden",border:isViewing?"2px solid #2a9d8f":"1px solid #f3f4f6"}}>
+            {/* Header */}
+            <div style={{background:isViewing?"#2a9d8f":"#f8fafc",padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <p style={{fontSize:13,fontWeight:700,color:isViewing?"#fff":"#1e4d6b",margin:0}}>{sc.name}</p>
+                <p style={{fontSize:11,color:isViewing?"rgba(255,255,255,.7)":"#9ca3af",margin:0}}>{sc.model_type} · {sc.created_date||"—"}</p>
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>setViewSaved(isViewing?null:sc.id)}
+                  style={{fontSize:11,padding:"3px 8px",borderRadius:6,border:"1px solid",cursor:"pointer",fontFamily:"Inter,sans-serif",
+                    borderColor:isViewing?"rgba(255,255,255,.4)":"#e5e7eb",
+                    background:isViewing?"rgba(255,255,255,.15)":"#fff",
+                    color:isViewing?"#fff":"#374151"}}>
+                  {isViewing?"▲ Hide":"▼ View"}
+                </button>
+              </div>
+            </div>
+            {/* Key metrics always visible */}
+            <div style={{padding:"8px 14px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
+              <div><span style={{fontSize:10,color:"#9ca3af"}}>Beer</span><p style={{fontSize:12,fontWeight:600,color:"#374151",margin:0}}>{sc.beer_name||"—"} {sc.brand?"("+sc.brand+")":""}</p></div>
+              <div><span style={{fontSize:10,color:"#9ca3af"}}>Batch Total</span><p style={{fontSize:13,fontWeight:800,color:"#1e4d6b",margin:0}}>฿{fB(+sc.total||0)}</p></div>
+              <div><span style={{fontSize:10,color:"#9ca3af"}}>สห Price/keg</span><p style={{fontSize:12,fontWeight:700,color:"#0d9488",margin:0}}>฿{fB(+sc.price_upb||0)}</p></div>
+              <div><span style={{fontSize:10,color:"#9ca3af"}}>Bar/glass</span><p style={{fontSize:12,fontWeight:700,color:"#f59e0b",margin:0}}>฿{fB(+sc.bar_price||0)}</p></div>
+            </div>
+            {/* Expanded detail */}
+            {isViewing&&<div style={{borderTop:"1px solid #f3f4f6",padding:"8px 14px"}}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginBottom:8}}>
+                {[["Style",sc.style||"—"],["ABV",sc.abv?sc.abv+"%":"—"],["SRP",sc.srp_with_vat?"฿"+sc.srp_with_vat:"—"],["Kegs",sc.kegs||"—"],["RM",sc.rm?"฿"+fB(+sc.rm):"—"],["Pkg/keg",sc.packaging_per_keg?"฿"+sc.packaging_per_keg:"—"],["Per Keg (VAT)","฿"+fB(+sc.per_keg_vat||0)]].map(([k,v])=>(
+                  <div key={k}><span style={{fontSize:10,color:"#9ca3af"}}>{k}</span><p style={{fontSize:12,color:"#374151",margin:0,fontWeight:500}}>{v}</p></div>
+                ))}
+              </div>
+              {sc.notes&&<p style={{fontSize:12,color:"#6b7280",fontStyle:"italic",margin:"0 0 8px"}}>"{sc.notes}"</p>}
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>handleLoad(sc)}
+                  style={{flex:1,padding:"6px 0",borderRadius:8,border:"none",background:"#1e4d6b",color:"#fff",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                  ↑ Load into Calculator
+                </button>
+                <button onClick={()=>handleDelete(sc.id)}
+                  style={{padding:"6px 10px",borderRadius:8,border:"1px solid #fca5a5",background:"#fff",color:"#ef4444",fontSize:12,cursor:"pointer",fontFamily:"Inter,sans-serif"}}>
+                  🗑
+                </button>
+              </div>
+            </div>}
+          </div>;
+        })}
+      </div>
+    </div>}
+
+    {/* ── SAVE MODAL ─────────────────────────────────────────────────────────── */}
+    <Modal open={saveModal} onClose={()=>setSaveModal(false)} title="💾 Save Calculation">
+      <div className="space-y-3">
+        <div>
+          <label className="form-label">Calculation Name *</label>
+          <input className="input-cls" autoFocus placeholder="e.g. Lager Q1 2025 — 18 kegs"
+            value={saveName} onChange={e=>setSaveName(e.target.value)}/>
+        </div>
+        <div>
+          <label className="form-label">Notes (optional)</label>
+          <textarea className="input-cls" rows={2} placeholder="Any context or remarks…"
+            value={saveNotes} onChange={e=>setSaveNotes(e.target.value)}/>
+        </div>
+        {/* Preview of what will be saved */}
+        <div style={{background:"#f8fafc",borderRadius:10,padding:"10px 14px",fontSize:12}}>
+          <p style={{fontWeight:700,color:"#374151",marginBottom:6}}>Snapshot preview</p>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:3}}>
+            {[["Beer",f.beer_name||"(not set)"],["Model",f.model_type],["Batch Total","฿"+fB(total)],["สห Price","฿"+fB(price_upb)],["Bar/glass","฿"+fB(bar_price)],["Per Keg (VAT)","฿"+fB(per_keg_vat)]].map(([k,v])=>(
+              <div key={k}><span style={{color:"#9ca3af"}}>{k}: </span><span style={{fontWeight:600,color:"#374151"}}>{v}</span></div>
+            ))}
+          </div>
+        </div>
+        <div className="flex gap-3 justify-end pt-1">
+          <button onClick={()=>setSaveModal(false)} className="btn-ghost">Cancel</button>
+          <button onClick={handleSave} className="btn-primary" disabled={!saveName.trim()}>Save</button>
+        </div>
+      </div>
+    </Modal>
   </div>;
 }
-
 // ─── SIDEBAR ─────────────────────────────────────────────────────────────────
 const NAV_ITEMS = [
   {id:"dashboard",  label:"Dashboard",    icon:"📊"},
@@ -2198,6 +2554,7 @@ function App(){
   const [ringredients, setRingredients, ,setTkRI, fpRI] = useSave("RecipeIngredients", SHEETS.RecipeIngredients, INITIAL_RINGSREDIENTS);
   const [orders,       setOrders,       ,setTkO,  fpO]  = useSave("Orders",            SHEETS.Orders,            INITIAL_ORDERS);
   const [queue,        setQueue,        ,setTkQ,  fpQ]  = useSave("Queue",             SHEETS.Queue,             INITIAL_QUEUE);
+  const [savedCalcs,   setSavedCalcs,   ,setTkSC, fpSC] = useSave("SavedCalcs",        SHEETS.SavedCalcs,        INITIAL_SAVEDCALCS);
 
   const [syncing, setSyncing] = useState(false);
 
@@ -2205,14 +2562,14 @@ function App(){
   useEffect(()=>{
     if(!token) return;
     setSyncing(true);
-    [setTkC,setTkCB,setTkI,setTkR,setTkRI,setTkO,setTkQ].forEach(fn=>fn(token));
+    [setTkC,setTkCB,setTkI,setTkR,setTkRI,setTkO,setTkQ,setTkSC].forEach(fn=>fn(token));
     setTimeout(()=>setSyncing(false), 3500); // show loading briefly while reads complete
   },[token]);
 
   const syncAll = ()=>{
     if(!token) return;
     setSyncing(true);
-    [fpC,fpCB,fpI,fpR,fpRI,fpO,fpQ].forEach(fn=>fn());
+    [fpC,fpCB,fpI,fpR,fpRI,fpO,fpQ,fpSC].forEach(fn=>fn());
     setTimeout(()=>setSyncing(false), 3000);
   };
 
@@ -2222,9 +2579,9 @@ function App(){
       case "customers":   return <CustomersPage customers={customers} setCustomers={setCustomers} cbeers={cbeers} setCbeers={setCbeers} orders={orders}/>;
       case "ingredients": return <IngredientsPage ingredients={ingredients} setIngredients={setIngredients}/>;
       case "recipes":     return <RecipesPage recipes={recipes} setRecipes={setRecipes} ringredients={ringredients} setRingredients={setRingredients} ingredients={ingredients} customers={customers} cbeers={cbeers}/>;
-      case "calc":        return <CalcPage recipes={recipes} ringredients={ringredients} ingredients={ingredients} customers={customers} cbeers={cbeers}/>;
+      case "calc":        return <CalcPage recipes={recipes} ringredients={ringredients} ingredients={ingredients} customers={customers} cbeers={cbeers} savedCalcs={savedCalcs} setSavedCalcs={setSavedCalcs}/>;
       case "orders":      return <OrdersPage orders={orders} setOrders={setOrders} customers={customers} cbeers={cbeers} recipes={recipes}/>;
-      case "queue":       return <QueuePage queue={queue} setQueue={setQueue} orders={orders} customers={customers}/>;
+      case "queue":       return <QueuePage queue={queue} setQueue={setQueue} orders={orders} customers={customers} cbeers={cbeers}/>;
       default: return null;
     }
   };
