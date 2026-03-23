@@ -313,8 +313,11 @@ const INITIAL_CBEERS    = [];
 const INITIAL_RECIPES   = [];
 const INITIAL_RINGSREDIENTS = [];
 const INITIAL_ORDERS    = [];
-const INITIAL_QUEUE     = [];
-const INITIAL_SAVEDCALCS = [];
+const INITIAL_QUEUE          = [];
+const INITIAL_SAVEDCALCS    = [];
+const INITIAL_RTEMPLATES    = [];
+const INITIAL_RTINGREDIENTS = [];
+const INITIAL_BARPRICING    = [];
 
 </script>
 
@@ -330,12 +333,15 @@ const SCOPES           = "https://www.googleapis.com/auth/spreadsheets";
 const SHEETS = {
   Customers:          ["id","name","contact_name","phone","email","address","notes","created_date"],
   CustomerBeers:      ["id","customer_id","brand","beer_name","style","abv","recipe_id","notes"],
-  Ingredients:        ["id","category","supplier","name","purchase_size","purchase_unit","purchase_price","use_qty","use_unit","cost_per_unit"],
-  Recipes:            ["id","recipe_code","customer_id","beer_name","batch_size_litres","misc_pct","total_cost","notes"],
-  RecipeIngredients:  ["id","recipe_id","ingredient_name","purchase_size","purchase_unit","cost_per_unit","yield_pct","use_qty","use_unit","line_cost"],
+  Ingredients:               ["id","category","supplier","name","purchase_size","purchase_unit","purchase_price","use_qty","use_unit","cost_per_unit","price_date"],
+  Recipes:                   ["id","recipe_code","customer_id","beer_name","batch_size_litres","misc_pct","total_cost","notes"],
+  RecipeIngredients:         ["id","recipe_id","ingredient_name","purchase_size","purchase_unit","cost_per_unit","yield_pct","use_qty","use_unit","line_cost"],
+  RecipeTemplates:           ["id","template_name","batch_size_litres","misc_pct","notes"],
+  RecipeTemplateIngredients: ["id","template_id","ingredient_name","purchase_size","purchase_unit","cost_per_unit","yield_pct","use_qty","use_unit","line_cost"],
   Orders:             ["id","order_no","customer_id","customer_name","beer_name","style","abv","volume_litres","status","quotation_no","order_price","round_no","batch_no","deposit_date","deposit_amount","balance_date","balance_amount","final_date","final_amount","brewing_date","deliver_date","recipe_id","notes"],
   Queue:              ["id","batch_id","type","order_id","brand","beer_name","brew_date","volume","status","fermenter","notes"],
   SavedCalcs:         ["id","name","model_type","brand","beer_name","style","abv","srp_with_vat","kegs","rm","packaging_per_keg","batch_no","other_price","recipe_id","total","per_keg_vat","price_upb","bar_price","notes","created_date"],
+  BarPricing:         ["id","product_name","product_type","cost","unit","has_vat","cost_per_serve","cost_with_vat","selling_price","rounded_price","actual_price","notes","created_date"],
 };
 
 // ─── CONTRACT STATUS CONFIG ─────────────────────────────────────────────────
@@ -594,6 +600,22 @@ function DashboardPage({orders,customers,queue}){
 
   const recentOrders = [...orders].sort((a,b)=>(b.order_no||"").localeCompare(a.order_no||"")).slice(0,6);
 
+  // 90-day brewing deadline: orders with deposit_date, not yet scheduled
+  const today = new Date(); today.setHours(0,0,0,0);
+  const scheduledStatuses = new Set(["Scheduled","Brewing","Tasting","Packaging","Ready","Delivered"]);
+  const depositAlerts = orders.filter(o=>{
+    if(!o.deposit_date) return false;
+    if(scheduledStatuses.has(o.status)) return false;
+    const deadline = new Date(o.deposit_date);
+    deadline.setDate(deadline.getDate()+90);
+    return true; // include all with deposit date & not yet scheduled
+  }).map(o=>{
+    const deadline = new Date(o.deposit_date);
+    deadline.setDate(deadline.getDate()+90);
+    const daysLeft = Math.round((deadline-today)/(1000*60*60*24));
+    return {...o, deadline, daysLeft};
+  }).sort((a,b)=>a.daysLeft-b.daysLeft);
+
   return <div className="space-y-6">
     <div>
       <h2 className="text-2xl font-bold text-gray-900 mb-1">Dashboard</h2>
@@ -606,6 +628,34 @@ function DashboardPage({orders,customers,queue}){
       <KpiCard label="In Production" value={brewing.length} color="text-teal-600"/>
       <KpiCard label="Ready to Ship" value={ready.length} color="text-green-600"/>
     </div>
+
+    {/* ── Brewing deadline alerts ── */}
+    {depositAlerts.length>0&&<div className="space-y-2">
+      <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+        <span style={{fontSize:16}}>⏰</span> Brewing Schedule Reminders
+        <span style={{fontSize:11,fontWeight:600,background:"#fef3c7",color:"#92400e",borderRadius:12,padding:"1px 8px"}}>{depositAlerts.length} order{depositAlerts.length!==1?"s":""}</span>
+      </h3>
+      {depositAlerts.map(o=>{
+        const overdue = o.daysLeft<0;
+        const urgent  = o.daysLeft>=0&&o.daysLeft<=14;
+        const bg    = overdue?"#fef2f2":urgent?"#fffbeb":"#f0fdf4";
+        const border= overdue?"#fca5a5":urgent?"#fde68a":"#bbf7d0";
+        const dot   = overdue?"#ef4444":urgent?"#f59e0b":"#22c55e";
+        const label = overdue?`${Math.abs(o.daysLeft)}d overdue`:o.daysLeft===0?"Due today":`${o.daysLeft}d left`;
+        return <div key={o.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:12,background:bg,border:`1.5px solid ${border}`}}>
+          <div style={{width:8,height:8,borderRadius:"50%",background:dot,flexShrink:0}}/>
+          <div style={{flex:1,minWidth:0}}>
+            <span style={{fontWeight:600,fontSize:13,color:"#111827"}}>{o.customer_name||"—"}</span>
+            <span style={{fontSize:13,color:"#4b5563",marginLeft:8}}>{o.beer_name||"—"}</span>
+            <span style={{fontSize:12,color:"#9ca3af",marginLeft:8}}>#{o.order_no} · Deposit: {o.deposit_date}</span>
+          </div>
+          <div style={{textAlign:"right",flexShrink:0}}>
+            <div style={{fontSize:12,fontWeight:700,color:dot}}>{label}</div>
+            <div style={{fontSize:11,color:"#9ca3af"}}>Deadline: {o.deadline.toISOString().slice(0,10)}</div>
+          </div>
+        </div>;
+      })}
+    </div>}
 
     <div className="grid lg:grid-cols-2 gap-6">
       {/* Pipeline */}
@@ -921,7 +971,7 @@ function IngredientsPage({ingredients,setIngredients}){
   const ING_PER_PAGE = 50;
   const [showModal,setShowModal] = useState(false);
   const [editId,setEditId]       = useState(null);
-  const emptyForm = ()=>({category:"Misc",supplier:"",name:"",purchase_size:"",purchase_unit:"kg",purchase_price:"",use_qty:"",use_unit:"g",cost_per_unit:""});
+  const emptyForm = ()=>({category:"Misc",supplier:"",name:"",purchase_size:"",purchase_unit:"kg",purchase_price:"",use_qty:"",use_unit:"g",cost_per_unit:"",price_date:""});
   const [form,setForm] = useState(emptyForm());
 
   const categories = ["All","Malt","Hop","Yeast","Misc"];
@@ -985,6 +1035,7 @@ function IngredientsPage({ingredients,setIngredients}){
             <th className="px-4 py-3 font-medium text-right">Pack Price (฿)</th>
             <th className="px-4 py-3 font-medium text-right">Use Qty</th>
             <th className="px-4 py-3 font-medium text-right">Cost/Unit (฿)</th>
+            <th className="px-4 py-3 font-medium">Price Date</th>
             <th className="px-4 py-3 font-medium"/>
           </tr>
         </thead>
@@ -999,6 +1050,7 @@ function IngredientsPage({ingredients,setIngredients}){
                 <td className="px-4 py-2.5 text-right text-gray-700">฿{(+ing.purchase_price||0).toLocaleString()}</td>
                 <td className="px-4 py-2.5 text-right text-gray-500">{ing.use_qty} {ing.use_unit}</td>
                 <td className="px-4 py-2.5 text-right font-medium text-teal-700">฿{(+ing.cost_per_unit||0).toFixed(3)}</td>
+                <td className="px-4 py-2.5 text-xs text-gray-400">{ing.price_date||"—"}</td>
                 <td className="px-4 py-2.5 text-right">
                   <button onClick={()=>openEdit(ing)} className="text-xs text-indigo-500 hover:text-indigo-700 mr-2">Edit</button>
                   <button onClick={()=>setIngredients(p=>p.filter(x=>x.id!==ing.id))} className="text-xs text-red-400 hover:text-red-600">Del</button>
@@ -1059,6 +1111,9 @@ function IngredientsPage({ingredients,setIngredients}){
           <div><label className="form-label">Cost / Use Unit (฿) <span className="text-teal-500">(auto)</span></label>
             <input type="number" step="0.0001" className="input-cls" value={form.cost_per_unit} onChange={e=>setForm(f=>({...f,cost_per_unit:e.target.value}))}/>
           </div>
+          <div><label className="form-label">Price Date</label>
+            <input type="date" className="input-cls" value={form.price_date} onChange={e=>setForm(f=>({...f,price_date:e.target.value}))}/>
+          </div>
         </div>
         <div className="flex gap-3 justify-end pt-2">
           <button type="button" onClick={()=>setShowModal(false)} className="btn-ghost">Cancel</button>
@@ -1073,7 +1128,7 @@ function IngredientsPage({ingredients,setIngredients}){
 
 <script type="text/babel">
 // ─── RECIPES PAGE ────────────────────────────────────────────────────────────
-function RecipesPage({recipes,setRecipes,ringredients,setRingredients,ingredients,customers,cbeers}){
+function RecipesPage({recipes,setRecipes,ringredients,setRingredients,ingredients,customers,cbeers,rtemplates,setRtemplates,rtingredients,setRtingredients}){
   const [showModal,setShowModal]     = useState(false);
   const [editId,setEditId]           = useState(null);
   const [viewId,setViewId]           = useState(null);
@@ -1081,10 +1136,22 @@ function RecipesPage({recipes,setRecipes,ringredients,setRingredients,ingredient
   const [ingSearch,setIngSearch]     = useState("");
   const [recipeView,setRecipeView]   = useState("card"); // "card" | "list" | "customer"
   const [recipeSearch,setRecipeSearch] = useState("");
+  const [recipeTab,setRecipeTab]     = useState("recipes"); // "recipes" | "templates"
+  // Template CRUD state
+  const [showTplModal,setShowTplModal] = useState(false);
+  const [editTplId,setEditTplId]       = useState(null);
+  const [tplForm,setTplForm]           = useState({template_name:"",batch_size_litres:1000,misc_pct:5,notes:""});
+  const [tplIngLines,setTplIngLines]   = useState([]);
+  const [tplIngSearch,setTplIngSearch] = useState("");
+  const [delTplId,setDelTplId]         = useState(null);
+  const [tplViewMode,setTplViewMode]   = useState("card"); // "card" | "list"
+  const [tplSearch,setTplSearch]       = useState("");
+  // "Load from template" dropdown in recipe modal
+  const [loadTplId,setLoadTplId]       = useState("");
 
   const emptyForm = ()=>({
     recipe_code:"", customer_id:"", beer_id:"", beer_name:"", brand:"", style:"", abv:"",
-    batch_size_litres:1000, misc_pct:5, notes:""
+    batch_size_litres:400, misc_pct:0, notes:""
   });
   const [form,setForm]   = useState(emptyForm());
   const [ingLines,setIngLines] = useState([]);
@@ -1192,6 +1259,50 @@ function RecipesPage({recipes,setRecipes,ringredients,setRingredients,ingredient
 
   const getCustomerName=(id)=>customers.find(c=>c.id===id)?.name||"—";
 
+  // ── Template helpers ────────────────────────────────────────────────────────
+  const openAddTpl = ()=>{ setTplForm({template_name:"",batch_size_litres:400,misc_pct:0,notes:""}); setTplIngLines([]); setEditTplId(null); setShowTplModal(true); };
+  const openEditTpl = (t)=>{ setTplForm({template_name:t.template_name||"",batch_size_litres:t.batch_size_litres||1000,misc_pct:t.misc_pct||5,notes:t.notes||""}); setTplIngLines(rtingredients.filter(ri=>ri.template_id===t.id).map(ri=>({...ri}))); setEditTplId(t.id); setShowTplModal(true); };
+  const handleSaveTpl = (e)=>{
+    e.preventDefault();
+    const tid = editTplId||uid();
+    if(editTplId){
+      setRtemplates(p=>p.map(t=>t.id===editTplId?{...t,...tplForm}:t));
+      setRtingredients(p=>[...p.filter(ri=>ri.template_id!==editTplId),...tplIngLines.map(l=>({...l,template_id:editTplId}))]);
+    } else {
+      setRtemplates(p=>[...p,{id:tid,...tplForm}]);
+      setRtingredients(p=>[...p,...tplIngLines.map(l=>({...l,id:uid(),template_id:tid}))]);
+    }
+    setShowTplModal(false);
+  };
+  const handleDeleteTpl = ()=>{
+    setRtemplates(p=>p.filter(t=>t.id!==delTplId));
+    setRtingredients(p=>p.filter(ri=>ri.template_id!==delTplId));
+    setDelTplId(null);
+  };
+  const tplIngSuggest = useMemo(()=>{ if(!tplIngSearch) return []; const q=tplIngSearch.toLowerCase(); return ingredients.filter(i=>(i.name||"").toLowerCase().includes(q)).slice(0,8); },[ingredients,tplIngSearch]);
+  const addTplIngLine = (ing)=>{ if(tplIngLines.some(l=>l.ingredient_name===ing.name)) return; setTplIngLines(p=>[...p,{id:uid(),ingredient_name:ing.name,purchase_size:ing.purchase_size,purchase_unit:ing.purchase_unit,cost_per_unit:ing.cost_per_unit,yield_pct:100,use_qty:ing.use_qty,use_unit:ing.use_unit,line_cost:0}]); setTplIngSearch(""); };
+  const updateTplLine = (idx,field,val)=>{ setTplIngLines(p=>p.map((l,i)=>{ if(i!==idx) return l; const u={...l,[field]:val}; const ac=(parseFloat(u.cost_per_unit)||0)/((parseFloat(u.yield_pct)||100)/100); u.line_cost=(parseFloat(u.use_qty)||0)*ac; return u; })); };
+  const tplRmCost = useMemo(()=>tplIngLines.reduce((s,l)=>{const ac=(parseFloat(l.cost_per_unit)||0)/((parseFloat(l.yield_pct)||100)/100);return s+(parseFloat(l.use_qty)||0)*ac;},0),[tplIngLines]);
+
+  // Load template ingredients into recipe form — APPENDS new items, skips existing ones
+  const loadTemplate = (tplId)=>{
+    if(!tplId) return;
+    const t = rtemplates.find(x=>x.id===tplId);
+    const newLines = rtingredients
+      .filter(ri=>ri.template_id===tplId)
+      .map(l=>({...l,id:uid(),recipe_id:undefined,template_id:undefined}));
+    setIngLines(prev=>{
+      const existingNames = new Set(prev.map(l=>l.ingredient_name));
+      const toAdd = newLines.filter(l=>!existingNames.has(l.ingredient_name));
+      return [...prev, ...toAdd];
+    });
+    // Only update batch/misc if the form is otherwise empty (new recipe)
+    if(t && ingLines.length===0){
+      setForm(f=>({...f,batch_size_litres:t.batch_size_litres||f.batch_size_litres,misc_pct:t.misc_pct||f.misc_pct}));
+    }
+    setLoadTplId("");
+  };
+
   // ── Hooks that must stay above early return ─────────────────────────────────
   const recipesByCustomer = useMemo(()=>{
     const map={};
@@ -1218,6 +1329,161 @@ function RecipesPage({recipes,setRecipes,ringredients,setRingredients,ingredient
   // ── DETAIL VIEW ────────────────────────────────────────────────────────────
   const viewedRecipe = recipes.find(r=>r.id===viewId);
   const viewedLines  = ringredients.filter(ri=>ri.recipe_id===viewId);
+
+  // ── Shared recipe modal JSX (rendered always so edit works from detail view) ──
+  const recipeModalJSX = <Modal open={showModal} onClose={()=>setShowModal(false)} title={editId?"Edit Recipe":"New Recipe"} wide>
+    <form onSubmit={handleSave} className="space-y-4">
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+        <div><label className="form-label">Customer</label>
+          <select className="input-cls" value={form.customer_id} onChange={e=>setForm(f=>({...f,customer_id:e.target.value,beer_id:"",beer_name:"",brand:"",recipe_code:""}))}>
+            <option value="">— Select customer —</option>
+            {customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div><label className="form-label">Recipe Code <span style={{fontWeight:400,color:"#2dd4bf"}}>(auto)</span></label>
+          <input className="input-cls" style={{fontFamily:"monospace"}} value={form.recipe_code}
+            onChange={e=>setForm(f=>({...f,recipe_code:e.target.value}))}
+            placeholder={form.customer_id&&form.beer_name?autoCode(form.customer_id,form.beer_name):"Select customer & beer first"}/>
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 120px 100px",gap:14}}>
+        <div><label className="form-label">Beer Name *</label>
+          {customerBeers.length>0
+            ? <select required className="input-cls" value={form.beer_id} onChange={e=>handleBeerSelect(e.target.value)}>
+                <option value="">— Select beer —</option>
+                {customerBeers.map(b=><option key={b.id} value={b.id}>{b.brand?`${b.brand} – `:""}{b.beer_name}</option>)}
+              </select>
+            : <input required className="input-cls" placeholder={form.customer_id?"No beers — add in Customers first":"Select a customer first"}
+                value={form.beer_name} onChange={e=>setForm(f=>({...f,beer_name:e.target.value}))}/>}
+        </div>
+        <div><label className="form-label">Batch (L)</label>
+          <input type="number" className="input-cls" value={form.batch_size_litres} onChange={e=>setForm(f=>({...f,batch_size_litres:e.target.value}))}/>
+        </div>
+        <div><label className="form-label">Misc %</label>
+          <input type="number" step="0.1" className="input-cls" value={form.misc_pct} onChange={e=>setForm(f=>({...f,misc_pct:e.target.value}))}/>
+        </div>
+      </div>
+      {/* Load from template */}
+      {rtemplates.length>0&&<div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"#f0fdf4",borderRadius:10,border:"1px solid #bbf7d0"}}>
+        <span style={{fontSize:12,fontWeight:600,color:"#166534",flexShrink:0}}>📋 Load Template:</span>
+        <select className="input-cls" style={{flex:1,fontSize:12}} value={loadTplId} onChange={e=>loadTemplate(e.target.value)}>
+          <option value="">— Select template to pre-fill ingredients —</option>
+          {rtemplates.map(t=><option key={t.id} value={t.id}>{t.template_name} ({rtingredients.filter(ri=>ri.template_id===t.id).length} ingredients)</option>)}
+        </select>
+      </div>}
+      {/* Ingredient builder */}
+      <div style={{borderTop:"1px solid #f3f4f6",paddingTop:14}}>
+        <label className="form-label" style={{marginBottom:8}}>Ingredients</label>
+        <div style={{position:"relative",marginBottom:10}}>
+          <input className="input-cls" placeholder="🔍 Search & add ingredient…" value={ingSearch} onChange={e=>setIngSearch(e.target.value)}/>
+          {ingSuggest.length>0&&<div style={{position:"absolute",zIndex:20,width:"100%",marginTop:4,background:"#fff",border:"1.5px solid #e5e7eb",borderRadius:12,boxShadow:"0 8px 24px rgba(0,0,0,.1)",maxHeight:220,overflowY:"auto"}}>
+            {ingSuggest.map(i=><button type="button" key={i.id} onClick={()=>addIngLine(i)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",textAlign:"left",padding:"10px 14px",fontSize:13,background:"none",border:"none",borderBottom:"1px solid #f9fafb",cursor:"pointer",color:"#111827"}}>
+              <span>{i.name} <span style={{color:"#9ca3af",fontSize:11}}>({i.category})</span></span>
+              <span style={{color:"#0d9488",fontWeight:600,fontSize:12}}>฿{i.cost_per_unit}/unit</span>
+            </button>)}
+          </div>}
+        </div>
+        {ingLines.length>0&&<div style={{border:"1.5px solid #e5e7eb",borderRadius:12,overflow:"hidden"}}>
+          <table style={{width:"100%",fontSize:12,borderCollapse:"collapse"}}>
+            <thead><tr style={{background:"#1e4d6b",color:"#fff"}}>
+              <th style={{padding:"8px 10px",textAlign:"left",fontWeight:600}}>Ingredient</th>
+              <th style={{padding:"8px 8px",textAlign:"right",fontWeight:600,width:80}}>Use Qty</th>
+              <th style={{padding:"8px 6px",textAlign:"left",fontWeight:600,width:50}}>Unit</th>
+              <th style={{padding:"8px 8px",textAlign:"right",fontWeight:600,width:70}}>Yield %</th>
+              <th style={{padding:"8px 8px",textAlign:"right",fontWeight:600,width:90}}>Line Cost</th>
+              <th style={{padding:"8px 6px",width:28}}/>
+            </tr></thead>
+            <tbody>{ingLines.map((l,i)=>{
+              const ac=(parseFloat(l.cost_per_unit)||0)/((parseFloat(l.yield_pct)||100)/100);
+              const lc=(parseFloat(l.use_qty)||0)*ac;
+              return <tr key={l.id||i} style={{background:i%2?"#f8fafc":"#fff",borderTop:"1px solid #f3f4f6"}}>
+                <td style={{padding:"6px 10px",fontWeight:600,color:"#111827"}}>{l.ingredient_name}</td>
+                <td style={{padding:"6px 8px"}}><input type="number" step="0.001" value={l.use_qty} onChange={e=>updateLine(i,"use_qty",e.target.value)} style={{width:"100%",border:"1px solid #e5e7eb",borderRadius:6,padding:"3px 6px",fontSize:12,textAlign:"right"}}/></td>
+                <td style={{padding:"6px 6px",color:"#6b7280"}}>{l.use_unit}</td>
+                <td style={{padding:"6px 8px"}}><input type="number" step="1" min="1" max="100" value={l.yield_pct} onChange={e=>updateLine(i,"yield_pct",e.target.value)} style={{width:"100%",border:"1px solid #e5e7eb",borderRadius:6,padding:"3px 6px",fontSize:12,textAlign:"right"}}/></td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:"#0d9488"}}>฿{lc.toFixed(2)}</td>
+                <td style={{padding:"6px 6px",textAlign:"center"}}><button type="button" onClick={()=>setIngLines(p=>p.filter((_,j)=>j!==i))} style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:14,fontWeight:700}}>×</button></td>
+              </tr>;
+            })}</tbody>
+          </table>
+        </div>}
+        <div style={{display:"flex",gap:20,marginTop:10,fontSize:13,flexWrap:"wrap"}}>
+          <span>RM+MG: <strong style={{color:"#0d9488"}}>฿{rmCost.toFixed(2)}</strong></span>
+          <span>{`Misc (${form.misc_pct}%)`}: <strong style={{color:"#d97706"}}>฿{miscCost.toFixed(2)}</strong></span>
+          <span>Per Litre: <strong style={{color:"#6366f1"}}>฿{form.batch_size_litres>0?(totalCost/+form.batch_size_litres).toFixed(2):"—"}</strong></span>
+          <span style={{fontWeight:800,color:"#111827"}}>Total: ฿{totalCost.toFixed(2)}</span>
+        </div>
+      </div>
+      <div><label className="form-label">Notes</label><textarea className="input-cls" rows={2} value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/></div>
+      <div style={{display:"flex",gap:10,justifyContent:"flex-end",paddingTop:8}}>
+        <button type="button" onClick={()=>setShowModal(false)} className="btn-ghost">Cancel</button>
+        <button type="submit" className="btn-primary">Save Recipe</button>
+      </div>
+    </form>
+  </Modal>;
+
+  // ── Template modal JSX ──────────────────────────────────────────────────────
+  const tplModalJSX = <Modal open={showTplModal} onClose={()=>setShowTplModal(false)} title={editTplId?"Edit Template":"New Template"} wide>
+    <form onSubmit={handleSaveTpl} className="space-y-4">
+      <div style={{display:"grid",gridTemplateColumns:"1fr 120px 100px",gap:14}}>
+        <div><label className="form-label">Template Name *</label>
+          <input required className="input-cls" value={tplForm.template_name} onChange={e=>setTplForm(f=>({...f,template_name:e.target.value}))} placeholder="e.g. Standard Lager Base"/>
+        </div>
+        <div><label className="form-label">Batch (L)</label>
+          <input type="number" className="input-cls" value={tplForm.batch_size_litres} onChange={e=>setTplForm(f=>({...f,batch_size_litres:e.target.value}))}/>
+        </div>
+        <div><label className="form-label">Misc %</label>
+          <input type="number" step="0.1" className="input-cls" value={tplForm.misc_pct} onChange={e=>setTplForm(f=>({...f,misc_pct:e.target.value}))}/>
+        </div>
+      </div>
+      <div style={{borderTop:"1px solid #f3f4f6",paddingTop:14}}>
+        <label className="form-label" style={{marginBottom:8}}>Ingredients</label>
+        <div style={{position:"relative",marginBottom:10}}>
+          <input className="input-cls" placeholder="🔍 Search & add ingredient…" value={tplIngSearch} onChange={e=>setTplIngSearch(e.target.value)}/>
+          {tplIngSuggest.length>0&&<div style={{position:"absolute",zIndex:20,width:"100%",marginTop:4,background:"#fff",border:"1.5px solid #e5e7eb",borderRadius:12,boxShadow:"0 8px 24px rgba(0,0,0,.1)",maxHeight:220,overflowY:"auto"}}>
+            {tplIngSuggest.map(i=><button type="button" key={i.id} onClick={()=>addTplIngLine(i)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",textAlign:"left",padding:"10px 14px",fontSize:13,background:"none",border:"none",borderBottom:"1px solid #f9fafb",cursor:"pointer",color:"#111827"}}>
+              <span>{i.name} <span style={{color:"#9ca3af",fontSize:11}}>({i.category})</span></span>
+              <span style={{color:"#0d9488",fontWeight:600,fontSize:12}}>฿{i.cost_per_unit}/unit</span>
+            </button>)}
+          </div>}
+        </div>
+        {tplIngLines.length>0&&<div style={{border:"1.5px solid #e5e7eb",borderRadius:12,overflow:"hidden"}}>
+          <table style={{width:"100%",fontSize:12,borderCollapse:"collapse"}}>
+            <thead><tr style={{background:"#1e4d6b",color:"#fff"}}>
+              <th style={{padding:"8px 10px",textAlign:"left",fontWeight:600}}>Ingredient</th>
+              <th style={{padding:"8px 8px",textAlign:"right",fontWeight:600,width:80}}>Use Qty</th>
+              <th style={{padding:"8px 6px",textAlign:"left",fontWeight:600,width:50}}>Unit</th>
+              <th style={{padding:"8px 8px",textAlign:"right",fontWeight:600,width:70}}>Yield %</th>
+              <th style={{padding:"8px 8px",textAlign:"right",fontWeight:600,width:90}}>Line Cost</th>
+              <th style={{padding:"8px 6px",width:28}}/>
+            </tr></thead>
+            <tbody>{tplIngLines.map((l,i)=>{
+              const ac=(parseFloat(l.cost_per_unit)||0)/((parseFloat(l.yield_pct)||100)/100);
+              const lc=(parseFloat(l.use_qty)||0)*ac;
+              return <tr key={l.id||i} style={{background:i%2?"#f8fafc":"#fff",borderTop:"1px solid #f3f4f6"}}>
+                <td style={{padding:"6px 10px",fontWeight:600,color:"#111827"}}>{l.ingredient_name}</td>
+                <td style={{padding:"6px 8px"}}><input type="number" step="0.001" value={l.use_qty} onChange={e=>updateTplLine(i,"use_qty",e.target.value)} style={{width:"100%",border:"1px solid #e5e7eb",borderRadius:6,padding:"3px 6px",fontSize:12,textAlign:"right"}}/></td>
+                <td style={{padding:"6px 6px",color:"#6b7280"}}>{l.use_unit}</td>
+                <td style={{padding:"6px 8px"}}><input type="number" step="1" min="1" max="100" value={l.yield_pct} onChange={e=>updateTplLine(i,"yield_pct",e.target.value)} style={{width:"100%",border:"1px solid #e5e7eb",borderRadius:6,padding:"3px 6px",fontSize:12,textAlign:"right"}}/></td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:"#0d9488"}}>฿{lc.toFixed(2)}</td>
+                <td style={{padding:"6px 6px",textAlign:"center"}}><button type="button" onClick={()=>setTplIngLines(p=>p.filter((_,j)=>j!==i))} style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:14,fontWeight:700}}>×</button></td>
+              </tr>;
+            })}</tbody>
+          </table>
+        </div>}
+        <div style={{display:"flex",gap:20,marginTop:10,fontSize:13}}>
+          <span>RM+MG: <strong style={{color:"#0d9488"}}>฿{tplRmCost.toFixed(2)}</strong></span>
+          <span>Misc ({tplForm.misc_pct}%): <strong style={{color:"#d97706"}}>฿{(tplRmCost*(+tplForm.misc_pct||0)/100).toFixed(2)}</strong></span>
+          <span style={{fontWeight:800,color:"#111827"}}>Total: ฿{(tplRmCost*(1+(+tplForm.misc_pct||0)/100)).toFixed(2)}</span>
+        </div>
+      </div>
+      <div><label className="form-label">Notes</label><textarea className="input-cls" rows={2} value={tplForm.notes} onChange={e=>setTplForm(f=>({...f,notes:e.target.value}))}/></div>
+      <div style={{display:"flex",gap:10,justifyContent:"flex-end",paddingTop:8}}>
+        <button type="button" onClick={()=>setShowTplModal(false)} className="btn-ghost">Cancel</button>
+        <button type="submit" className="btn-primary">Save Template</button>
+      </div>
+    </form>
+  </Modal>;
 
   if(viewId && viewedRecipe){
     const rm2 = viewedLines.reduce((s,l)=>{
@@ -1327,27 +1593,122 @@ function RecipesPage({recipes,setRecipes,ringredients,setRingredients,ingredient
         </table>
       </div>
       {viewedRecipe.notes&&<div className="card p-5"><p style={{fontSize:13,color:"#4b5563",whiteSpace:"pre-wrap"}}>{viewedRecipe.notes}</p></div>}
+      {recipeModalJSX}
       <ConfirmModal open={!!delId} danger title="Delete Recipe" message="Delete this recipe and all ingredients?" onConfirm={handleDelete} onCancel={()=>setDelId(null)}/>
     </div>;
   }
 
   // ── MAIN VIEW ──────────────────────────────────────────────────────────────
   return <div className="space-y-5">
+    {/* Tab switcher: Recipes | Templates */}
     <div className="flex items-center gap-3 flex-wrap mb-1">
-      <h2 style={{fontSize:22,fontWeight:700,color:"#111827",margin:0}}>Recipes</h2>
-      <button onClick={openAdd} className="btn-primary">+ New Recipe</button>
-      <div className="flex-1"/>
-      <input className="input-cls" style={{width:220}} placeholder="🔍 Search recipe, beer, customer…"
-        value={recipeSearch} onChange={e=>setRecipeSearch(e.target.value)}/>
-      <div className="flex gap-1">
-        {[["card","⊞ Cards"],["list","≡ List"],["customer","👥 By Customer"]].map(([m,lbl])=>(
-          <button key={m} onClick={()=>setRecipeView(m)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${recipeView===m?"bg-teal-600 text-white border-teal-600":"bg-white border-gray-200 text-gray-600 hover:bg-gray-50"}`}>{lbl}</button>
+      <h2 style={{fontSize:22,fontWeight:700,color:"#111827",margin:0}}>{recipeTab==="recipes"?"Recipes":"Recipe Templates"}</h2>
+      {recipeTab==="recipes"
+        ? <button onClick={openAdd} className="btn-primary">+ New Recipe</button>
+        : <button onClick={openAddTpl} className="btn-primary">+ New Template</button>}
+      <div className="flex gap-1" style={{border:"1.5px solid #e5e7eb",borderRadius:10,overflow:"hidden"}}>
+        {[["recipes","🍺 Recipes"],["templates","📋 Templates"]].map(([t,lbl])=>(
+          <button key={t} onClick={()=>setRecipeTab(t)} style={{padding:"6px 14px",fontSize:12,fontWeight:600,border:"none",cursor:"pointer",fontFamily:"Inter,sans-serif",background:recipeTab===t?"#1e4d6b":"#fff",color:recipeTab===t?"#fff":"#374151"}}>{lbl}</button>
         ))}
       </div>
+      <div className="flex-1"/>
+      {recipeTab==="recipes"&&<>
+        <input className="input-cls" style={{width:220}} placeholder="🔍 Search recipe, beer, customer…" value={recipeSearch} onChange={e=>setRecipeSearch(e.target.value)}/>
+        <div className="flex gap-1">
+          {[["card","⊞ Cards"],["list","≡ List"],["customer","👥 By Customer"]].map(([m,lbl])=>(
+            <button key={m} onClick={()=>setRecipeView(m)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${recipeView===m?"bg-teal-600 text-white border-teal-600":"bg-white border-gray-200 text-gray-600 hover:bg-gray-50"}`}>{lbl}</button>
+          ))}
+        </div>
+      </>}
     </div>
 
-    {recipes.length===0
+    {/* ── TEMPLATES VIEW ── */}
+    {recipeTab==="templates"&&(()=>{
+      const q=tplSearch.toLowerCase();
+      const visibleTpls=tplSearch ? rtemplates.filter(t=>(t.template_name||"").toLowerCase().includes(q)) : rtemplates;
+      return <>
+        {/* Template sub-header: search + view toggle */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <input className="input-cls" style={{width:240}} placeholder="🔍 Search templates…" value={tplSearch} onChange={e=>setTplSearch(e.target.value)}/>
+          <div className="flex gap-1 ml-auto">
+            {[["card","⊞ Cards"],["list","≡ List"]].map(([m,lbl])=>(
+              <button key={m} onClick={()=>setTplViewMode(m)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${tplViewMode===m?"bg-teal-600 text-white border-teal-600":"bg-white border-gray-200 text-gray-600 hover:bg-gray-50"}`}>{lbl}</button>
+            ))}
+          </div>
+        </div>
+
+        {rtemplates.length===0
+          ? <div className="card p-10 text-center" style={{color:"#9ca3af"}}>No templates yet. Create a reusable ingredient base for your recipes.</div>
+          : visibleTpls.length===0
+          ? <div className="card p-8 text-center" style={{color:"#9ca3af"}}>No templates match your search.</div>
+          : tplViewMode==="card"
+          ? <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16}}>
+              {visibleTpls.map(t=>{
+                const lines=rtingredients.filter(ri=>ri.template_id===t.id);
+                const rm=lines.reduce((s,l)=>{const ac=(parseFloat(l.cost_per_unit)||0)/((parseFloat(l.yield_pct)||100)/100);return s+(parseFloat(l.use_qty)||0)*ac;},0);
+                const total=rm*(1+(+t.misc_pct||0)/100);
+                return <div key={t.id} className="card" style={{overflow:"hidden"}}>
+                  <div style={{background:"#0f766e",padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span style={{fontSize:13,fontWeight:700,color:"#fff"}}>📋 {t.template_name}</span>
+                    <div style={{display:"flex",gap:4}}>
+                      <button onClick={()=>openEditTpl(t)} style={{background:"none",border:"none",cursor:"pointer",color:"#99f6e4",fontSize:14,padding:"2px 5px"}}>✏️</button>
+                      <button onClick={()=>setDelTplId(t.id)} style={{background:"none",border:"none",cursor:"pointer",color:"#fca5a5",fontSize:14,padding:"2px 5px"}}>🗑</button>
+                    </div>
+                  </div>
+                  <div style={{padding:"14px 16px"}}>
+                    <p style={{fontSize:12,color:"#6b7280",margin:"0 0 8px"}}>{t.batch_size_litres}L · Misc {t.misc_pct}%</p>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
+                      <span style={{color:"#9ca3af"}}>{lines.length} ingredients</span>
+                      <span style={{fontWeight:700,color:"#0d9488"}}>{fmtThb(total)}</span>
+                    </div>
+                    {lines.length>0&&<div style={{marginTop:10,fontSize:11,color:"#6b7280"}}>
+                      {lines.slice(0,4).map(l=><div key={l.id} style={{padding:"2px 0",borderBottom:"1px solid #f3f4f6"}}>• {l.ingredient_name} – {l.use_qty} {l.use_unit}</div>)}
+                      {lines.length>4&&<div style={{color:"#9ca3af",marginTop:2}}>+{lines.length-4} more…</div>}
+                    </div>}
+                  </div>
+                </div>;
+              })}
+            </div>
+          : /* List view */
+            <div className="card table-scroll">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr className="text-left text-xs text-gray-400">
+                    <th className="px-4 py-3 font-medium">Template Name</th>
+                    <th className="px-4 py-3 font-medium text-right">Batch (L)</th>
+                    <th className="px-4 py-3 font-medium text-right">Misc %</th>
+                    <th className="px-4 py-3 font-medium text-right">Ingredients</th>
+                    <th className="px-4 py-3 font-medium text-right">Est. Cost</th>
+                    <th className="px-4 py-3 font-medium"/>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleTpls.map(t=>{
+                    const lines=rtingredients.filter(ri=>ri.template_id===t.id);
+                    const rm=lines.reduce((s,l)=>{const ac=(parseFloat(l.cost_per_unit)||0)/((parseFloat(l.yield_pct)||100)/100);return s+(parseFloat(l.use_qty)||0)*ac;},0);
+                    const total=rm*(1+(+t.misc_pct||0)/100);
+                    return <tr key={t.id} className="border-b border-gray-50 hover:bg-gray-50">
+                      <td className="px-4 py-2.5 font-semibold text-gray-800">📋 {t.template_name}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-500">{t.batch_size_litres}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-500">{t.misc_pct}%</td>
+                      <td className="px-4 py-2.5 text-right text-gray-400">{lines.length}</td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-teal-700">{fmtThb(total)}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        <button onClick={()=>openEditTpl(t)} className="text-xs text-indigo-500 hover:text-indigo-700 mr-2">Edit</button>
+                        <button onClick={()=>setDelTplId(t.id)} className="text-xs text-red-400 hover:text-red-600">Del</button>
+                      </td>
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
+            </div>
+        }
+      </>;
+    })()}
+
+    {recipeTab==="recipes"&&(recipes.length===0
       ? <div className="card p-10 text-center" style={{color:"#9ca3af"}}>No recipes yet. Click + New Recipe to get started.</div>
       : visibleRecipes.length===0
       ? <div className="card p-10 text-center" style={{color:"#9ca3af"}}>No recipes match your search.</div>
@@ -1445,138 +1806,15 @@ function RecipesPage({recipes,setRecipes,ringredients,setRingredients,ingredient
                 </div>
               ))}
             </div>
-    }
+    )}
 
-    {/* Add/Edit Modal */}
-    <Modal open={showModal} onClose={()=>setShowModal(false)} title={editId?"Edit Recipe":"New Recipe"} wide>
-      <form onSubmit={handleSave} className="space-y-4">
-        {/* Row 1: customer + code */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-          <div>
-            <label className="form-label">Customer</label>
-            <select className="input-cls" value={form.customer_id}
-              onChange={e=>setForm(f=>({...f,customer_id:e.target.value,beer_id:"",beer_name:"",brand:"",recipe_code:""}))}>
-              <option value="">— Select customer —</option>
-              {customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="form-label">Recipe Code <span style={{fontWeight:400,color:"#2dd4bf"}}>(auto)</span></label>
-            <input className="input-cls" style={{fontFamily:"monospace"}} value={form.recipe_code}
-              onChange={e=>setForm(f=>({...f,recipe_code:e.target.value}))}
-              placeholder={form.customer_id&&form.beer_name ? autoCode(form.customer_id,form.beer_name) : "Select customer & beer first"}/>
-          </div>
-        </div>
-
-        {/* Row 2: beer from list + batch + misc */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 120px 100px",gap:14}}>
-          <div>
-            <label className="form-label">Beer Name *</label>
-            {customerBeers.length>0
-              ? <select required className="input-cls" value={form.beer_id}
-                  onChange={e=>handleBeerSelect(e.target.value)}>
-                  <option value="">— Select beer —</option>
-                  {customerBeers.map(b=><option key={b.id} value={b.id}>{b.brand ? `${b.brand} – ` : ""}{b.beer_name}</option>)}
-                </select>
-              : <input required className="input-cls" placeholder={form.customer_id?"No beers for this customer — add in Customers first":"Select a customer first"}
-                  value={form.beer_name} onChange={e=>setForm(f=>({...f,beer_name:e.target.value}))}
-                  style={{color: form.customer_id&&!form.beer_name?"#9ca3af":"#111827"}}/>
-            }
-          </div>
-          <div>
-            <label className="form-label">Batch (L)</label>
-            <input type="number" className="input-cls" value={form.batch_size_litres}
-              onChange={e=>setForm(f=>({...f,batch_size_litres:e.target.value}))}/>
-          </div>
-          <div>
-            <label className="form-label">Misc %</label>
-            <input type="number" step="0.1" className="input-cls" value={form.misc_pct}
-              onChange={e=>setForm(f=>({...f,misc_pct:e.target.value}))}/>
-          </div>
-        </div>
-
-        {/* Ingredient builder */}
-        <div style={{borderTop:"1px solid #f3f4f6",paddingTop:14}}>
-          <label className="form-label" style={{marginBottom:8}}>Ingredients</label>
-          {/* Search */}
-          <div style={{position:"relative",marginBottom:10}}>
-            <input className="input-cls" placeholder="🔍 Search & add ingredient…"
-              value={ingSearch} onChange={e=>setIngSearch(e.target.value)}/>
-            {ingSuggest.length>0&&<div style={{position:"absolute",zIndex:20,width:"100%",marginTop:4,
-              background:"#fff",border:"1.5px solid #e5e7eb",borderRadius:12,boxShadow:"0 8px 24px rgba(0,0,0,.1)",maxHeight:220,overflowY:"auto"}}>
-              {ingSuggest.map(i=><button type="button" key={i.id} onClick={()=>addIngLine(i)}
-                style={{display:"flex",justifyContent:"space-between",alignItems:"center",
-                  width:"100%",textAlign:"left",padding:"10px 14px",fontSize:13,background:"none",
-                  border:"none",borderBottom:"1px solid #f9fafb",cursor:"pointer",color:"#111827"}}>
-                <span>{i.name} <span style={{color:"#9ca3af",fontSize:11}}>({i.category})</span></span>
-                <span style={{color:"#0d9488",fontWeight:600,fontSize:12}}>฿{i.cost_per_unit}/unit</span>
-              </button>)}
-            </div>}
-          </div>
-
-          {/* Table */}
-          {ingLines.length>0&&<div style={{border:"1.5px solid #e5e7eb",borderRadius:12,overflow:"hidden"}}>
-            <table style={{width:"100%",fontSize:12,borderCollapse:"collapse"}}>
-              <thead>
-                <tr style={{background:"#1e4d6b",color:"#fff"}}>
-                  <th style={{padding:"8px 10px",textAlign:"left",fontWeight:600}}>Ingredient</th>
-                  <th style={{padding:"8px 8px",textAlign:"right",fontWeight:600,width:80}}>Use Qty</th>
-                  <th style={{padding:"8px 6px",textAlign:"left",fontWeight:600,width:50}}>Unit</th>
-                  <th style={{padding:"8px 8px",textAlign:"right",fontWeight:600,width:70}}>Yield %</th>
-                  <th style={{padding:"8px 8px",textAlign:"right",fontWeight:600,width:90}}>Line Cost</th>
-                  <th style={{padding:"8px 6px",width:28}}/>
-                </tr>
-              </thead>
-              <tbody>
-                {ingLines.map((l,i)=>{
-                  const ac=(parseFloat(l.cost_per_unit)||0)/((parseFloat(l.yield_pct)||100)/100);
-                  const lc=(parseFloat(l.use_qty)||0)*ac;
-                  return <tr key={l.id||i} style={{background:i%2?"#f8fafc":"#fff",borderTop:"1px solid #f3f4f6"}}>
-                    <td style={{padding:"6px 10px",fontWeight:600,color:"#111827"}}>{l.ingredient_name}</td>
-                    <td style={{padding:"6px 8px"}}>
-                      <input type="number" step="0.001" value={l.use_qty}
-                        onChange={e=>updateLine(i,"use_qty",e.target.value)}
-                        style={{width:"100%",border:"1px solid #e5e7eb",borderRadius:6,padding:"3px 6px",fontSize:12,textAlign:"right"}}/>
-                    </td>
-                    <td style={{padding:"6px 6px",color:"#6b7280"}}>{l.use_unit}</td>
-                    <td style={{padding:"6px 8px"}}>
-                      <input type="number" step="1" min="1" max="100" value={l.yield_pct}
-                        onChange={e=>updateLine(i,"yield_pct",e.target.value)}
-                        style={{width:"100%",border:"1px solid #e5e7eb",borderRadius:6,padding:"3px 6px",fontSize:12,textAlign:"right"}}/>
-                    </td>
-                    <td style={{padding:"6px 8px",textAlign:"right",fontWeight:700,color:"#0d9488"}}>฿{lc.toFixed(2)}</td>
-                    <td style={{padding:"6px 6px",textAlign:"center"}}>
-                      <button type="button" onClick={()=>setIngLines(p=>p.filter((_,j)=>j!==i))}
-                        style={{background:"none",border:"none",cursor:"pointer",color:"#f87171",fontSize:14,fontWeight:700}}>×</button>
-                    </td>
-                  </tr>;
-                })}
-              </tbody>
-            </table>
-          </div>}
-
-          {/* Cost footer */}
-          <div style={{display:"flex",gap:20,marginTop:10,fontSize:13,flexWrap:"wrap"}}>
-            <span>RM+MG: <strong style={{color:"#0d9488"}}>฿{rmCost.toFixed(2)}</strong></span>
-            <span>{`Misc (${form.misc_pct}%)`}: <strong style={{color:"#d97706"}}>฿{miscCost.toFixed(2)}</strong></span>
-            <span>Per Litre: <strong style={{color:"#6366f1"}}>฿{form.batch_size_litres>0?(totalCost/+form.batch_size_litres).toFixed(2):"—"}</strong></span>
-            <span style={{fontWeight:800,color:"#111827"}}>Total: ฿{totalCost.toFixed(2)}</span>
-          </div>
-        </div>
-
-        <div><label className="form-label">Notes</label>
-          <textarea className="input-cls" rows={2} value={form.notes}
-            onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/></div>
-
-        <div style={{display:"flex",gap:10,justifyContent:"flex-end",paddingTop:8}}>
-          <button type="button" onClick={()=>setShowModal(false)} className="btn-ghost">Cancel</button>
-          <button type="submit" className="btn-primary">Save Recipe</button>
-        </div>
-      </form>
-    </Modal>
+    {recipeModalJSX}
+    {tplModalJSX}
     <ConfirmModal open={!!delId} danger title="Delete Recipe" message="Delete this recipe and all ingredients?" onConfirm={handleDelete} onCancel={()=>setDelId(null)}/>
+    <ConfirmModal open={!!delTplId} danger title="Delete Template" message="Delete this template and its ingredients?" onConfirm={handleDeleteTpl} onCancel={()=>setDelTplId(null)}/>
   </div>;
 }
+
 
 
 // ─── ORDERS PAGE ─────────────────────────────────────────────────────────────
@@ -1918,7 +2156,7 @@ const QUEUE_STATUS_COLORS = {
   "Packaging":"bg-indigo-100 text-indigo-700","Done":"bg-green-100 text-green-700",
 };
 
-function QueuePage({queue,setQueue,orders,customers,cbeers}){
+function QueuePage({queue,setQueue,orders,setOrders,customers,cbeers}){
   const [showModal,setShowModal] = useState(false);
   const [editId,setEditId]       = useState(null);
   const [editingAutoId,setEditingAutoId] = useState(null); // for auto entry editing
@@ -1938,25 +2176,54 @@ function QueuePage({queue,setQueue,orders,customers,cbeers}){
   const openAdd = ()=>{ setForm(emptyForm()); setEditId(null); setEditingAutoId(null); setShowModal(true); };
 
   const openEdit = (q)=>{
-    setForm({batch_id:q.batch_id||"",type:q.type||"Contract",customer_id:q.customer_id||"",
-      order_id:q.order_id||"",brand:q.brand||"",beer_name:q.beer_name||"",
-      brew_date:q.brew_date||"",volume:q.volume||"",status:q.status||"Scheduled",
-      fermenter:q.fermenter||"",notes:q.notes||""});
-    setEditId(q._src==="auto"?null:q.id);
-    setEditingAutoId(q._src==="auto"?q.id:null);
+    const isAuto = q._src==="auto";
+    const ord = isAuto ? q._order : null;
+    // Resolve customer_id: from entry, from linked order, or by matching customer_name
+    const custId = q.customer_id
+      || ord?.customer_id
+      || (ord?.customer_name ? customers.find(c=>c.name===ord.customer_name)?.id||"" : "");
+    // For auto entries, notes field was storing customer_name for display — don't leak it into the form
+    const notes = isAuto ? (ord?.notes||"") : (q.notes||"");
+    setForm({
+      batch_id:q.batch_id||"",
+      type:q.type||"Contract",
+      customer_id:custId,
+      order_id:(isAuto ? ord?.id : q.order_id)||"",
+      brand:q.brand||"",
+      beer_name:q.beer_name||"",
+      brew_date:q.brew_date||"",
+      volume:q.volume||"",
+      status:q.status||"Scheduled",
+      fermenter:q.fermenter||"",
+      notes
+    });
+    setEditId(isAuto?null:q.id);
+    setEditingAutoId(isAuto?q.id:null);
     setShowModal(true);
+  };
+
+  const QUEUE_TO_ORDER_STATUS = {
+    "Scheduled":"Scheduled","Brewing":"Brewing",
+    "Tasting":"Tasting","Packaging":"Packaging","Done":"Ready"
   };
 
   const handleSave=(e)=>{
     e.preventDefault();
+    let savedOrderId = form.order_id;
     if(editingAutoId){
       // Convert auto entry to a manual one linked to same order
       const autoEntry = combined.find(q=>q.id===editingAutoId);
-      setQueue(p=>[...p,{id:uid(),...form, order_id:autoEntry?._order?.id||form.order_id}]);
+      savedOrderId = autoEntry?._order?.id||form.order_id;
+      setQueue(p=>[...p,{id:uid(),...form, order_id:savedOrderId}]);
     } else if(editId){
       setQueue(p=>p.map(q=>q.id===editId?{...q,...form}:q));
     } else {
       setQueue(p=>[...p,{id:uid(),...form}]);
+    }
+    // Sync linked order status
+    const mappedStatus = QUEUE_TO_ORDER_STATUS[form.status];
+    if(mappedStatus && savedOrderId){
+      setOrders(p=>p.map(o=>o.id===savedOrderId?{...o,status:mappedStatus}:o));
     }
     setShowModal(false);
     setEditingAutoId(null);
@@ -1983,15 +2250,20 @@ function QueuePage({queue,setQueue,orders,customers,cbeers}){
     const manual = queue.map(q=>({...q, _src:"manual"}));
     const autoEntries = scheduledOrders
       .filter(o=>!queue.some(q=>q.order_id===o.id))
-      .map(o=>({
-        id:"auto_"+o.id, batch_id:"", type:"Contract",
-        customer_id:o.customer_id||"", order_id:o.id, brand:"",
-        beer_name:o.beer_name, brew_date:o.brewing_date||"",
-        volume:o.volume_litres||"", status:o.status, fermenter:"",
-        notes:o.customer_name, _src:"auto", _order:o
-      }));
+      .map(o=>{
+        // Resolve customer_id from order, or fall back to name match
+        const custId = o.customer_id
+          || (o.customer_name ? customers.find(c=>c.name===o.customer_name)?.id||"" : "");
+        return {
+          id:"auto_"+o.id, batch_id:"", type:"Contract",
+          customer_id:custId, order_id:o.id, brand:"",
+          beer_name:o.beer_name, brew_date:o.brewing_date||"",
+          volume:o.volume_litres||"", status:o.status, fermenter:"",
+          notes:o.customer_name, _src:"auto", _order:o
+        };
+      });
     return [...manual,...autoEntries];
-  },[queue,orders,scheduledOrders]);
+  },[queue,orders,scheduledOrders,customers]);
 
   const filtered = useMemo(()=>{
     if(filter==="All") return combined;
@@ -2260,7 +2532,7 @@ function CalcPage({recipes, ringredients, ingredients, customers, cbeers, savedC
   const DEFAULT_FORM = {
     model_type:"Contract Brewing", customer_id:"",
     brand:"", beer_name:"", style:"", abv:5,
-    srp_with_vat:1800, kegs:18, rm:0, packaging_per_keg:150,
+    srp_with_vat:1800, kegs:18, rm:0, packaging_per_keg:330,
     batch_no:1, other_price:7000, recipe_id:"",
   };
   const [form, setForm] = useState({...DEFAULT_FORM});
@@ -2275,7 +2547,7 @@ function CalcPage({recipes, ringredients, ingredients, customers, cbeers, savedC
       customer_id:"", brand:"", beer_name:"", style:"",
       recipe_id:"", rm:0,
       // Reset numerics to defaults
-      abv:5, srp_with_vat:1800, kegs:18, packaging_per_keg:150,
+      abv:5, srp_with_vat:1800, kegs:18, packaging_per_keg:330,
       batch_no:1, other_price:7000,
     }));
   };
@@ -2343,7 +2615,7 @@ function CalcPage({recipes, ringredients, ingredients, customers, cbeers, savedC
       model_type:sc.model_type||DEFAULT_FORM.model_type,
       customer_id:"", brand:sc.brand||"", beer_name:sc.beer_name||"",
       style:sc.style||"", abv:+sc.abv||5, srp_with_vat:+sc.srp_with_vat||1800,
-      kegs:+sc.kegs||18, rm:+sc.rm||0, packaging_per_keg:+sc.packaging_per_keg||150,
+      kegs:+sc.kegs||18, rm:+sc.rm||0, packaging_per_keg:+sc.packaging_per_keg||330,
       batch_no:+sc.batch_no||1, other_price:+sc.other_price||7000,
       recipe_id:sc.recipe_id||"",
     });
@@ -2667,6 +2939,216 @@ function CalcPage({recipes, ringredients, ingredients, customers, cbeers, savedC
     </Modal>
   </div>;
 }
+// ─── BAR PRICING PAGE ────────────────────────────────────────────────────────
+const BAR_PRICE_SCHEME = {
+  "UPB Beer":         {multiplier:2.0},
+  "Imported Beer":    {multiplier:1.8},
+  "Wine (+40%)":      {multiplier:1.4},
+  "Wine (+50%)":      {multiplier:1.5},
+  "เหล้า":            {multiplier:1.5},
+  "Soft Drink":       {multiplier:2.0},
+  "ขนมหวาน Non-Cook": {multiplier:1.8},
+};
+const BAR_UNIT_SCHEME = {
+  "20 L":45,"30 L":80,"50 L":140,
+  "ขวด/กระป๋อง/ถ้วย":1,"แพค 6":6,"แพค 12":12,
+};
+
+function BarPricingPage({barPricing,setBarPricing}){
+  const emptyForm=()=>({product_name:"",product_type:"UPB Beer",cost:"",unit:"20 L",has_vat:false,actual_price:"",notes:""});
+  const [form,setForm]=useState(emptyForm());
+  const [search,setSearch]=useState("");
+  const [delId,setDelId]=useState(null);
+  const [editId,setEditId]=useState(null);
+
+  const fv=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
+
+  // Live calculations
+  const cost=+form.cost||0;
+  const serves=BAR_UNIT_SCHEME[form.unit]||1;
+  const costPerServe=form.unit?cost/serves:cost;
+  const costWithVat=form.has_vat?costPerServe*1.07:costPerServe;
+  const multiplier=(BAR_PRICE_SCHEME[form.product_type]?.multiplier)||2;
+  const sellingPrice=costWithVat*multiplier;
+  const roundedPrice=Math.ceil(sellingPrice/10)*10;
+
+  const handleSave=()=>{
+    if(!form.product_name||!form.cost) return;
+    const rec={
+      id:uid(),product_name:form.product_name,product_type:form.product_type,
+      cost:form.cost,unit:form.unit,has_vat:form.has_vat?"TRUE":"FALSE",
+      cost_per_serve:costPerServe.toFixed(2),cost_with_vat:costWithVat.toFixed(2),
+      selling_price:sellingPrice.toFixed(2),rounded_price:roundedPrice,
+      actual_price:form.actual_price||"",notes:form.notes||"",
+      created_date:new Date().toISOString().slice(0,10)
+    };
+    if(editId){
+      setBarPricing(p=>p.map(r=>r.id===editId?{...rec,id:editId}:r));
+      setEditId(null);
+    } else {
+      setBarPricing(p=>[...p,rec]);
+    }
+    setForm(emptyForm());
+  };
+
+  const handleEdit=r=>{
+    setForm({product_name:r.product_name,product_type:r.product_type,cost:r.cost,
+      unit:r.unit,has_vat:r.has_vat==="TRUE"||r.has_vat===true,
+      actual_price:r.actual_price||"",notes:r.notes||""});
+    setEditId(r.id);
+  };
+
+  const visible=useMemo(()=>{
+    if(!search) return barPricing;
+    const q=search.toLowerCase();
+    return barPricing.filter(r=>(r.product_name||"").toLowerCase().includes(q)||(r.product_type||"").toLowerCase().includes(q));
+  },[barPricing,search]);
+
+  const calcRow=(label,value,highlight)=>(
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+      padding:"8px 12px",borderRadius:8,
+      background:highlight?"#1e4d6b":"#f8fafc",marginBottom:4}}>
+      <span style={{fontSize:13,color:highlight?"#e2e8f0":"#6b7280"}}>{label}</span>
+      <span style={{fontSize:highlight?18:14,fontWeight:highlight?700:500,
+        color:highlight?"#fff":"#111827"}}>
+        {typeof value==="number"?("฿"+value.toLocaleString("th-TH",{minimumFractionDigits:value%1===0?0:2,maximumFractionDigits:2})):value}
+      </span>
+    </div>
+  );
+
+  return <div style={{maxWidth:1100,margin:"0 auto"}}>
+    <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}>
+      <h2 style={{fontSize:20,fontWeight:700,color:"#111827",margin:0}}>UPB Bar Pricing</h2>
+      <span style={{fontSize:13,color:"#6b7280",background:"#f1f5f9",padding:"2px 10px",borderRadius:20}}>
+        คำนวนราคาขายสินค้าสำหรับ UPB Bar
+      </span>
+    </div>
+
+    <div style={{display:"grid",gridTemplateColumns:"1fr 320px",gap:20,marginBottom:24}}>
+      {/* Input Form */}
+      <div style={{background:"#fff",borderRadius:16,padding:24,boxShadow:"0 1px 4px rgba(0,0,0,.08)"}}>
+        <h3 style={{fontSize:15,fontWeight:600,color:"#1e4d6b",margin:"0 0 16px"}}>
+          {editId?"✏️ Edit Entry":"➕ New Pricing Entry"}
+        </h3>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <div style={{gridColumn:"1/-1"}}>
+            <label style={{fontSize:12,fontWeight:600,color:"#374151",textTransform:"uppercase",letterSpacing:.5}}>ชื่อสินค้า (Product Name)</label>
+            <input className="input-cls" value={form.product_name} onChange={fv("product_name")} placeholder="e.g. UPB Lager Premium" style={{marginTop:4}}/>
+          </div>
+          <div>
+            <label style={{fontSize:12,fontWeight:600,color:"#374151",textTransform:"uppercase",letterSpacing:.5}}>ประเภทสินค้า (Type)</label>
+            <select className="input-cls" value={form.product_type} onChange={fv("product_type")} style={{marginTop:4}}>
+              {Object.keys(BAR_PRICE_SCHEME).map(t=><option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{fontSize:12,fontWeight:600,color:"#374151",textTransform:"uppercase",letterSpacing:.5}}>หน่วยซื้อ (Unit)</label>
+            <select className="input-cls" value={form.unit} onChange={fv("unit")} style={{marginTop:4}}>
+              {Object.keys(BAR_UNIT_SCHEME).map(u=><option key={u} value={u}>{u} ({BAR_UNIT_SCHEME[u]} serves)</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{fontSize:12,fontWeight:600,color:"#374151",textTransform:"uppercase",letterSpacing:.5}}>ราคาต้นทุน (Cost ฿)</label>
+            <input type="number" className="input-cls" value={form.cost} onChange={fv("cost")} placeholder="e.g. 6600" style={{marginTop:4}}/>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10,paddingTop:20}}>
+            <input type="checkbox" id="has_vat" checked={form.has_vat} onChange={e=>setForm(f=>({...f,has_vat:e.target.checked}))} style={{width:16,height:16,accentColor:"#1e4d6b"}}/>
+            <label htmlFor="has_vat" style={{fontSize:13,fontWeight:500,color:"#374151",cursor:"pointer"}}>
+              Include VAT 7%
+            </label>
+          </div>
+          <div>
+            <label style={{fontSize:12,fontWeight:600,color:"#374151",textTransform:"uppercase",letterSpacing:.5}}>ราคาขายจริง (Actual Price ฿) <span style={{fontWeight:400,color:"#9ca3af"}}>optional</span></label>
+            <input type="number" className="input-cls" value={form.actual_price} onChange={fv("actual_price")} placeholder="Override price if different" style={{marginTop:4}}/>
+          </div>
+          <div style={{gridColumn:"1/-1"}}>
+            <label style={{fontSize:12,fontWeight:600,color:"#374151",textTransform:"uppercase",letterSpacing:.5}}>Notes</label>
+            <input className="input-cls" value={form.notes} onChange={fv("notes")} placeholder="Optional notes" style={{marginTop:4}}/>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:16}}>
+          <button onClick={handleSave} disabled={!form.product_name||!form.cost}
+            style={{padding:"9px 20px",borderRadius:10,border:"none",cursor:"pointer",
+              background:(!form.product_name||!form.cost)?"#e5e7eb":"#1e4d6b",
+              color:(!form.product_name||!form.cost)?"#9ca3af":"#fff",fontWeight:600,fontSize:13}}>
+            {editId?"Update Entry":"💾 Save"}
+          </button>
+          {editId&&<button onClick={()=>{setEditId(null);setForm(emptyForm());}}
+            style={{padding:"9px 16px",borderRadius:10,border:"1px solid #e5e7eb",background:"#fff",cursor:"pointer",fontSize:13,color:"#6b7280"}}>
+            Cancel
+          </button>}
+        </div>
+      </div>
+
+      {/* Live Calculation Panel */}
+      <div style={{background:"#fff",borderRadius:16,padding:24,boxShadow:"0 1px 4px rgba(0,0,0,.08)"}}>
+        <h3 style={{fontSize:15,fontWeight:600,color:"#1e4d6b",margin:"0 0 16px"}}>📊 Live Calculation</h3>
+        {cost>0?<>
+          {calcRow("Serves per unit",BAR_UNIT_SCHEME[form.unit]||1+" serves")}
+          {calcRow("Cost / Serve","฿"+(costPerServe).toLocaleString("th-TH",{maximumFractionDigits:2}))}
+          {form.has_vat&&calcRow("VAT (7%) added","฿"+(costPerServe*0.07).toLocaleString("th-TH",{maximumFractionDigits:2}))}
+          {calcRow("ทุนรวม VAT / Serve","฿"+costWithVat.toLocaleString("th-TH",{maximumFractionDigits:2}))}
+          {calcRow("Multiplier (×"+multiplier+")",form.product_type)}
+          <div style={{height:1,background:"#e5e7eb",margin:"10px 0"}}/>
+          {calcRow("ราคาขาย (รวมกำไร)",sellingPrice)}
+          {calcRow("ราคาขายปัดขึ้น (×10)",roundedPrice,true)}
+          {form.actual_price&&<div style={{marginTop:8}}>
+            {calcRow("ราคาขายจริง (override)",+form.actual_price)}
+          </div>}
+        </>:<div style={{textAlign:"center",color:"#9ca3af",fontSize:13,padding:"30px 0"}}>
+          กรอกราคาต้นทุนเพื่อดูการคำนวณ
+        </div>}
+      </div>
+    </div>
+
+    {/* History */}
+    <div style={{background:"#fff",borderRadius:16,padding:24,boxShadow:"0 1px 4px rgba(0,0,0,.08)"}}>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+        <h3 style={{fontSize:15,fontWeight:600,color:"#111827",margin:0}}>📋 Pricing History</h3>
+        <span style={{fontSize:12,color:"#6b7280",background:"#f1f5f9",padding:"2px 8px",borderRadius:12}}>{barPricing.length} records</span>
+        <div style={{flex:1}}/>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search product…"
+          style={{padding:"7px 12px",borderRadius:10,border:"1px solid #e5e7eb",fontSize:13,width:200,outline:"none"}}/>
+      </div>
+      {visible.length===0?<div style={{textAlign:"center",color:"#9ca3af",padding:"40px 0",fontSize:14}}>
+        No pricing records yet. Save your first entry above.
+      </div>:<div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+          <thead>
+            <tr style={{borderBottom:"2px solid #e5e7eb"}}>
+              {["Product","Type","Unit","Cost","VAT","Cost/Serve","ทุน+VAT","ราคาขาย","ปัดขึ้น","จริง","Date",""].map((h,i)=>(
+                <th key={i} style={{padding:"8px 12px",textAlign:i>=5?"right":"left",fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:.4,whiteSpace:"nowrap"}}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {[...visible].reverse().map(r=>(
+              <tr key={r.id} style={{borderBottom:"1px solid #f1f5f9"}} onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"} onMouseLeave={e=>e.currentTarget.style.background=""}>
+                <td style={{padding:"9px 12px",fontWeight:500,color:"#111827"}}>{r.product_name}</td>
+                <td style={{padding:"9px 12px",color:"#6b7280"}}>{r.product_type}</td>
+                <td style={{padding:"9px 12px",color:"#6b7280"}}>{r.unit}</td>
+                <td style={{padding:"9px 12px",textAlign:"right",color:"#374151"}}>฿{(+r.cost||0).toLocaleString()}</td>
+                <td style={{padding:"9px 12px",textAlign:"right"}}>{r.has_vat==="TRUE"||r.has_vat===true?<span style={{color:"#0d9488",fontWeight:600}}>✓</span>:"–"}</td>
+                <td style={{padding:"9px 12px",textAlign:"right",color:"#374151"}}>฿{(+r.cost_per_serve||0).toLocaleString("th-TH",{maximumFractionDigits:2})}</td>
+                <td style={{padding:"9px 12px",textAlign:"right",color:"#374151"}}>฿{(+r.cost_with_vat||0).toLocaleString("th-TH",{maximumFractionDigits:2})}</td>
+                <td style={{padding:"9px 12px",textAlign:"right",color:"#374151"}}>฿{(+r.selling_price||0).toLocaleString("th-TH",{maximumFractionDigits:2})}</td>
+                <td style={{padding:"9px 12px",textAlign:"right",fontWeight:700,color:"#1e4d6b"}}>฿{(+r.rounded_price||0).toLocaleString()}</td>
+                <td style={{padding:"9px 12px",textAlign:"right",color:r.actual_price?"#059669":"#d1d5db"}}>{r.actual_price?"฿"+(+r.actual_price).toLocaleString():"–"}</td>
+                <td style={{padding:"9px 12px",color:"#9ca3af",fontSize:12}}>{r.created_date||"—"}</td>
+                <td style={{padding:"9px 6px",textAlign:"right"}}>
+                  <button onClick={()=>handleEdit(r)} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:"2px 4px",color:"#6b7280"}} title="Edit">✏️</button>
+                  <button onClick={()=>setDelId(r.id)} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,padding:"2px 4px",color:"#ef4444"}} title="Delete">🗑️</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>}
+    </div>
+    <ConfirmModal open={!!delId} danger title="Delete Entry" message="Delete this pricing record?" onConfirm={()=>{setBarPricing(p=>p.filter(r=>r.id!==delId));setDelId(null);}} onCancel={()=>setDelId(null)}/>
+  </div>;
+}
+
 // ─── SIDEBAR ─────────────────────────────────────────────────────────────────
 const NAV_ITEMS = [
   {id:"dashboard",  label:"Dashboard",    icon:"📊"},
@@ -2676,6 +3158,7 @@ const NAV_ITEMS = [
   {id:"calc",       label:"Model Calc",   icon:"💰"},
   {id:"orders",     label:"Orders",       icon:"📦"},
   {id:"queue",      label:"Brew Queue",   icon:"🍺"},
+  {id:"barpricing", label:"Bar Pricing",  icon:"🏪"},
 ];
 
 function Sidebar({page,setPage,token,onLogin,onSync,syncing}){
@@ -2773,8 +3256,11 @@ function App(){
   const [recipes,      setRecipes,      ,setTkR,  fpR]  = useSave("Recipes",           SHEETS.Recipes,           INITIAL_RECIPES);
   const [ringredients, setRingredients, ,setTkRI, fpRI] = useSave("RecipeIngredients", SHEETS.RecipeIngredients, INITIAL_RINGSREDIENTS);
   const [orders,       setOrders,       ,setTkO,  fpO]  = useSave("Orders",            SHEETS.Orders,            INITIAL_ORDERS);
-  const [queue,        setQueue,        ,setTkQ,  fpQ]  = useSave("Queue",             SHEETS.Queue,             INITIAL_QUEUE);
-  const [savedCalcs,   setSavedCalcs,   ,setTkSC, fpSC] = useSave("SavedCalcs",        SHEETS.SavedCalcs,        INITIAL_SAVEDCALCS);
+  const [queue,        setQueue,        ,setTkQ,  fpQ]   = useSave("Queue",                      SHEETS.Queue,                      INITIAL_QUEUE);
+  const [savedCalcs,   setSavedCalcs,   ,setTkSC, fpSC]  = useSave("SavedCalcs",                 SHEETS.SavedCalcs,                 INITIAL_SAVEDCALCS);
+  const [rtemplates,   setRtemplates,   ,setTkRT, fpRT]  = useSave("RecipeTemplates",            SHEETS.RecipeTemplates,            INITIAL_RTEMPLATES);
+  const [rtingredients,setRtingredients,,setTkRTI,fpRTI] = useSave("RecipeTemplateIngredients",  SHEETS.RecipeTemplateIngredients,  INITIAL_RTINGREDIENTS);
+  const [barPricing,   setBarPricing,   ,setTkBP, fpBP]  = useSave("BarPricing",                 SHEETS.BarPricing,                 INITIAL_BARPRICING);
 
   const [syncing, setSyncing] = useState(false);
 
@@ -2782,14 +3268,14 @@ function App(){
   useEffect(()=>{
     if(!token) return;
     setSyncing(true);
-    [setTkC,setTkCB,setTkI,setTkR,setTkRI,setTkO,setTkQ,setTkSC].forEach(fn=>fn(token));
+    [setTkC,setTkCB,setTkI,setTkR,setTkRI,setTkO,setTkQ,setTkSC,setTkRT,setTkRTI,setTkBP].forEach(fn=>fn(token));
     setTimeout(()=>setSyncing(false), 3500); // show loading briefly while reads complete
   },[token]);
 
   const syncAll = ()=>{
     if(!token) return;
     setSyncing(true);
-    [fpC,fpCB,fpI,fpR,fpRI,fpO,fpQ,fpSC].forEach(fn=>fn());
+    [fpC,fpCB,fpI,fpR,fpRI,fpO,fpQ,fpSC,fpRT,fpRTI,fpBP].forEach(fn=>fn());
     setTimeout(()=>setSyncing(false), 3000);
   };
 
@@ -2798,10 +3284,11 @@ function App(){
       case "dashboard":   return <DashboardPage orders={orders} customers={customers} queue={queue}/>;
       case "customers":   return <CustomersPage customers={customers} setCustomers={setCustomers} cbeers={cbeers} setCbeers={setCbeers} orders={orders}/>;
       case "ingredients": return <IngredientsPage ingredients={ingredients} setIngredients={setIngredients}/>;
-      case "recipes":     return <RecipesPage recipes={recipes} setRecipes={setRecipes} ringredients={ringredients} setRingredients={setRingredients} ingredients={ingredients} customers={customers} cbeers={cbeers}/>;
+      case "recipes":     return <RecipesPage recipes={recipes} setRecipes={setRecipes} ringredients={ringredients} setRingredients={setRingredients} ingredients={ingredients} customers={customers} cbeers={cbeers} rtemplates={rtemplates} setRtemplates={setRtemplates} rtingredients={rtingredients} setRtingredients={setRtingredients}/>;
       case "calc":        return <CalcPage recipes={recipes} ringredients={ringredients} ingredients={ingredients} customers={customers} cbeers={cbeers} savedCalcs={savedCalcs} setSavedCalcs={setSavedCalcs}/>;
       case "orders":      return <OrdersPage orders={orders} setOrders={setOrders} customers={customers} cbeers={cbeers} recipes={recipes}/>;
-      case "queue":       return <QueuePage queue={queue} setQueue={setQueue} orders={orders} customers={customers} cbeers={cbeers}/>;
+      case "queue":       return <QueuePage queue={queue} setQueue={setQueue} orders={orders} setOrders={setOrders} customers={customers} cbeers={cbeers}/>;
+      case "barpricing":  return <BarPricingPage barPricing={barPricing} setBarPricing={setBarPricing}/>;
       default: return null;
     }
   };
