@@ -4765,7 +4765,7 @@
     function BrewsheetPage({ batch, brewsheet, onSave, onBack }) {
       const [tab, setTab] = useState("brewday");
       // Local copy for editing
-      const empty = { water_in:"",malt_kg:"",mash_in_time:"",mash_in_temp:"",mash_out_temp:"",sparge_in:"",target_ph:"",
+      const empty = { water_in:"",malt_kg:"",malt_multiplier:4,mash_in_time:"",mash_in_temp:"",mash_out_temp:"",sparge_in:"",target_ph:"",
         mash_steps:[{time:"",temp:"",duration:""},{time:"",temp:"",duration:""},{time:"",temp:"",duration:""}],
         caso4:"",cacl2:"",mgso4:"",baking_soda:"",acid:"",other_addition:"",acid_type:"Lactic Acid",acid_amount:"",
         mash_readings:[{ph:"",gravity:""},{ph:"",gravity:""},{ph:"",gravity:""},{ph:"",gravity:""}],
@@ -4774,9 +4774,9 @@
         boil_start:"",boil_end:"",
         boil_additions:[{min:"",addition:"",weight:"",ibu:"",note:""},{min:"",addition:"",weight:"",ibu:"",note:""},{min:"",addition:"",weight:"",ibu:"",note:""},{min:"",addition:"",weight:"",ibu:"",note:""}],
         cooldown_temp:"",cooldown_start:"",cooldown_end:"",
-        aroma_hops:false,aroma_hops_name:"",aroma_time:"",aroma_qty:"",
+        aroma_hops:false,aroma_hops_list:[{name:"",time:"",qty:""}],
         load_start:"",load_end:"",
-        final_temp_in:"",final_start_time:"",target_temp:"",final_ph:"",final_gravity:"",final_volume:"",
+        final_temp_in:"",final_start_time:"",final_end_time:"",target_temp:"",final_ph:"",final_gravity:"",final_volume:"",
         yeast:"",yeast_source:"",yeast_qty:"",oxygen_lmin:"",oxygen_time:"",aldc:false,
         daily_log: Array.from({length:26},(_,i)=>({day:i+1,sg:null,ph:null,psi:null,temp:null,note:""})),
       };
@@ -4794,6 +4794,26 @@
       // Add boil row
       function addBoilRow() { setBs(b => ({...b, boil_additions:[...b.boil_additions,{min:"",addition:"",weight:"",ibu:"",note:""}]})); }
       function removeBoilRow(i) { setBs(b => { const a=b.boil_additions.filter((_,idx)=>idx!==i); return {...b,boil_additions:a}; }); }
+
+      // Aroma hops list helpers (supports multiple hops)
+      function getAromaList(b) {
+        // Migrate legacy single-hop fields to list format on-the-fly
+        if (b.aroma_hops_list && b.aroma_hops_list.length > 0) return b.aroma_hops_list;
+        if (b.aroma_hops_name) return [{name:b.aroma_hops_name, time:b.aroma_time||"", qty:b.aroma_qty||""}];
+        return [{name:"",time:"",qty:""}];
+      }
+      function updAromaHop(i, field, val) {
+        setBs(b => { const list=[...getAromaList(b)]; list[i]={...list[i],[field]:val}; return {...b,aroma_hops_list:list}; });
+        setSaved(false);
+      }
+      function addAromaHop() {
+        setBs(b => ({...b, aroma_hops_list:[...getAromaList(b),{name:"",time:"",qty:""}]}));
+        setSaved(false);
+      }
+      function removeAromaHop(i) {
+        setBs(b => { const list=getAromaList(b).filter((_,idx)=>idx!==i); return {...b,aroma_hops_list:list.length?list:[{name:"",time:"",qty:""}]}; });
+        setSaved(false);
+      }
 
       // ── SVG mini charts ──────────────────────────────────────────────────────
       function MiniChart({ data, color, label, yDecimals=3 }) {
@@ -4884,7 +4904,18 @@
                 <p className={secH}>Mash</p>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div><p className={lbl}>Water in (L)</p><input className={inp} value={bs.water_in} onChange={e=>upd("water_in",e.target.value)}/></div>
-                  <div><p className={lbl}>Malt (KG)</p><input className={inp} value={bs.malt_kg} onChange={e=>upd("malt_kg",e.target.value)}/></div>
+                  <div>
+                    <p className={lbl}>Malt (KG)</p>
+                    <div className="flex gap-1.5">
+                      <input className={inp + " flex-1 min-w-0"} value={bs.malt_kg} onChange={e=>upd("malt_kg",e.target.value)}/>
+                      <select title="Batch multiplier" value={bs.malt_multiplier??4} onChange={e=>upd("malt_multiplier",parseFloat(e.target.value))}
+                        className="border border-amber-300 rounded-lg px-1.5 py-1.5 text-xs bg-amber-50 text-amber-700 font-semibold focus:outline-none focus:ring-2 focus:ring-amber-400 w-14 shrink-0">
+                        <option value="3">×3</option>
+                        <option value="3.5">×3.5</option>
+                        <option value="4">×4</option>
+                      </select>
+                    </div>
+                  </div>
                   <div><p className={lbl}>Mash in Time</p><input className={inp} value={bs.mash_in_time} onChange={e=>upd("mash_in_time",e.target.value)}/></div>
                   <div><p className={lbl}>Mash in Temp (°C)</p><input className={inp} value={bs.mash_in_temp} onChange={e=>upd("mash_in_temp",e.target.value)}/></div>
                   <div><p className={lbl}>Mash out Temp (°C)</p><input className={inp} value={bs.mash_out_temp} onChange={e=>upd("mash_out_temp",e.target.value)}/></div>
@@ -4971,24 +5002,42 @@
                 </div>
                 <p className="text-xs font-medium text-gray-500 mb-1">Hop / Addition Schedule</p>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead><tr className="text-gray-400 font-medium border-b border-gray-100">
-                      <th className="text-left py-1.5 pr-2 w-14">Min</th>
-                      <th className="text-left py-1.5 pr-2">Addition</th>
-                      <th className="text-left py-1.5 pr-2 w-20">Weight</th>
-                      <th className="text-left py-1.5 pr-2 w-14">IBU</th>
-                      <th className="text-left py-1.5 pr-2">Note</th>
-                      <th className="w-6"></th>
+                  <table className="w-full text-xs border-separate" style={{borderSpacing:"0 4px"}}>
+                    <thead><tr className="text-gray-400 font-medium">
+                      <th className="text-left pb-1 pr-3" style={{width:"68px"}}>Min</th>
+                      <th className="text-left pb-1 pr-3">Addition</th>
+                      <th className="text-left pb-1 pr-3" style={{width:"88px"}}>Weight</th>
+                      <th className="text-left pb-1 pr-3" style={{width:"68px"}}>IBU</th>
+                      <th className="text-left pb-1 pr-3">Note</th>
+                      <th style={{width:"24px"}}></th>
                     </tr></thead>
                     <tbody>
                       {bs.boil_additions.map((a,i)=>(
-                        <tr key={i}>
-                          <td className="pr-2 py-1"><input type="number" placeholder="60" className={inp} value={a.min} onChange={e=>updBoil(i,"min",e.target.value)}/></td>
-                          <td className="pr-2 py-1"><input placeholder="e.g. Magnum" className={inp} value={a.addition} onChange={e=>updBoil(i,"addition",e.target.value)}/></td>
-                          <td className="pr-2 py-1"><input placeholder="g" className={inp} value={a.weight} onChange={e=>updBoil(i,"weight",e.target.value)}/></td>
-                          <td className="pr-2 py-1"><input type="number" placeholder="IBU" className={inp} value={a.ibu} onChange={e=>updBoil(i,"ibu",e.target.value)}/></td>
-                          <td className="pr-2 py-1"><input placeholder="—" className={inp} value={a.note} onChange={e=>updBoil(i,"note",e.target.value)}/></td>
-                          <td className="py-1"><button onClick={()=>removeBoilRow(i)} className="text-gray-300 hover:text-red-400 transition-colors text-base leading-none">×</button></td>
+                        <tr key={i} className="group">
+                          <td className="pr-3 py-0.5">
+                            <input type="number" placeholder="60" value={a.min} onChange={e=>updBoil(i,"min",e.target.value)}
+                              className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-amber-300 bg-white"/>
+                          </td>
+                          <td className="pr-3 py-0.5">
+                            <input placeholder="e.g. Magnum" value={a.addition} onChange={e=>updBoil(i,"addition",e.target.value)}
+                              className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 bg-white"/>
+                          </td>
+                          <td className="pr-3 py-0.5">
+                            <input placeholder="g / pcs" value={a.weight} onChange={e=>updBoil(i,"weight",e.target.value)}
+                              className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 bg-white"/>
+                          </td>
+                          <td className="pr-3 py-0.5">
+                            <input type="number" placeholder="—" value={a.ibu} onChange={e=>updBoil(i,"ibu",e.target.value)}
+                              className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-amber-300 bg-white"/>
+                          </td>
+                          <td className="pr-3 py-0.5">
+                            <input placeholder="—" value={a.note} onChange={e=>updBoil(i,"note",e.target.value)}
+                              className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 bg-white"/>
+                          </td>
+                          <td className="py-0.5 text-center">
+                            <button onClick={()=>removeBoilRow(i)}
+                              className="w-6 h-6 flex items-center justify-center rounded-full text-gray-300 hover:text-red-400 hover:bg-red-50 transition-colors text-base leading-none">×</button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -5013,10 +5062,30 @@
                     <label htmlFor="aromaHops" className="text-xs text-gray-600 font-medium">Aroma Hops (Whirlpool)</label>
                   </div>
                   {bs.aroma_hops && (
-                    <div className="grid grid-cols-3 gap-3">
-                      <div><p className={lbl}>Hops</p><input className={inp} value={bs.aroma_hops_name} onChange={e=>upd("aroma_hops_name",e.target.value)}/></div>
-                      <div><p className={lbl}>Time (min)</p><input type="number" className={inp} value={bs.aroma_time} onChange={e=>upd("aroma_time",e.target.value)}/></div>
-                      <div><p className={lbl}>Qty (g)</p><input type="number" className={inp} value={bs.aroma_qty} onChange={e=>upd("aroma_qty",e.target.value)}/></div>
+                    <div className="space-y-2">
+                      {/* Column headers */}
+                      <div className="grid gap-2" style={{gridTemplateColumns:"1fr auto auto auto"}}>
+                        <p className={lbl}>Hops</p>
+                        <p className={lbl + " w-20 text-center"}>Time (min)</p>
+                        <p className={lbl + " w-20 text-center"}>Qty (g)</p>
+                        <div className="w-6"/>
+                      </div>
+                      {getAromaList(bs).map((hop, i) => (
+                        <div key={i} className="grid gap-2 items-center" style={{gridTemplateColumns:"1fr auto auto auto"}}>
+                          <input className={inp} placeholder="Hop name" value={hop.name} onChange={e=>updAromaHop(i,"name",e.target.value)}/>
+                          <input type="number" className={inp + " w-20 text-center"} placeholder="—" value={hop.time} onChange={e=>updAromaHop(i,"time",e.target.value)}/>
+                          <input type="number" className={inp + " w-20 text-center"} placeholder="—" value={hop.qty} onChange={e=>updAromaHop(i,"qty",e.target.value)}/>
+                          <button onClick={()=>removeAromaHop(i)} disabled={getAromaList(bs).length===1}
+                            className="w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold">
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                      <button onClick={addAromaHop}
+                        className="mt-1 flex items-center gap-1.5 text-xs text-amber-600 hover:text-amber-700 font-medium">
+                        <span className="w-4 h-4 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 text-xs font-bold">+</span>
+                        Add hop
+                      </button>
                     </div>
                   )}
                   <div className="grid grid-cols-2 gap-3 mt-3">
@@ -5032,6 +5101,7 @@
                     <div><p className={lbl}>Volume (L)</p><input type="number" className={inp} value={bs.final_volume} onChange={e=>upd("final_volume",e.target.value)}/></div>
                     <div><p className={lbl}>Temp in (°C)</p><input type="number" className={inp} value={bs.final_temp_in} onChange={e=>upd("final_temp_in",e.target.value)}/></div>
                     <div><p className={lbl}>Start Time</p><input placeholder="HH:MM" className={inp} value={bs.final_start_time} onChange={e=>upd("final_start_time",e.target.value)}/></div>
+                    <div><p className={lbl}>End Time</p><input placeholder="HH:MM" className={inp} value={bs.final_end_time||""} onChange={e=>upd("final_end_time",e.target.value)}/></div>
                     <div><p className={lbl}>Target Temp (°C)</p><input type="number" className={inp} value={bs.target_temp} onChange={e=>upd("target_temp",e.target.value)}/></div>
                   </div>
                   <p className="text-xs font-medium text-gray-500 mb-2">Yeast</p>
@@ -5056,10 +5126,11 @@
             <div className="space-y-5">
 
               {/* Charts */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {[
                   {label:"SG",key:"sg",color:"#3b82f6",dec:3},
                   {label:"pH",key:"ph",color:"#f59e0b",dec:2},
+                  {label:"Pressure (PSI)",key:"psi",color:"#8b5cf6",dec:1},
                   {label:"Temp (°C)",key:"temp",color:"#10b981",dec:1},
                 ].map(({label,key,color,dec})=>(
                   <div key={key} className="bg-white rounded-2xl border border-gray-100 p-4">
@@ -5079,19 +5150,19 @@
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-gray-50/60 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                        <th className="px-3 py-2.5 text-left w-14">Day</th>
-                        <th className="px-3 py-2.5 text-left w-20">Date</th>
-                        <th className="px-3 py-2.5 text-left w-24">SG</th>
-                        <th className="px-3 py-2.5 text-left w-20">pH</th>
-                        <th className="px-3 py-2.5 text-left w-20">PSI</th>
-                        <th className="px-3 py-2.5 text-left w-24">Temp (°C)</th>
+                        <th className="px-3 py-2.5 text-left" style={{minWidth:"56px"}}>Day</th>
+                        <th className="px-3 py-2.5 text-left" style={{minWidth:"72px"}}>Date</th>
+                        <th className="px-3 py-2.5 text-left" style={{minWidth:"88px"}}>SG</th>
+                        <th className="px-3 py-2.5 text-left" style={{minWidth:"72px"}}>pH</th>
+                        <th className="px-3 py-2.5 text-left" style={{minWidth:"72px"}}>PSI</th>
+                        <th className="px-3 py-2.5 text-left" style={{minWidth:"88px"}}>Temp (°C)</th>
                         <th className="px-3 py-2.5 text-left">Note</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
                       {bs.daily_log.map((row,i)=>(
                         <tr key={i} className={`hover:bg-amber-50/30 ${i%2===0?"":"bg-gray-50/20"}`}>
-                          <td className="px-3 py-1.5 text-xs font-semibold text-gray-500">Day {row.day}</td>
+                          <td className="px-3 py-1.5 text-xs font-semibold text-gray-500 whitespace-nowrap">Day {row.day}</td>
                           <td className="px-3 py-1.5 text-xs text-gray-400 whitespace-nowrap">{dayDate(row.day)}</td>
                           <td className="px-3 py-1.5">
                             <input type="number" step="0.001" placeholder="1.050" value={row.sg??""} onChange={e=>updLog(i,"sg",e.target.value)}
