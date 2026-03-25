@@ -4777,7 +4777,7 @@
         aroma_hops:false,aroma_hops_list:[{name:"",time:"",qty:""}],
         load_start:"",load_end:"",
         final_temp_in:"",final_start_time:"",final_end_time:"",target_temp:"",final_ph:"",final_gravity:"",final_volume:"",
-        yeast:"",yeast_source:"",yeast_qty:"",oxygen_lmin:"",oxygen_time:"",aldc:false,
+        yeast_list:[{strain:"",source:"",qty:""}],oxygen_lmin:"",oxygen_time:"",aldc:false,brew_notes:"",
         daily_log: Array.from({length:26},(_,i)=>({day:i+1,sg:null,ph:null,psi:null,temp:null,note:""})),
       };
       const [bs, setBs] = useState(() => brewsheet ? JSON.parse(JSON.stringify(brewsheet)) : empty);
@@ -4812,6 +4812,26 @@
       }
       function removeAromaHop(i) {
         setBs(b => { const list=getAromaList(b).filter((_,idx)=>idx!==i); return {...b,aroma_hops_list:list.length?list:[{name:"",time:"",qty:""}]}; });
+        setSaved(false);
+      }
+
+      // Yeast list helpers (supports multiple yeast strains)
+      function getYeastList(b) {
+        if (b.yeast_list && b.yeast_list.length > 0) return b.yeast_list;
+        // Migrate legacy single-yeast fields
+        if (b.yeast) return [{strain:b.yeast, source:b.yeast_source||"", qty:b.yeast_qty||""}];
+        return [{strain:"",source:"",qty:""}];
+      }
+      function updYeast(i, field, val) {
+        setBs(b => { const list=[...getYeastList(b)]; list[i]={...list[i],[field]:val}; return {...b,yeast_list:list}; });
+        setSaved(false);
+      }
+      function addYeast() {
+        setBs(b => ({...b, yeast_list:[...getYeastList(b),{strain:"",source:"",qty:""}]}));
+        setSaved(false);
+      }
+      function removeYeast(i) {
+        setBs(b => { const list=getYeastList(b).filter((_,idx)=>idx!==i); return {...b,yeast_list:list.length?list:[{strain:"",source:"",qty:""}]}; });
         setSaved(false);
       }
 
@@ -5104,20 +5124,61 @@
                     <div><p className={lbl}>End Time</p><input placeholder="HH:MM" className={inp} value={bs.final_end_time||""} onChange={e=>upd("final_end_time",e.target.value)}/></div>
                     <div><p className={lbl}>Target Temp (°C)</p><input type="number" className={inp} value={bs.target_temp} onChange={e=>upd("target_temp",e.target.value)}/></div>
                   </div>
-                  <p className="text-xs font-medium text-gray-500 mb-2">Yeast</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><p className={lbl}>Yeast Strain</p><input className={inp} value={bs.yeast} onChange={e=>upd("yeast",e.target.value)}/></div>
-                    <div><p className={lbl}>Source / Batch</p><input className={inp} value={bs.yeast_source} onChange={e=>upd("yeast_source",e.target.value)}/></div>
-                    <div><p className={lbl}>Quantity</p><input className={inp} value={bs.yeast_qty} onChange={e=>upd("yeast_qty",e.target.value)}/></div>
+                  {/* Yeast list */}
+                  <div className="border-t border-gray-100 pt-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-medium text-gray-500">Yeast</p>
+                      <button onClick={addYeast}
+                        className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700 font-medium">
+                        <span className="w-4 h-4 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 text-xs font-bold leading-none">+</span>
+                        Add yeast
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {/* Column headers */}
+                      <div className="grid gap-2 items-end" style={{gridTemplateColumns:"1fr 1fr auto auto"}}>
+                        <p className={lbl}>Strain</p>
+                        <p className={lbl}>Source / Batch</p>
+                        <p className={lbl + " w-20 text-center"}>Qty</p>
+                        <div className="w-6"/>
+                      </div>
+                      {getYeastList(bs).map((y, i) => (
+                        <div key={i} className="grid gap-2 items-center" style={{gridTemplateColumns:"1fr 1fr auto auto"}}>
+                          <input className={inp} placeholder="e.g. W34/70" value={y.strain} onChange={e=>updYeast(i,"strain",e.target.value)}/>
+                          <input className={inp} placeholder="New pack / #batch" value={y.source} onChange={e=>updYeast(i,"source",e.target.value)}/>
+                          <input className={inp + " w-20 text-center"} placeholder="—" value={y.qty} onChange={e=>updYeast(i,"qty",e.target.value)}/>
+                          <button onClick={()=>removeYeast(i)} disabled={getYeastList(bs).length===1}
+                            className="w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm font-bold">
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {/* O₂ & ALDC */}
+                  <div className="grid grid-cols-3 gap-3 border-t border-gray-100 pt-3">
                     <div><p className={lbl}>O₂ (L/min)</p><input type="number" className={inp} value={bs.oxygen_lmin} onChange={e=>upd("oxygen_lmin",e.target.value)}/></div>
                     <div><p className={lbl}>O₂ Time (min)</p><input type="number" className={inp} value={bs.oxygen_time} onChange={e=>upd("oxygen_time",e.target.value)}/></div>
-                    <div className="flex items-center gap-2 mt-4">
+                    <div className="flex items-center gap-2 mt-5">
                       <input type="checkbox" id="aldc" checked={!!bs.aldc} onChange={e=>upd("aldc",e.target.checked)} className="accent-amber-500"/>
                       <label htmlFor="aldc" className="text-xs text-gray-600">ALDC 10g</label>
                     </div>
                   </div>
                 </div>
               </div>
+
+              {/* Brewer's Notes */}
+              <div className={sec}>
+                <p className={secH}>Brewer's Notes</p>
+                <textarea
+                  rows={6}
+                  placeholder="Write any observations, issues, adjustments, or reminders for this brew day…"
+                  value={bs.brew_notes||""}
+                  onChange={e=>upd("brew_notes",e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3.5 py-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-300 resize-y leading-relaxed placeholder-gray-300"
+                />
+              </div>
+
             </div>
           )}
 
