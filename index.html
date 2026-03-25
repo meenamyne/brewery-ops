@@ -36,6 +36,7 @@
       Batches:    ["id","batch_id","brew_day","beer_name","fermenter","volume","filled_litres","fermentation_days","condition_days","release_date","status"],
       BeerList:   ["brand","name","style","abv","contract"],
       BatchTasks:    ["id","batch_id","task","day","assigned_to"],
+      Staff:         ["id","name","dept"],
       Brewsheets:    ["batch_id","data"],
       BarKegIn:      ["id","stock_out_id","keg_id","size","beer_name","sent_by","received","received_date","received_by","note","remark"],
       SupplierKegIn: ["id","supplier","keg_ref","size","beer_name","production_date","received","received_date","received_by","coupler_needed","note"],
@@ -81,6 +82,10 @@
             let v = row[j] ?? "";
             if (nums.includes(h) && v !== "") v = parseFloat(v) || 0;
             if (name === "Brewsheets" && h === "data") try { v = JSON.parse(v); } catch {}
+            // Parse array fields stored as JSON strings (e.g. assigned_to: '["Gent","Gunn"]')
+            if (h === "assigned_to" && typeof v === "string" && v.startsWith("[")) {
+              try { const p = JSON.parse(v); if (Array.isArray(p)) v = p; } catch {}
+            }
             obj[h] = v;
           });
           return obj;
@@ -137,7 +142,19 @@
       { brand: "Sandport", name: "Sandport Wheat Of The Wall", style: "Wheat IPA", abv: "" },
     ];
 
-    const STAFF = ["Gent", "Gunn", "Meena"];
+    const STAFF_DEFAULT = ["Gent", "Gunn", "Meena"];
+    // Keep a mutable global for useState() defaults in components
+    let STAFF = [...STAFF_DEFAULT];
+    // React context — App keeps this in sync with the `staff` state
+    const StaffCtx    = React.createContext(STAFF_DEFAULT);
+    const BarStaffCtx = React.createContext([]);
+
+    // ─── INITIAL STAFF DATA ──────────────────────────────────────────────────
+    const INITIAL_STAFF = [
+      { id:1, name:"Gent",  dept:"Brewery" },
+      { id:2, name:"Gunn",  dept:"Brewery" },
+      { id:3, name:"Meena", dept:"Brewery" },
+    ];
     const DESTINATIONS = ["UPB", "Beer Pradith", "Yod Beer", "Client", "Event"];
     const KEG_SIZES = ["6 L", "12 L", "14 L", "20 L", "30 L", "50 L"];
 
@@ -275,6 +292,22 @@
       { id:10, batch_id:"214", task:"Take gravity",       day:12, assigned_to:""      },
     ];
 
+    // ─── GLOBAL HELPERS ───────────────────────────────────────────────────────
+    // Deduplicate task list — keep first occurrence of each ID, then remove
+    // exact duplicates (same batch_id + task + start_date/day) if IDs differ.
+    function deduplicateTasks(tasks) {
+      const seenIds = new Set();
+      const seenSig = new Set();
+      return tasks.filter(t => {
+        if (seenIds.has(t.id)) return false;
+        seenIds.add(t.id);
+        const sig = `${t.batch_id}|${t.task}|${t.start_date || t.day}|${t.fermenter || ""}`;
+        if (seenSig.has(sig)) return false;
+        seenSig.add(sig);
+        return true;
+      });
+    }
+
     // ─── BREWSHEET MOCK DATA ──────────────────────────────────────────────────
     const mkLog = (days) => Array.from({length:26},(_,i)=>({ day:i+1, sg:days[i]?.sg||null, ph:days[i]?.ph||null, psi:days[i]?.psi||null, temp:days[i]?.temp||null, note:days[i]?.note||"" }));
     const INITIAL_BREWSHEETS = {
@@ -409,6 +442,9 @@
         dividerAfter: false },
       { id:"stock-out",  label:"Stock Out",
         icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>,
+        dividerAfter: false },
+      { id:"keg-cleaning", label:"Keg Cleaning",
+        icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>,
         dividerAfter: true },
       // ── Maintenance ────────────────────────────────────────────────────────
       { id:"broken-log", label:"Broken Log",
@@ -426,6 +462,10 @@
         dividerAfter: false },
       { id:"tap-management", label:"Tap Management",
         icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>,
+        dividerAfter: true },
+      // ── Team ───────────────────────────────────────────────────────────────
+      { id:"team",  label:"Team",
+        icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>,
         dividerAfter: false },
     ];
 
@@ -580,11 +620,33 @@
     function KegSummaryTab({ kegStatus, fillLog, stockOut, beerList }) {
       const total  = kegStatus.length;
       const filled = kegStatus.filter(k => k.status === "Filled").length;
-      const out    = kegStatus.filter(k => k.status === "Out").length;
+      const outKegs = kegStatus.filter(k => k.status === "Out");
+      const out    = outKegs.length;
       const ret    = kegStatus.filter(k => k.status === "Return").length;
       const broken = kegStatus.filter(k => k.status === "Broken").length;
       const empty  = kegStatus.filter(k => k.status === "Empty").length;
       const totalLitres = fillLog.reduce((s,r) => s + (parseFloat(r.litres)||0), 0);
+
+      // Out breakdown by keg TYPE (from keg_id prefix)
+      const kegTypeLabel = id => {
+        if (!id) return "Unknown";
+        if (id.startsWith("OW_"))  return "One Way";
+        if (id.startsWith("K50_")) return "50L KeyKeg";
+        if (id.startsWith("K30_")) return "30L KeyKeg";
+        if (id.startsWith("K20_")) return "20L KeyKeg";
+        return id.split("_")[0];
+      };
+      const TYPE_ORDER = ["20L KeyKeg","30L KeyKeg","50L KeyKeg","One Way"];
+      const outTypeMap = {};
+      outKegs.forEach(k => {
+        const t = kegTypeLabel(k.keg_id);
+        outTypeMap[t] = (outTypeMap[t]||0) + 1;
+      });
+      const outBySize = Object.entries(outTypeMap)
+        .sort((a,b) => {
+          const ai = TYPE_ORDER.indexOf(a[0]), bi = TYPE_ORDER.indexOf(b[0]);
+          return (ai===-1?99:ai) - (bi===-1?99:bi);
+        });
 
       const beerCount = {};
       kegStatus.filter(k => k.status === "Filled" && k.beer_name).forEach(k => {
@@ -609,7 +671,22 @@
           <div className="grid grid-cols-3 lg:grid-cols-6 gap-3">
             <StatCard label="Total Kegs"    value={total}  sub="all assets"         color="gray"    />
             <StatCard label="Filled"        value={filled} sub="ready in storage"   color="emerald" />
-            <StatCard label="Out"           value={out}    sub="at destinations"    color="amber"   />
+            {/* OUT card — broken down by keg size */}
+            <div className="bg-white rounded-2xl p-5 border border-amber-100">
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">Out</p>
+              <p className="text-3xl font-bold text-amber-600">{out}</p>
+              <p className="text-xs text-gray-400 mt-1.5">at destinations</p>
+              {outBySize.length > 0 && (
+                <div className="mt-3 pt-2.5 border-t border-amber-50 space-y-1">
+                  {outBySize.map(([size, count]) => (
+                    <div key={size} className="flex items-center justify-between">
+                      <span className="text-xs text-gray-400">{size}</span>
+                      <span className="text-xs font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-md">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             <StatCard label="Returned"      value={ret}    sub="back at brewery"    color="sky"     />
             <StatCard label="Broken/Lost"   value={broken} sub="needs attention"    color="red"     />
             <StatCard label="Empty"         value={empty}  sub="awaiting fill"      color="gray"    />
@@ -663,9 +740,25 @@
     // ─── TAB 2: KEG IN STORAGE ────────────────────────────────────────────────
     function KegStorageTab({ kegStatus }) {
       const [search, setSearch] = useState("");
+      const [expandedBeer, setExpandedBeer] = useState(null);
       const stored = kegStatus.filter(k => k.status === "Filled");
 
-      // by beer
+      // Parse litres from size string e.g. "20 L" → 20
+      const parseL = size => { const m = (size||"").match(/(\d+(\.\d+)?)/); return m ? parseFloat(m[1]) : 0; };
+
+      // Total litres by beer (with per-size breakdown)
+      const beerLitreMap = {};
+      stored.forEach(k => {
+        const beer = k.beer_name || "Unknown";
+        const l = parseL(k.size);
+        if (!beerLitreMap[beer]) beerLitreMap[beer] = { totalLitres:0, kegs:[] };
+        beerLitreMap[beer].totalLitres += l;
+        beerLitreMap[beer].kegs.push(k);
+      });
+      const beerLitreRows = Object.entries(beerLitreMap)
+        .sort((a,b) => b[1].totalLitres - a[1].totalLitres);
+
+      // by beer (keg count)
       const beerMap = {};
       stored.forEach(k => { beerMap[k.beer_name||"Unknown"] = (beerMap[k.beer_name||"Unknown"]||0) + 1; });
       const byBeer = Object.entries(beerMap).sort((a,b)=>b[1]-a[1]);
@@ -708,6 +801,81 @@
               <BarList items={byLoc} color="bg-violet-400" />
             </div>
           </div>
+          {/* ── Total Litres by Beer (drilldown) ──────────────────────────── */}
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider flex-1">Total Litres In-Stock by Beer</p>
+              <span className="text-xs text-gray-400">{stored.length} kegs · click row to expand</span>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-emerald-600">
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-white uppercase tracking-wide">Beer Name</th>
+                  <th className="text-right px-4 py-2.5 text-xs font-semibold text-white uppercase tracking-wide">Total Litres (In-Stock)</th>
+                </tr>
+                <tr className="border-b border-gray-100 bg-emerald-500">
+                  <th className="text-left px-4 py-1.5 text-xs text-emerald-100"></th>
+                  <th className="text-right px-4 py-1.5 text-xs text-emerald-100 font-medium">sum</th>
+                </tr>
+              </thead>
+              <tbody>
+                {beerLitreRows.map(([beer, data]) => {
+                  const isOpen = expandedBeer === beer;
+                  // group by size within this beer
+                  const sizeGroups = {};
+                  data.kegs.forEach(k => {
+                    if (!sizeGroups[k.size]) sizeGroups[k.size] = { count:0, ids:[] };
+                    sizeGroups[k.size].count++;
+                    sizeGroups[k.size].ids.push(k.keg_id);
+                  });
+                  const sizeRows = Object.entries(sizeGroups).sort((a,b)=>(parseInt(a[0])||0)-(parseInt(b[0])||0));
+                  return (
+                    <React.Fragment key={beer}>
+                      <tr className={`border-b border-gray-100 cursor-pointer hover:bg-emerald-50 transition-colors ${isOpen?"bg-emerald-50":""}`}
+                          onClick={()=>setExpandedBeer(isOpen?null:beer)}>
+                        <td className="px-4 py-2.5 font-medium text-gray-800 flex items-center gap-2">
+                          <span className={`text-emerald-500 transition-transform text-xs ${isOpen?"rotate-90":"rotate-0"}`} style={{display:"inline-block"}}>▶</span>
+                          {beer}
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-gray-700">{data.totalLitres.toLocaleString()}</td>
+                      </tr>
+                      {isOpen && (
+                        <tr className="border-b border-emerald-100">
+                          <td colSpan={2} className="px-5 pt-0 pb-3 bg-emerald-50/60">
+                            <table className="w-full text-xs rounded-lg overflow-hidden" style={{tableLayout:"fixed"}}>
+                              <colgroup>
+                                <col style={{width:"110px"}}/>
+                                <col style={{width:"80px"}}/>
+                                <col/>
+                              </colgroup>
+                              <thead>
+                                <tr className="bg-gray-200">
+                                  <th className="text-left px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide">Size (L)</th>
+                                  <th className="text-center px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide">Kegs</th>
+                                  <th className="text-left px-3 py-2 font-semibold text-gray-500 uppercase tracking-wide">Keg ID</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {sizeRows.map(([size, sg], si) => (
+                                  <tr key={size} className={`border-t border-gray-100 ${si%2===0?"bg-white":"bg-gray-50"}`}>
+                                    <td className="px-3 py-2 font-medium text-gray-700">{size}</td>
+                                    <td className="px-3 py-2 text-center font-bold text-emerald-600">{sg.count}</td>
+                                    <td className="px-3 py-2 text-gray-500 font-mono" style={{wordBreak:"break-word"}}>{sg.ids.join(", ")}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ── All Filled Kegs list ─────────────────────────────────────────── */}
           <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
             <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-3">
               <p className="text-xs font-medium text-gray-400 uppercase tracking-wider flex-1">All Filled Kegs ({stored.length})</p>
@@ -1193,6 +1361,7 @@
 
     // ─── FILL LOG PAGE ────────────────────────────────────────────────────────
     function FillLogPage({ fillLog, setFillLog, beerList, kegStatus, setKegStatus, batches }) {
+      const STAFF = React.useContext(StaffCtx);
       const [showModal, setShowModal] = useState(false);
       const [search, setSearch] = useState("");
       const [kegSearch, setKegSearch] = useState("");
@@ -1503,6 +1672,7 @@
 
     // ─── STOCK OUT PAGE ───────────────────────────────────────────────────────
     function StockOutPage({ stockOut, setStockOut, kegStatus, setKegStatus }) {
+      const STAFF = React.useContext(StaffCtx);
       const [showModal, setShowModal] = useState(false);
       const [returnTarget, setReturnTarget] = useState(null);
       const [returnForm, setReturnForm] = useState({ date_returned: new Date().toISOString().split("T")[0], recorded_by: STAFF[0] });
@@ -1513,6 +1683,12 @@
       const [dateMode, setDateMode] = useState("all"); // "today" | "period" | "all"
       const [dateFrom, setDateFrom] = useState("");
       const [dateTo,   setDateTo]   = useState("");
+      // Batch return
+      const [selectedIds, setSelectedIds] = useState(new Set());
+      const [showBatchReturn, setShowBatchReturn] = useState(false);
+      const [batchReturnForm, setBatchReturnForm] = useState({ date_returned: new Date().toISOString().split("T")[0], recorded_by: STAFF[0] });
+      // View toggle: "out" | "returned"
+      const [outView, setOutView] = useState("out");
 
       function makeBlankForm() {
         return {
@@ -1521,6 +1697,7 @@
           destination: DESTINATIONS[0],
           recorded_by: STAFF[0],
           date_returned: "",
+          remark: "",
         };
       }
       const [form, setForm] = useState(makeBlankForm);
@@ -1551,9 +1728,11 @@
             date_out: form.date_out,
             keg_id: kegId,
             beer_name: keg?.beer_name || "",
+            keg_size: keg?.size || "",
             destination: form.destination,
             recorded_by: form.recorded_by,
             date_returned: form.date_returned,
+            remark: form.remark || "",
           };
         });
         setStockOut(prev => [...newEntries.reverse(), ...prev]);
@@ -1599,6 +1778,40 @@
         setReturnTarget(null);
       }
 
+      function handleBatchReturn(e) {
+        e.preventDefault();
+        const ids = selectedIds;
+        const affectedKegIds = new Set(stockOut.filter(r => ids.has(r.id)).map(r => r.keg_id));
+        setStockOut(prev => prev.map(r =>
+          ids.has(r.id) ? { ...r, date_returned: batchReturnForm.date_returned } : r
+        ));
+        setKegStatus(prev => prev.map(k =>
+          affectedKegIds.has(k.keg_id)
+            ? { ...k, status: "Return", return_date: batchReturnForm.date_returned, location: "Brewery", last_updated_by: batchReturnForm.recorded_by }
+            : k
+        ));
+        setSelectedIds(new Set());
+        setShowBatchReturn(false);
+      }
+
+      function toggleSelect(id) {
+        setSelectedIds(prev => {
+          const next = new Set(prev);
+          next.has(id) ? next.delete(id) : next.add(id);
+          return next;
+        });
+      }
+
+      function toggleSelectAll(outRows) {
+        const outIds = new Set(outRows.map(r => r.id));
+        const allSelected = outRows.every(r => selectedIds.has(r.id));
+        if (allSelected) {
+          setSelectedIds(prev => { const next = new Set(prev); outIds.forEach(id => next.delete(id)); return next; });
+        } else {
+          setSelectedIds(prev => { const next = new Set(prev); outIds.forEach(id => next.add(id)); return next; });
+        }
+      }
+
       const allDests = ["All", ...DESTINATIONS];
 
       const filtered = useMemo(() => {
@@ -1619,15 +1832,24 @@
 
       return (
         <div className="space-y-5">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <div>
               <h1 className="text-xl font-semibold text-gray-800">Stock Out</h1>
               <p className="text-sm text-gray-400 mt-0.5">{stockOut.length} entries · {stockOut.filter(s => !s.date_returned).length} currently out</p>
             </div>
-            <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium rounded-xl transition-colors">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
-              Log Stock Out
-            </button>
+            <div className="flex items-center gap-2">
+              {selectedIds.size > 0 && (
+                <button onClick={() => { setBatchReturnForm({ date_returned: new Date().toISOString().split("T")[0], recorded_by: STAFF[0] }); setShowBatchReturn(true); }}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-sky-500 hover:bg-sky-600 text-white text-sm font-medium rounded-xl transition-colors">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+                  Mark Returned ({selectedIds.size})
+                </button>
+              )}
+              <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium rounded-xl transition-colors">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+                Log Stock Out
+              </button>
+            </div>
           </div>
 
           <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-3">
@@ -1660,61 +1882,98 @@
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-            <div className="table-scroll">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-100">
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Date Out</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Keg ID</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Beer</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Destination</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Recorded By</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Date Returned</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Status</th>
-                    <th className="px-4 py-3"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sorted.length === 0 ? (
-                    <tr><td colSpan={8} className="text-center py-10 text-gray-400 text-sm">No stock out entries</td></tr>
-                  ) : sorted.map((r, i) => (
-                    <tr key={r.id} className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${i % 2 === 0 ? "" : "bg-gray-50/40"}`}>
-                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(r.date_out)}</td>
-                      <td className="px-4 py-3 font-mono text-xs font-medium text-gray-700 whitespace-nowrap">{r.keg_id}</td>
-                      <td className="px-4 py-3 text-gray-700 max-w-48 truncate">{r.beer_name || "—"}</td>
-                      <td className="px-4 py-3 text-gray-600">{r.destination}</td>
-                      <td className="px-4 py-3 text-gray-600">{r.recorded_by}</td>
-                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(r.date_returned)}</td>
-                      <td className="px-4 py-3">
-                        {r.date_returned
-                          ? <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-sky-50 text-sky-600"><span className="w-1.5 h-1.5 rounded-full bg-sky-400"></span>Returned</span>
-                          : <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-600"><span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>Out</span>
-                        }
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          {!r.date_returned && (
-                            <button
-                              onClick={() => openReturn(r)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-sky-600 bg-sky-50 hover:bg-sky-100 rounded-lg transition-colors whitespace-nowrap"
-                            >
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
-                              Mark Returned
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleDeleteStockOut(r.id, r.keg_id, r.beer_name)}
-                            className="text-xs text-red-400 hover:text-red-600 transition-colors px-2 py-1 rounded hover:bg-red-50 whitespace-nowrap"
-                          >Delete</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          {/* Out / Returned toggle */}
+          <div className="flex items-center gap-2">
+            <button onClick={() => { setOutView("out"); setSelectedIds(new Set()); }}
+              className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${outView==="out" ? "bg-amber-500 text-white shadow-sm" : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+              <span className="w-2 h-2 rounded-full bg-amber-300 inline-block"></span>
+              Kegs Out
+            </button>
+            <button onClick={() => { setOutView("returned"); setSelectedIds(new Set()); }}
+              className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${outView==="returned" ? "bg-sky-500 text-white shadow-sm" : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+              <span className="w-2 h-2 rounded-full bg-sky-300 inline-block"></span>
+              Returned Kegs
+            </button>
           </div>
+
+          {(() => {
+            const viewRows = sorted.filter(r => outView === "out" ? !r.date_returned : !!r.date_returned);
+            const allOutSelected = viewRows.length > 0 && viewRows.every(r => selectedIds.has(r.id));
+            const showCheckbox = outView === "out";
+            const colSpanTotal = showCheckbox ? 10 : 9;
+            return (
+              <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                <div className="table-scroll">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-100 bg-gray-50/60">
+                        {showCheckbox && (
+                          <th className="px-3 py-3 w-10">
+                            <input type="checkbox" checked={allOutSelected} onChange={() => toggleSelectAll(viewRows)}
+                              className="w-4 h-4 rounded accent-sky-500" title="Select all still-out kegs" />
+                          </th>
+                        )}
+                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Date Out</th>
+                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Keg ID</th>
+                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Beer</th>
+                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Destination</th>
+                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Recorded By</th>
+                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Remark</th>
+                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Date Returned</th>
+                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Status</th>
+                        <th className="px-4 py-3"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {viewRows.length === 0 ? (
+                        <tr><td colSpan={colSpanTotal} className="text-center py-10 text-gray-400 text-sm">
+                          {outView === "out" ? "No kegs currently out" : "No returned kegs"}
+                        </td></tr>
+                      ) : viewRows.map((r, i) => {
+                        const isChecked = selectedIds.has(r.id);
+                        return (
+                          <tr key={r.id} className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${isChecked ? "bg-sky-50/60" : i % 2 === 0 ? "" : "bg-gray-50/40"}`}>
+                            {showCheckbox && (
+                              <td className="px-3 py-3 w-10">
+                                <input type="checkbox" checked={isChecked} onChange={() => toggleSelect(r.id)}
+                                  className="w-4 h-4 rounded accent-sky-500" />
+                              </td>
+                            )}
+                            <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(r.date_out)}</td>
+                            <td className="px-4 py-3 font-mono text-xs font-medium text-gray-700 whitespace-nowrap">{r.keg_id}</td>
+                            <td className="px-4 py-3 text-gray-700 max-w-40 truncate">{r.beer_name || "—"}</td>
+                            <td className="px-4 py-3 text-gray-600">{r.destination}</td>
+                            <td className="px-4 py-3 text-gray-600">{r.recorded_by}</td>
+                            <td className="px-4 py-3 text-gray-400 text-xs max-w-40 truncate" title={r.remark||""}>{r.remark || "—"}</td>
+                            <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(r.date_returned)}</td>
+                            <td className="px-4 py-3">
+                              {r.date_returned
+                                ? <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-sky-50 text-sky-600"><span className="w-1.5 h-1.5 rounded-full bg-sky-400"></span>Returned</span>
+                                : <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-600"><span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>Out</span>
+                              }
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                {!r.date_returned && (
+                                  <button onClick={() => openReturn(r)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-sky-600 bg-sky-50 hover:bg-sky-100 rounded-lg transition-colors whitespace-nowrap">
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+                                    Return
+                                  </button>
+                                )}
+                                <button onClick={() => handleDeleteStockOut(r.id, r.keg_id, r.beer_name)}
+                                  className="text-xs text-red-400 hover:text-red-600 transition-colors px-2 py-1 rounded hover:bg-red-50 whitespace-nowrap">Delete</button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
 
           {returnTarget && (
             <Modal title="Mark Keg as Returned" onClose={() => setReturnTarget(null)}>
@@ -1749,6 +2008,39 @@
                 <div className="flex gap-3 pt-2">
                   <button type="button" onClick={() => setReturnTarget(null)} className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
                   <button type="submit" className="flex-1 px-4 py-2.5 bg-sky-500 hover:bg-sky-600 text-white text-sm font-medium rounded-xl transition-colors">Confirm Return</button>
+                </div>
+              </form>
+            </Modal>
+          )}
+
+          {showBatchReturn && (
+            <Modal title={`Batch Return — ${selectedIds.size} Keg${selectedIds.size > 1 ? "s" : ""}`} onClose={() => setShowBatchReturn(false)}>
+              <div className="mb-5 p-4 bg-sky-50 border border-sky-100 rounded-xl">
+                <p className="text-xs font-medium text-sky-700 mb-2">{selectedIds.size} keg{selectedIds.size > 1 ? "s" : ""} will be marked as Returned:</p>
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {stockOut.filter(r => selectedIds.has(r.id)).map(r => (
+                    <div key={r.id} className="flex items-center gap-2 text-xs text-sky-800">
+                      <span className="font-mono font-semibold w-20 shrink-0">{r.keg_id}</span>
+                      <span className="text-sky-600 truncate">{r.beer_name || "—"}</span>
+                      <span className="text-sky-400 shrink-0 ml-auto">{r.destination}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <form onSubmit={handleBatchReturn} className="space-y-4">
+                <Field label="Date Returned">
+                  <input type="date" required value={batchReturnForm.date_returned} onChange={e => setBatchReturnForm(f => ({...f, date_returned: e.target.value}))} className={inputCls} />
+                </Field>
+                <Field label="Recorded By">
+                  <select value={batchReturnForm.recorded_by} onChange={e => setBatchReturnForm(f => ({...f, recorded_by: e.target.value}))} className={inputCls}>
+                    {STAFF.map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </Field>
+                <div className="flex gap-3 pt-2">
+                  <button type="button" onClick={() => setShowBatchReturn(false)} className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
+                  <button type="submit" className="flex-1 px-4 py-2.5 bg-sky-500 hover:bg-sky-600 text-white text-sm font-medium rounded-xl transition-colors">
+                    Confirm Return ({selectedIds.size})
+                  </button>
                 </div>
               </form>
             </Modal>
@@ -1823,11 +2115,269 @@
                   </div>
                 )}
 
+                {/* Remark */}
+                <Field label="Remark (optional)">
+                  <input value={form.remark} onChange={e => setForm(f=>({...f, remark: e.target.value}))} placeholder="e.g. client name, event name…" className={inputCls} />
+                </Field>
+
                 <div className="flex gap-3 pt-1">
                   <button type="button" onClick={() => { setShowModal(false); setKegSearch(""); setForm(makeBlankForm()); }} className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
                   <button type="submit" disabled={!form.selected_kegs.length} className="flex-1 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-medium rounded-xl transition-colors">
                     Save Stock Out{form.selected_kegs.length > 1 ? ` (${form.selected_kegs.length} kegs)` : ""}
                   </button>
+                </div>
+              </form>
+            </Modal>
+          )}
+        </div>
+      );
+    }
+
+    // ─── KEG CLEANING PAGE ───────────────────────────────────────────────────
+    function KegCleaningPage({ kegStatus, setKegStatus, brokenLog, setBrokenLog, stockOut }) {
+      const STAFF = React.useContext(StaffCtx);
+      const [selectedIds, setSelectedIds] = useState(new Set());
+      const [brokenTarget, setBrokenTarget] = useState(null);
+      const [brokenForm, setBrokenForm] = useState({
+        date_reported: new Date().toISOString().split("T")[0],
+        reported_by: STAFF[0], severity: "High", reason: "Leak", where: "", resolution: "", resolution_date: "", returned_date: "",
+      });
+      const [search, setSearch] = useState("");
+      const [filterType, setFilterType] = useState("All");
+
+      const KEG_TYPES = ["All","20L KeyKeg","30L KeyKeg","50L KeyKeg","One Way","Other"];
+      function kegTypeCleaning(id) {
+        if (!id) return "Other";
+        if (id.startsWith("OW_"))  return "One Way";
+        if (id.startsWith("K50_")) return "50L KeyKeg";
+        if (id.startsWith("K30_")) return "30L KeyKeg";
+        if (id.startsWith("K20_")) return "20L KeyKeg";
+        return "Other";
+      }
+
+      const allReturnKegs = kegStatus.filter(k => k.status === "Return");
+      const returnKegs = allReturnKegs.filter(k => {
+        const q = search.toLowerCase();
+        if (q && !k.keg_id?.toLowerCase().includes(q) && !k.beer_name?.toLowerCase().includes(q)) return false;
+        if (filterType !== "All" && kegTypeCleaning(k.keg_id) !== filterType) return false;
+        return true;
+      });
+
+      function toggleSelect(id) {
+        setSelectedIds(prev => {
+          const next = new Set(prev);
+          next.has(id) ? next.delete(id) : next.add(id);
+          return next;
+        });
+      }
+      function toggleSelectAll() {
+        if (selectedIds.size === returnKegs.length && returnKegs.every(k => selectedIds.has(k.keg_id)))
+          setSelectedIds(new Set());
+        else setSelectedIds(new Set(returnKegs.map(k => k.keg_id)));
+      }
+
+      function handleBatchClean() {
+        if (selectedIds.size === 0) return;
+        setKegStatus(prev => prev.map(k =>
+          selectedIds.has(k.keg_id) && k.status === "Return"
+            ? { ...k, status: "Empty", beer_name: "", last_updated_by: "—" }
+            : k
+        ));
+        setSelectedIds(new Set());
+      }
+
+      function openBrokenModal(keg) {
+        setBrokenTarget(keg);
+        setBrokenForm({
+          date_reported: new Date().toISOString().split("T")[0],
+          reported_by: STAFF[0], severity: "High", reason: "Leak",
+          where: (() => {
+            const last = [...(stockOut||[])].reverse().find(s => s.keg_id === keg.keg_id);
+            return last ? last.destination : "";
+          })(),
+          resolution: "", resolution_date: "", returned_date: "",
+        });
+      }
+
+      function handleBrokenSubmit(e) {
+        e.preventDefault();
+        const entry = {
+          ...brokenForm,
+          id: Date.now(),
+          keg_id: brokenTarget.keg_id,
+          beer_name: brokenTarget.beer_name || "",
+        };
+        setBrokenLog(prev => [entry, ...prev]);
+        setKegStatus(prev => prev.map(k =>
+          k.keg_id === brokenTarget.keg_id
+            ? { ...k, status: "Broken", last_updated_by: brokenForm.reported_by }
+            : k
+        ));
+        setBrokenTarget(null);
+      }
+
+      const allSelected = returnKegs.length > 0 && returnKegs.every(k => selectedIds.has(k.keg_id));
+
+      return (
+        <div className="space-y-5">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-xl font-bold text-gray-800">Keg Cleaning</h1>
+              <p className="text-sm text-gray-400 mt-0.5">Kegs awaiting cleaning after return — mark clean to set status back to Empty</p>
+            </div>
+            {selectedIds.size > 0 && (
+              <button onClick={handleBatchClean}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium rounded-xl transition-colors shadow-sm">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
+                Mark {selectedIds.size} Keg{selectedIds.size>1?"s":""} Clean
+              </button>
+            )}
+          </div>
+
+          {/* Stats */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="bg-white rounded-2xl border border-gray-100 p-4">
+              <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Total Awaiting</p>
+              <p className="text-2xl font-bold text-amber-500">{allReturnKegs.length}</p>
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-100 p-4">
+              <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Showing</p>
+              <p className="text-2xl font-bold text-gray-600">{returnKegs.length}</p>
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-100 p-4 col-span-2">
+              <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Selected</p>
+              <p className="text-2xl font-bold text-emerald-500">{selectedIds.size}</p>
+            </div>
+          </div>
+
+          {/* Search + Filter */}
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="relative flex-1 min-w-48">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/></svg>
+              <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="Search keg ID or beer name…"
+                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-300 bg-white" />
+            </div>
+            <div className="flex gap-1.5 flex-wrap">
+              {KEG_TYPES.map(t => (
+                <button key={t} onClick={() => setFilterType(t)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filterType===t ? "bg-emerald-500 text-white" : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            <div className="table-scroll">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50/60">
+                    <th className="px-3 py-3 w-10">
+                      <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
+                        className="w-4 h-4 rounded accent-emerald-500" title="Select all" />
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Keg ID</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Beer</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Size</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Last Updated By</th>
+                    <th className="px-4 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {returnKegs.length === 0 ? (
+                    <tr><td colSpan={6} className="text-center py-12 text-gray-400 text-sm">
+                      <div className="flex flex-col items-center gap-2">
+                        <svg className="w-8 h-8 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        <span>No kegs awaiting cleaning</span>
+                      </div>
+                    </td></tr>
+                  ) : returnKegs.map((keg, i) => {
+                    const isChecked = selectedIds.has(keg.keg_id);
+                    return (
+                      <tr key={keg.keg_id} className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${isChecked ? "bg-emerald-50/60" : i % 2 === 0 ? "" : "bg-gray-50/40"}`}>
+                        <td className="px-3 py-3 w-10">
+                          <input type="checkbox" checked={isChecked} onChange={() => toggleSelect(keg.keg_id)}
+                            className="w-4 h-4 rounded accent-emerald-500" />
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs font-medium text-gray-700 whitespace-nowrap">{keg.keg_id}</td>
+                        <td className="px-4 py-3 text-gray-700">{keg.beer_name || <span className="text-gray-300">—</span>}</td>
+                        <td className="px-4 py-3 text-gray-500">{keg.size || "—"}</td>
+                        <td className="px-4 py-3 text-gray-500">{keg.last_updated_by || "—"}</td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button onClick={() => {
+                                setKegStatus(prev => prev.map(k =>
+                                  k.keg_id === keg.keg_id ? { ...k, status: "Empty", beer_name: "", last_updated_by: "—" } : k
+                                ));
+                                setSelectedIds(prev => { const n = new Set(prev); n.delete(keg.keg_id); return n; });
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors whitespace-nowrap">
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
+                              Mark Clean
+                            </button>
+                            <button onClick={() => openBrokenModal(keg)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-500 bg-red-50 hover:bg-red-100 rounded-lg transition-colors whitespace-nowrap">
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                              Broken Log
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Send to Broken Log modal */}
+          {brokenTarget && (
+            <Modal title="Send to Broken Log" onClose={() => setBrokenTarget(null)}>
+              <div className="mb-5 p-4 bg-red-50 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-400 uppercase tracking-wide">Keg</span>
+                  <span className="font-mono text-sm font-semibold text-gray-700">{brokenTarget.keg_id}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-400 uppercase tracking-wide">Beer</span>
+                  <span className="text-sm text-gray-700">{brokenTarget.beer_name || "—"}</span>
+                </div>
+              </div>
+              <form onSubmit={handleBrokenSubmit} className="space-y-4">
+                <Field label="Date Reported">
+                  <input type="date" required value={brokenForm.date_reported}
+                    onChange={e => setBrokenForm(f => ({...f, date_reported: e.target.value}))} className={inputCls} />
+                </Field>
+                <Field label="Reported By">
+                  <select value={brokenForm.reported_by}
+                    onChange={e => setBrokenForm(f => ({...f, reported_by: e.target.value}))} className={inputCls}>
+                    {STAFF.map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </Field>
+                <Field label="Severity">
+                  <select value={brokenForm.severity}
+                    onChange={e => setBrokenForm(f => ({...f, severity: e.target.value}))} className={inputCls}>
+                    {["High","Medium","Low"].map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </Field>
+                <Field label="Reason">
+                  <select value={brokenForm.reason}
+                    onChange={e => setBrokenForm(f => ({...f, reason: e.target.value}))} className={inputCls}>
+                    {["Leak","Dent","Valve broken","Coupler stuck","Other"].map(r => <option key={r}>{r}</option>)}
+                  </select>
+                </Field>
+                <Field label="Where Found">
+                  <input type="text" value={brokenForm.where}
+                    onChange={e => setBrokenForm(f => ({...f, where: e.target.value}))} className={inputCls} placeholder="Location or venue" />
+                </Field>
+                <div className="flex gap-3 pt-2">
+                  <button type="button" onClick={() => setBrokenTarget(null)}
+                    className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">Cancel</button>
+                  <button type="submit"
+                    className="flex-1 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white text-sm font-medium rounded-xl transition-colors">Send to Broken Log</button>
                 </div>
               </form>
             </Modal>
@@ -1857,6 +2407,7 @@
     }
 
     function BrokenLogPage({ brokenLog, setBrokenLog, kegStatus, setKegStatus }) {
+      const STAFF = React.useContext(StaffCtx);
       const [showModal, setShowModal] = useState(false);
       const [search, setSearch] = useState("");
       const [filterSev, setFilterSev] = useState("All");
@@ -2060,8 +2611,11 @@
 
     function BatchesPage({ batches, setBatches, beerList, setBeerList, fillLog, batchTasks, setBatchTasks, onOpenBrewsheet }) {
       const [tab, setTab]               = useState("batches");
+      const [batchListTab, setBatchListTab] = useState("active"); // "active" | "done"
       const [search, setSearch]         = useState("");
       const [filterStatus, setFilterStatus] = useState("All");
+      const [batchPage, setBatchPage]   = useState(1);
+      const BATCH_PAGE_SIZE = 10;
       const [showBatchModal, setShowBatchModal] = useState(false);
       const [showBeerModal, setShowBeerModal]   = useState(false);
       const [editBatchId,   setEditBatchId]     = useState(null); // null = add mode, id = edit mode
@@ -2227,11 +2781,17 @@
       const filteredBatches = useMemo(() => batches.filter(b => {
         const s = search.toLowerCase();
         const match = !s || String(b.batch_id).includes(s) || b.beer_name.toLowerCase().includes(s) || (b.fermenter||"").toLowerCase().includes(s);
-        const st = filterStatus === "All" || b.status === filterStatus;
+        const isDone = b.status === "Done";
+        if (batchListTab === "active" && isDone) return false;
+        if (batchListTab === "done" && !isDone) return false;
+        const st = batchListTab === "active" ? (filterStatus === "All" || b.status === filterStatus) : true;
         return match && st;
-      }), [batches, search, filterStatus]);
+      }), [batches, search, filterStatus, batchListTab]);
 
       const sorted = [...filteredBatches].sort((a,b) => (b.brew_day||"").localeCompare(a.brew_day||""));
+      const batchTotalPages = Math.max(1, Math.ceil(sorted.length / BATCH_PAGE_SIZE));
+      const batchPageClamped = Math.min(batchPage, batchTotalPages);
+      const pagedBatches = sorted.slice((batchPageClamped - 1) * BATCH_PAGE_SIZE, batchPageClamped * BATCH_PAGE_SIZE);
       const totalLitres = batches.reduce((s,b) => s + (b.filled_litres||0), 0);
       const active = batches.filter(b => b.status !== "Done").length;
 
@@ -2265,14 +2825,32 @@
 
           {/* ── BATCH LOG TAB ────────────────────────────────────────── */}
           {tab === "batches" && (<>
+            {/* Active / Done sub-tabs */}
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+                {[
+                  { id:"active", label:"Active", count: batches.filter(b => b.status !== "Done").length },
+                  { id:"done",   label:"Done",   count: batches.filter(b => b.status === "Done").length },
+                ].map(tb => (
+                  <button key={tb.id} onClick={() => { setBatchListTab(tb.id); setBatchPage(1); setSearch(""); setFilterStatus("All"); }}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5 ${batchListTab === tb.id ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                    {tb.label}
+                    <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${tb.id === "active" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>{tb.count}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* Search + filter bar */}
             <div className="bg-white rounded-2xl p-4 border border-gray-100 flex flex-wrap gap-3">
               <div className="relative flex-1 min-w-48">
                 <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search batch #, beer, fermenter…" className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent" />
+                <input value={search} onChange={e=>{setSearch(e.target.value);setBatchPage(1);}} placeholder="Search batch #, beer, fermenter…" className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent" />
               </div>
-              <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white text-gray-700">
-                {["All",...BATCH_STATUSES].map(s=><option key={s}>{s}</option>)}
-              </select>
+              {batchListTab === "active" && (
+                <select value={filterStatus} onChange={e=>{setFilterStatus(e.target.value);setBatchPage(1);}} className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white text-gray-700">
+                  {["All",...BATCH_STATUSES.filter(s => s !== "Done")].map(s=><option key={s}>{s}</option>)}
+                </select>
+              )}
             </div>
             <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
               <div className="table-scroll">
@@ -2290,9 +2868,9 @@
                     <th className="px-4 py-3"></th>
                   </tr></thead>
                   <tbody>
-                    {sorted.length === 0
+                    {pagedBatches.length === 0
                       ? <tr><td colSpan={10} className="text-center py-10 text-gray-400 text-sm">No batches match</td></tr>
-                      : sorted.map((b,i) => {
+                      : pagedBatches.map((b,i) => {
                         const fl = filledForBatch(b.batch_id);
                         const isPlanned = b.status === "Planned";
                         const beerMissing = !beerList.some(beer => beer.name === b.beer_name);
@@ -2375,6 +2953,26 @@
                 </table>
               </div>
             </div>
+            {/* Pagination */}
+            {batchTotalPages > 1 && (
+              <div className="flex items-center justify-between px-2">
+                <span className="text-xs text-gray-400">
+                  Showing {((batchPageClamped-1)*BATCH_PAGE_SIZE)+1}–{Math.min(batchPageClamped*BATCH_PAGE_SIZE, sorted.length)} of {sorted.length}
+                </span>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setBatchPage(p => Math.max(1, p-1))} disabled={batchPageClamped <= 1}
+                    className="px-3 py-1.5 rounded-lg text-sm border border-gray-200 disabled:opacity-40 hover:bg-gray-50 transition-colors">← Prev</button>
+                  {Array.from({length: batchTotalPages}, (_, i) => i+1).map(p => (
+                    <button key={p} onClick={() => setBatchPage(p)}
+                      className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${p === batchPageClamped ? "bg-amber-500 text-white" : "border border-gray-200 hover:bg-gray-50 text-gray-600"}`}>
+                      {p}
+                    </button>
+                  ))}
+                  <button onClick={() => setBatchPage(p => Math.min(batchTotalPages, p+1))} disabled={batchPageClamped >= batchTotalPages}
+                    className="px-3 py-1.5 rounded-lg text-sm border border-gray-200 disabled:opacity-40 hover:bg-gray-50 transition-colors">Next →</button>
+                </div>
+              </div>
+            )}
           </>)}
 
           {/* ── BEER LIST TAB ─────────────────────────────────────────── */}
@@ -2826,76 +3424,176 @@
             })}
           </div>
 
-          {/* Active batch table */}
-          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-            <div className="px-5 py-3 border-b border-gray-100">
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Active & Upcoming Batches</p>
-            </div>
-            <div className="table-scroll">
-              <table className="w-full text-sm">
-                <thead><tr className="border-b border-gray-100">
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Fermenter</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Batch #</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Beer</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Brew Day</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Age</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Filled / Vol</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Release</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Status</th>
-                </tr></thead>
-                <tbody>
-                  {batches.filter(b=>b.status!=="Done").sort((a,b)=>(b.brew_day||"").localeCompare(a.brew_day||"")).map((b,i)=>(
-                    <tr key={b.id} className={`border-b border-gray-50 hover:bg-gray-50 ${i%2===0?"":"bg-gray-50/40"}`}>
-                      <td className="px-4 py-3 font-mono text-xs font-bold text-gray-600">{b.fermenter}</td>
-                      <td className="px-4 py-3 font-mono text-xs font-semibold text-amber-600">#{b.batch_id}</td>
-                      <td className="px-4 py-3 text-gray-700 max-w-48 truncate">{b.beer_name}</td>
-                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(b.brew_day)}</td>
-                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{ageDays(b.brew_day) !== null ? `Day ${ageDays(b.brew_day)}` : "—"}</td>
-                      <td className="px-4 py-3 text-gray-700 whitespace-nowrap font-medium">{filledLitres(b.batch_id)} / {b.volume} L</td>
-                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(b.release_date)}</td>
-                      <td className="px-4 py-3">
-                        <select
-                          value={b.status}
-                          onChange={e => handleStatusChange(b.id, e.target.value)}
-                          className={`text-xs font-medium px-2.5 py-1 rounded-full border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-400 ${BATCH_STATUS_CONFIG[b.status]?.bg||"bg-gray-100"} ${BATCH_STATUS_CONFIG[b.status]?.text||"text-gray-500"}`}
-                        >
-                          {BATCH_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          {/* Active & Done batch table */}
+          {(() => {
+            const [bTab, setBTab] = React.useState("active");
+            const [bPage, setBPage] = React.useState(1);
+            const [bSearch, setBSearch] = React.useState("");
+            const PAGE_SIZE = 20;
+            const pool = batches.filter(b =>
+              bTab === "active" ? b.status !== "Done" : b.status === "Done"
+            ).filter(b =>
+              !bSearch || b.beer_name?.toLowerCase().includes(bSearch.toLowerCase()) ||
+              String(b.batch_id).includes(bSearch) || (b.fermenter||"").toLowerCase().includes(bSearch.toLowerCase())
+            ).sort((a,b) => (b.brew_day||"").localeCompare(a.brew_day||""));
+            const totalPages = Math.max(1, Math.ceil(pool.length / PAGE_SIZE));
+            const page = Math.min(bPage, totalPages);
+            const rows = pool.slice((page-1)*PAGE_SIZE, page*PAGE_SIZE);
+            return (
+              <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                {/* Header: tabs + search */}
+                <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap items-center gap-3">
+                  <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+                    {[
+                      { id:"active", label:"Active & Upcoming", count: batches.filter(b=>b.status!=="Done").length },
+                      { id:"done",   label:"Done",               count: batches.filter(b=>b.status==="Done").length },
+                    ].map(tb => (
+                      <button key={tb.id} onClick={() => { setBTab(tb.id); setBPage(1); setBSearch(""); }}
+                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${bTab===tb.id?"bg-white text-gray-800 shadow-sm":"text-gray-500 hover:text-gray-700"}`}>
+                        {tb.label}
+                        <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${tb.id==="active"?"bg-amber-100 text-amber-700":"bg-emerald-100 text-emerald-700"}`}>{tb.count}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="relative ml-auto">
+                    <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    <input value={bSearch} onChange={e=>{setBSearch(e.target.value);setBPage(1);}} placeholder="Search…"
+                      className="pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-300 w-44" />
+                  </div>
+                </div>
+                <div className="table-scroll">
+                  <table className="w-full text-sm">
+                    <thead><tr className="border-b border-gray-100">
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Fermenter</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Batch #</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Beer</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Brew Day</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Age</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Filled / Vol</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Release</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Status</th>
+                    </tr></thead>
+                    <tbody>
+                      {rows.length === 0
+                        ? <tr><td colSpan={8} className="text-center py-8 text-sm text-gray-400">No batches found</td></tr>
+                        : rows.map((b,i) => (
+                          <tr key={b.id} className={`border-b border-gray-50 hover:bg-gray-50 ${i%2===0?"":"bg-gray-50/40"}`}>
+                            <td className="px-4 py-3 font-mono text-xs font-bold text-gray-600">{b.fermenter}</td>
+                            <td className="px-4 py-3 font-mono text-xs font-semibold text-amber-600">#{b.batch_id}</td>
+                            <td className="px-4 py-3 text-gray-700 max-w-48 truncate">{b.beer_name}</td>
+                            <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(b.brew_day)}</td>
+                            <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{ageDays(b.brew_day) !== null ? `Day ${ageDays(b.brew_day)}` : "—"}</td>
+                            <td className="px-4 py-3 text-gray-700 whitespace-nowrap font-medium">{filledLitres(b.batch_id)} / {b.volume} L</td>
+                            <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(b.release_date)}</td>
+                            <td className="px-4 py-3">
+                              <select value={b.status} onChange={e => handleStatusChange(b.id, e.target.value)}
+                                className={`text-xs font-medium px-2.5 py-1 rounded-full border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-400 ${BATCH_STATUS_CONFIG[b.status]?.bg||"bg-gray-100"} ${BATCH_STATUS_CONFIG[b.status]?.text||"text-gray-500"}`}>
+                                {BATCH_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                            </td>
+                          </tr>
+                        ))
+                      }
+                    </tbody>
+                  </table>
+                </div>
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between px-5 py-3 border-t border-gray-50">
+                    <span className="text-xs text-gray-400">Showing {(page-1)*PAGE_SIZE+1}–{Math.min(page*PAGE_SIZE, pool.length)} of {pool.length}</span>
+                    <div className="flex items-center gap-1">
+                      <button onClick={()=>setBPage(p=>Math.max(1,p-1))} disabled={page<=1}
+                        className="px-2.5 py-1.5 rounded-lg text-xs border border-gray-200 disabled:opacity-40 hover:bg-gray-50">← Prev</button>
+                      {Array.from({length:totalPages},(_,i)=>i+1).map(p=>(
+                        <button key={p} onClick={()=>setBPage(p)}
+                          className={`w-7 h-7 rounded-lg text-xs font-medium ${p===page?"bg-amber-500 text-white":"border border-gray-200 hover:bg-gray-50 text-gray-600"}`}>{p}</button>
+                      ))}
+                      <button onClick={()=>setBPage(p=>Math.min(totalPages,p+1))} disabled={page>=totalPages}
+                        className="px-2.5 py-1.5 rounded-lg text-xs border border-gray-200 disabled:opacity-40 hover:bg-gray-50">Next →</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       );
     }
 
     // ─── FERMENTER TIMELINE TAB (GANTT + TASK PLANNING) ──────────────────────
+    const TASK_STATUS_OPTS = ["Pending","In Progress","Done"];
+    const TASK_STATUS_CFG = {
+      "Pending":    { bg:"bg-gray-100",    text:"text-gray-600" },
+      "In Progress":{ bg:"bg-blue-100",    text:"text-blue-600" },
+      "Done":       { bg:"bg-emerald-100", text:"text-emerald-700" },
+    };
+    function StaffMultiSelect({ value, onChange }) {
+      const [open, setOpen] = useState(false);
+      const STAFF = React.useContext(StaffCtx); // reactive brewery staff from context
+      const arr = Array.isArray(value) ? value : (value ? [value] : []);
+      return (
+        <div className="relative">
+          <button type="button" onClick={() => setOpen(o => !o)}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-left flex items-start justify-between min-h-[38px] gap-2 focus:outline-none focus:ring-2 focus:ring-amber-300">
+            {arr.length === 0
+              ? <span className="text-gray-400 self-center">— Unassigned —</span>
+              : <div className="flex flex-wrap gap-1 flex-1">
+                  {arr.map(s => (
+                    <span key={s} className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">
+                      {s}
+                      <button type="button" onClick={ev => { ev.stopPropagation(); onChange(arr.filter(x => x !== s)); }}
+                        className="ml-0.5 text-amber-400 hover:text-red-500 leading-none font-bold">&times;</button>
+                    </span>
+                  ))}
+                </div>
+            }
+            <svg className="w-4 h-4 text-gray-400 shrink-0 self-center" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg>
+          </button>
+          {open && (
+            <div className="absolute top-full left-0 right-0 z-30 bg-white border border-gray-200 rounded-lg shadow-xl mt-1 max-h-48 overflow-y-auto">
+              {STAFF.map(s => (
+                <label key={s} className="flex items-center gap-2.5 px-3 py-2 hover:bg-amber-50 cursor-pointer">
+                  <input type="checkbox" checked={arr.includes(s)}
+                    onChange={() => onChange(arr.includes(s) ? arr.filter(x => x !== s) : [...arr, s])}
+                    className="w-3.5 h-3.5 accent-amber-500" />
+                  <span className="text-sm text-gray-700">{s}</span>
+                </label>
+              ))}
+              <div className="border-t border-gray-100 px-3 py-1.5">
+                <button type="button" onClick={() => setOpen(false)} className="text-xs text-gray-400 hover:text-gray-600">Done</button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
     function FermenterTimelineTab({ batches, batchTasks, setBatchTasks }) {
       const TODAY = useMemo(() => {
         const d = new Date(); d.setHours(0,0,0,0); return d;
       }, []);
 
-      // viewOffset: number of days to shift the window. 0 = default view centred near today.
+      const BLANK_TASK_FORM = { is_batch:true, batch_id:"", fermenter:"", task:"", start_date:"", end_date:"", assigned_to:[], is_ot:false, ot_hours:"" };
+      const BLANK_EDIT_FORM  = { task:"", start_date:"", end_date:"", assigned_to:[], is_ot:false, ot_hours:"", status:"Pending", remark:"" };
+      const WIN_BACK = 84;
+      const WIN_FWD  = 56;
       const [viewOffset, setViewOffset] = useState(0);
-      // Window: 12 weeks back + 8 weeks forward = 20 weeks total (~140 days)
-      const WIN_BACK = 84;   // days before reference point
-      const WIN_FWD  = 56;   // days after reference point
       const WIN_START = useMemo(() => {
         const d = new Date(TODAY); d.setDate(d.getDate() - WIN_BACK + viewOffset); return d;
       }, [TODAY, viewOffset]);
       const WIN_END = useMemo(() => {
         const d = new Date(TODAY); d.setDate(d.getDate() + WIN_FWD + viewOffset); return d;
       }, [TODAY, viewOffset]);
-      const TOTAL_MS  = WIN_END - WIN_START;
+      const TOTAL_MS = WIN_END - WIN_START;
 
+      const [mainView, setMainView]   = useState("tasks");       // "tasks" | "performance"
+      const [taskListTab, setTaskListTab] = useState("active");  // "active" | "done"
       const [showAddTask, setShowAddTask] = useState(false);
-      const [taskForm, setTaskForm] = useState({ batch_id: "", task: "", day: 1, assigned_to: "" });
-      const [hoveredTask, setHoveredTask] = useState(null); // { id, task, day, assigned_to, dateStr, rect }
+      const [taskForm, setTaskForm]   = useState(BLANK_TASK_FORM);
+      const [editTask, setEditTask]   = useState(null);
+      const [editForm, setEditForm]   = useState(BLANK_EDIT_FORM);
+      const [hoveredTask, setHoveredTask] = useState(null);
 
-      // Generate Monday-aligned week ticks
+      // Monday-aligned week ticks
       const weeks = [];
       const cursor = new Date(WIN_START);
       cursor.setDate(cursor.getDate() - cursor.getDay() + 1);
@@ -2914,48 +3612,283 @@
         Planned:"text-indigo-700", Pending:"text-gray-600", Brewing:"text-white", Fermenting:"text-white",
         Condition:"text-white", Ready:"text-white", Filling:"text-white", Done:"text-gray-500",
       };
-      const BAR_DASHED = { Planned: true }; // statuses that render with a dashed border
+      const BAR_DASHED = { Planned: true };
 
-      const TASK_PRESETS = ["Check gravity","Drain yeast","Cold crash","Add dry hops","Add hops","Dry hop","Rack beer","Take gravity","Clean tank","Fining/Gelatine"];
-      const TASK_PIN_COLORS = ["bg-orange-400","bg-pink-400","bg-purple-400","bg-teal-400","bg-red-400","bg-yellow-500","bg-indigo-400","bg-lime-500","bg-cyan-500","bg-rose-400"];
+      const TASK_PRESETS = ["Check gravity","Drain yeast","Cold crash","Add dry hops","Add hops","Dry hop","Rack beer","Take gravity","Clean tank","Fining/Gelatine","Cleaning Day"];
+      const TASK_PIN_COLORS = ["bg-orange-400","bg-pink-400","bg-purple-400","bg-teal-400","bg-red-400","bg-yellow-500","bg-indigo-400","bg-lime-500","bg-cyan-500","bg-rose-400","bg-slate-400"];
       function taskPinColor(taskName) {
         const idx = TASK_PRESETS.indexOf(taskName);
         return idx >= 0 ? TASK_PIN_COLORS[idx] : "bg-orange-400";
       }
 
-      // Active (non-Done) batches with a brew_day for the modal selector
       const activeBatches = batches.filter(b => b.status !== "Done" && b.brew_day);
       const todayPct = parseFloat(pct(TODAY));
 
-      // Preview date for the modal
-      const previewDate = useMemo(() => {
-        if (!taskForm.batch_id || !taskForm.day) return null;
-        const b = batches.find(x => x.batch_id === taskForm.batch_id);
-        if (!b || !b.brew_day) return null;
+      // Resolve task dates (supports new start_date or legacy day field)
+      function getTaskDate(t) {
+        if (t.start_date) return new Date(t.start_date);
+        const b = batches.find(x => x.batch_id === t.batch_id);
+        if (!b?.brew_day) return null;
         const d = new Date(b.brew_day);
-        d.setDate(d.getDate() + (parseInt(taskForm.day) || 1) - 1);
+        d.setDate(d.getDate() + (t.day || 1) - 1);
         return d;
-      }, [taskForm.batch_id, taskForm.day, batches]);
+      }
+      function getTaskEndDate(t) {
+        if (t.end_date) return new Date(t.end_date);
+        return getTaskDate(t);
+      }
+      // Backward-compat: assigned_to can be string (legacy) or array (new)
+      function getAssignedStaff(t) {
+        if (!t.assigned_to) return [];
+        let val = t.assigned_to;
+        // Google Sheets may store arrays as JSON strings e.g. '["Gent","Gunn"]'
+        if (typeof val === "string") {
+          const trimmed = val.trim();
+          if (trimmed.startsWith("[")) {
+            try { val = JSON.parse(trimmed); } catch(e) { /* keep as string */ }
+          }
+        }
+        const arr = Array.isArray(val) ? val : [val];
+        return arr.filter(s => s && String(s).trim() !== "");
+      }
+
+
+
+      // Selected batch for the add/edit modal
+      const selectedBatch = useMemo(() => {
+        if (!taskForm.is_batch || !taskForm.batch_id) return null;
+        return batches.find(b => b.batch_id === taskForm.batch_id) || null;
+      }, [taskForm.batch_id, taskForm.is_batch, batches]);
+
+      const editTaskBatch = useMemo(() => {
+        if (!editTask?.batch_id) return null;
+        return batches.find(b => b.batch_id === editTask.batch_id) || null;
+      }, [editTask, batches]);
+
+      // All staff who appear in tasks (for performance table columns)
+      const perfStaff = useMemo(() => {
+        const s = new Set();
+        batchTasks.forEach(t => getAssignedStaff(t).forEach(st => s.add(st)));
+        return [...s].sort();
+      }, [batchTasks]);
+
+      // OT summary: group by YYYY-MM → staff → total OT hours
+      const otSummary = useMemo(() => {
+        const map = {};
+        batchTasks.forEach(t => {
+          if (!t.is_ot || !t.ot_hours) return;
+          const staff = getAssignedStaff(t);
+          if (!staff.length) return;
+          const d = getTaskDate(t); if (!d) return;
+          const ym = d.toISOString().slice(0, 7);
+          if (!map[ym]) map[ym] = {};
+          staff.forEach(s => { map[ym][s] = (map[ym][s] || 0) + (parseFloat(t.ot_hours) || 0); });
+        });
+        return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
+      }, [batchTasks, batches]);
+
+      // Completion summary: group by YYYY-MM → staff → { done, total }
+      const completionSummary = useMemo(() => {
+        const map = {};
+        batchTasks.forEach(t => {
+          const staff = getAssignedStaff(t);
+          if (!staff.length) return;
+          const d = getTaskDate(t); if (!d) return;
+          const ym = d.toISOString().slice(0, 7);
+          if (!map[ym]) map[ym] = {};
+          const isDone = t.status === "Done";
+          staff.forEach(s => {
+            if (!map[ym][s]) map[ym][s] = { done:0, total:0 };
+            map[ym][s].total++;
+            if (isDone) map[ym][s].done++;
+          });
+        });
+        return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
+      }, [batchTasks, batches]);
 
       function handleAddTask(e) {
         e.preventDefault();
-        if (!taskForm.batch_id || !taskForm.task || !taskForm.day) return;
+        if (!taskForm.task || !taskForm.start_date) return;
+        if (taskForm.is_batch && !taskForm.batch_id) return;
+        // Prevent exact duplicates (same batch + task + start_date)
+        const dupSig = `${taskForm.is_batch ? taskForm.batch_id : ""}|${taskForm.task}|${taskForm.start_date}|${taskForm.fermenter || ""}`;
+        const isDup = batchTasks.some(t => `${t.batch_id}|${t.task}|${t.start_date || t.day}|${t.fermenter || ""}` === dupSig);
+        if (isDup) { alert("A task with the same batch, name, and start date already exists."); return; }
         const newId = batchTasks.length > 0 ? Math.max(...batchTasks.map(t => t.id)) + 1 : 1;
         setBatchTasks(prev => [...prev, {
-          id: newId, batch_id: taskForm.batch_id,
-          task: taskForm.task, day: parseInt(taskForm.day) || 1,
-          assigned_to: taskForm.assigned_to,
+          id: newId,
+          batch_id: taskForm.is_batch ? taskForm.batch_id : "",
+          fermenter: taskForm.is_batch ? "" : (taskForm.fermenter || ""),
+          task: taskForm.task,
+          start_date: taskForm.start_date,
+          end_date: taskForm.end_date || taskForm.start_date,
+          day: 1,
+          assigned_to: Array.isArray(taskForm.assigned_to) ? taskForm.assigned_to : [],
+          status: "Pending",
+          remark: "",
+          is_ot: !!taskForm.is_ot,
+          ot_hours: taskForm.is_ot ? (parseFloat(taskForm.ot_hours) || 0) : 0,
         }]);
         setShowAddTask(false);
-        setTaskForm({ batch_id: "", task: "", day: 1, assigned_to: "" });
+        setTaskForm(BLANK_TASK_FORM);
       }
 
       function handleDeleteTask(id) {
         setBatchTasks(prev => prev.filter(t => t.id !== id));
       }
 
+      function handleUpdateTask(id, updates) {
+        setBatchTasks(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
+      }
+
+      function openEditTask(t) {
+        setEditTask(t);
+        setEditForm({
+          task: t.task || "",
+          start_date: t.start_date || "",
+          end_date: t.end_date || t.start_date || "",
+          assigned_to: getAssignedStaff(t),
+          is_ot: !!t.is_ot,
+          ot_hours: t.ot_hours || "",
+          status: t.status || "Pending",
+          remark: t.remark || "",
+        });
+      }
+
+      function handleEditSave(e) {
+        e.preventDefault();
+        if (!editTask || !editForm.task || !editForm.start_date) return;
+        handleUpdateTask(editTask.id, {
+          task: editForm.task,
+          start_date: editForm.start_date,
+          end_date: editForm.end_date || editForm.start_date,
+          assigned_to: Array.isArray(editForm.assigned_to) ? editForm.assigned_to : [],
+          is_ot: !!editForm.is_ot,
+          ot_hours: editForm.is_ot ? (parseFloat(editForm.ot_hours) || 0) : 0,
+          status: editForm.status,
+          remark: editForm.remark,
+        });
+        setEditTask(null);
+      }
+
       return (
         <div className="space-y-5">
+
+          {/* ── View toggle: Tasks ↔ Performance ── */}
+          <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
+            {[{id:"tasks",label:"📋 Tasks"},{id:"performance",label:"📊 Performance"}].map(v => (
+              <button key={v.id} onClick={() => setMainView(v.id)}
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${mainView===v.id ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                {v.label}
+              </button>
+            ))}
+          </div>
+
+          {/* ── PERFORMANCE VIEW ── */}
+          {mainView === "performance" && (
+            <div className="space-y-6">
+              {/* OT Summary */}
+              <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                <div className="px-5 py-3 border-b border-gray-100">
+                  <h3 className="font-semibold text-gray-800 text-sm flex items-center gap-2">
+                    <span className="px-2 py-0.5 bg-orange-100 text-orange-600 rounded-full text-xs font-bold">OT</span>
+                    Overtime by Month &amp; Staff
+                  </h3>
+                </div>
+                {otSummary.length === 0 ? (
+                  <p className="px-5 py-8 text-sm text-gray-400 text-center">No OT recorded yet. Assign OT tasks to see data here.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50/60 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                          <th className="px-4 py-2.5 text-left">Month</th>
+                          {perfStaff.map(s => <th key={s} className="px-4 py-2.5 text-center whitespace-nowrap">{s}</th>)}
+                          <th className="px-4 py-2.5 text-center font-bold">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {otSummary.map(([ym, staffMap]) => {
+                          const [yr, mo] = ym.split("-");
+                          const mLabel = new Date(parseInt(yr), parseInt(mo)-1, 1).toLocaleDateString("en-GB",{month:"long",year:"numeric"});
+                          const total = perfStaff.reduce((s, st) => s + (staffMap[st] || 0), 0);
+                          return (
+                            <tr key={ym} className="hover:bg-orange-50/30">
+                              <td className="px-4 py-2.5 font-medium text-gray-700">{mLabel}</td>
+                              {perfStaff.map(s => (
+                                <td key={s} className="px-4 py-2.5 text-center">
+                                  {staffMap[s] ? <span className="text-orange-600 font-semibold">{staffMap[s]}d</span> : <span className="text-gray-300">—</span>}
+                                </td>
+                              ))}
+                              <td className="px-4 py-2.5 text-center font-bold text-orange-700">{total}d</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Task Completion Summary */}
+              <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                <div className="px-5 py-3 border-b border-gray-100">
+                  <h3 className="font-semibold text-gray-800 text-sm flex items-center gap-2">
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold">✓</span>
+                    Task Completion by Month &amp; Staff
+                  </h3>
+                </div>
+                {completionSummary.length === 0 ? (
+                  <p className="px-5 py-8 text-sm text-gray-400 text-center">No tasks found. Add tasks and assign them to staff to see performance data.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50/60 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                          <th className="px-4 py-2.5 text-left">Month</th>
+                          {perfStaff.map(s => <th key={s} className="px-4 py-2.5 text-center whitespace-nowrap">{s}</th>)}
+                          <th className="px-4 py-2.5 text-center font-bold">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {completionSummary.map(([ym, staffMap]) => {
+                          const [yr, mo] = ym.split("-");
+                          const mLabel = new Date(parseInt(yr), parseInt(mo)-1, 1).toLocaleDateString("en-GB",{month:"long",year:"numeric"});
+                          const tDone = perfStaff.reduce((s, st) => s + (staffMap[st]?.done || 0), 0);
+                          const tAll  = perfStaff.reduce((s, st) => s + (staffMap[st]?.total || 0), 0);
+                          return (
+                            <tr key={ym} className="hover:bg-emerald-50/20">
+                              <td className="px-4 py-2.5 font-medium text-gray-700">{mLabel}</td>
+                              {perfStaff.map(s => {
+                                const d = staffMap[s];
+                                if (!d) return <td key={s} className="px-4 py-2.5 text-center"><span className="text-gray-300">—</span></td>;
+                                const pct = d.total > 0 ? Math.round(d.done / d.total * 100) : 0;
+                                return (
+                                  <td key={s} className="px-4 py-2.5 text-center">
+                                    <div className="flex flex-col items-center gap-1">
+                                      <span className={`font-semibold text-sm ${d.done===d.total ? "text-emerald-600" : "text-gray-700"}`}>{d.done}/{d.total}</span>
+                                      <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                        <div className={`h-full rounded-full ${d.done===d.total ? "bg-emerald-400" : "bg-amber-400"}`} style={{width:`${pct}%`}}></div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                );
+                              })}
+                              <td className="px-4 py-2.5 text-center">
+                                <span className={`font-bold ${tDone===tAll ? "text-emerald-600" : "text-gray-700"}`}>{tDone}/{tAll}</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {mainView === "tasks" && (<>
 
           {/* Timeline header: navigation + legend + Add Task */}
           <div className="space-y-2">
@@ -3050,21 +3983,39 @@
                 {/* Fermenter rows */}
                 {FERMENTER_IDS.map((fid, ri) => {
                   const fBatches = batches.filter(b => b.fermenter === fid && b.brew_day && b.release_date);
+                  const fStandaloneTasks = batchTasks.filter(t => !t.batch_id && t.fermenter === fid && t.start_date);
                   return (
                     <div key={fid} className={`flex border-b border-gray-50 ${ri%2===0?"":"bg-gray-50/30"}`} style={{minHeight:"52px"}}>
                       <div className="shrink-0 w-14 px-3 flex items-center">
                         <span className="font-mono text-xs font-bold text-gray-600">{fid}</span>
                       </div>
                       <div className="flex-1 relative" style={{paddingTop:"14px", paddingBottom:"6px"}}>
-                        {/* Week grid lines */}
                         {weeks.map((w,i) => {
-                          const l = parseFloat(pct(w));
-                          if (l<0||l>100) return null;
+                          const l = parseFloat(pct(w)); if (l<0||l>100) return null;
                           return <div key={i} className="absolute top-0 h-full border-l border-gray-100" style={{left:`${l}%`}}></div>;
                         })}
-                        {/* Today line */}
                         <div className="absolute top-0 h-full border-l-2 border-red-300 z-20" style={{left:`${todayPct}%`}}></div>
-                        {/* Batch bars with task pins */}
+                        {/* Standalone task bars */}
+                        {fStandaloneTasks.map(t => {
+                          const tS = new Date(t.start_date);
+                          const tE = t.end_date ? new Date(t.end_date) : tS;
+                          const rawL = (tS - WIN_START) / TOTAL_MS * 100;
+                          const rawW = (Math.max(tE - tS, 0) + 86400000) / TOTAL_MS * 100;
+                          const left = Math.max(0, rawL);
+                          const width = Math.min(100 - left, rawW - Math.max(0, -rawL));
+                          if (width <= 0) return null;
+                          const pinC = taskPinColor(t.task);
+                          return (
+                            <div key={`st-${t.id}`} className="absolute z-10"
+                              style={{left:`${left}%`, width:`${width}%`, top:"14px", bottom:"6px"}}>
+                              <div title={`${t.task}\n${t.start_date}${t.end_date && t.end_date!==t.start_date?" → "+t.end_date:""}\n${t.assigned_to||"Unassigned"}`}
+                                className={`absolute inset-0 rounded-md ${pinC} opacity-80 flex items-center px-1.5 overflow-hidden cursor-default`}>
+                                <span className="text-white text-xs font-medium truncate">{t.task}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {/* Batch bars + task pins */}
                         {fBatches.map(b => {
                           const start  = new Date(b.brew_day);
                           const end    = new Date(b.release_date);
@@ -3079,41 +4030,30 @@
                           const isDashed = !!BAR_DASHED[b.status];
                           const bTasks = batchTasks.filter(t => t.batch_id === b.batch_id);
                           return (
-                            <div
-                              key={b.id}
-                              className="absolute z-10"
-                              style={{left:`${left}%`, width:`${width}%`, top:"14px", bottom:"6px"}}
-                            >
-                              {/* Bar */}
-                              <div
-                                title={`Batch #${b.batch_id} · ${b.beer_name}\n${b.brew_day||"TBD"} → ${b.release_date||"TBD"} · ${b.status}`}
-                                className={`absolute inset-0 rounded-lg ${barC} flex items-center px-2 overflow-hidden cursor-default ${isDashed ? "border-2 border-dashed border-indigo-400" : ""}`}
-                              >
-                                <span className={`text-xs font-medium truncate ${textC}`}>
-                                  #{b.batch_id} {b.beer_name}
-                                </span>
+                            <div key={b.id} className="absolute z-10"
+                              style={{left:`${left}%`, width:`${width}%`, top:"14px", bottom:"6px"}}>
+                              <div title={`Batch #${b.batch_id} · ${b.beer_name}\n${b.brew_day||"TBD"} → ${b.release_date||"TBD"} · ${b.status}`}
+                                className={`absolute inset-0 rounded-lg ${barC} flex items-center px-2 overflow-hidden cursor-default ${isDashed ? "border-2 border-dashed border-indigo-400" : ""}`}>
+                                <span className={`text-xs font-medium truncate ${textC}`}>#{b.batch_id} {b.beer_name}</span>
                               </div>
-                              {/* Task pins — positioned relative to bar width */}
                               {bTasks.map(t => {
-                                const taskD = new Date(b.brew_day);
-                                taskD.setDate(taskD.getDate() + (t.day - 1));
+                                const taskD = getTaskDate(t);
+                                if (!taskD) return null;
                                 const relPct = ((taskD - start) / spanMs * 100);
                                 if (relPct < 0 || relPct > 100) return null;
                                 const pinC = taskPinColor(t.task);
                                 const dateStr = taskD.toLocaleDateString("en-GB",{weekday:"short",day:"2-digit",month:"short",year:"numeric"});
                                 const isHovered = hoveredTask && hoveredTask.id === t.id;
+                                const isDone = t.status === "Done";
                                 return (
-                                  <div
-                                    key={t.id}
-                                    className="absolute z-30 -top-2 transform -translate-x-1/2"
+                                  <div key={t.id} className="absolute z-30 -top-2 transform -translate-x-1/2"
                                     style={{left:`${relPct.toFixed(2)}%`}}
                                     onMouseEnter={e => {
                                       const rect = e.currentTarget.getBoundingClientRect();
-                                      setHoveredTask({ id: t.id, task: t.task, day: t.day, assigned_to: t.assigned_to, dateStr, pinC, rect });
+                                      setHoveredTask({ id: t.id, task: t.task, assigned_to: t.assigned_to, dateStr, pinC, rect, status: t.status });
                                     }}
-                                    onMouseLeave={() => setHoveredTask(null)}
-                                  >
-                                    <div className={`w-3 h-3 rounded-full border-2 border-white shadow-md ${pinC} cursor-pointer transition-transform ${isHovered ? "scale-150" : "hover:scale-125"}`}></div>
+                                    onMouseLeave={() => setHoveredTask(null)}>
+                                    <div className={`w-3 h-3 rounded-full border-2 border-white shadow-md ${isDone ? "bg-emerald-400" : pinC} cursor-pointer transition-transform ${isHovered ? "scale-150" : "hover:scale-125"} ${isDone ? "opacity-60" : ""}`}></div>
                                   </div>
                                 );
                               })}
@@ -3125,13 +4065,14 @@
                   );
                 })}
 
-                {/* ── Planned (TBD) row: batches with status=Planned and no firm fermenter ── */}
+                {/* ── TBD row: unassigned planned batches + no-fermenter standalone tasks ── */}
                 {(() => {
                   const plannedNoBatch = batches.filter(b =>
                     b.status === "Planned" && b.brew_day && b.release_date &&
                     (!b.fermenter || b.fermenter === "TBD")
                   );
-                  if (plannedNoBatch.length === 0) return null;
+                  const floatingTasks = batchTasks.filter(t => !t.batch_id && !t.fermenter && t.start_date);
+                  if (plannedNoBatch.length === 0 && floatingTasks.length === 0) return null;
                   return (
                     <div className="flex border-b border-gray-50 border-dashed bg-indigo-50/20" style={{minHeight:"52px"}}>
                       <div className="shrink-0 w-14 px-2 flex items-center">
@@ -3139,8 +4080,7 @@
                       </div>
                       <div className="flex-1 relative" style={{paddingTop:"14px", paddingBottom:"6px"}}>
                         {weeks.map((w,i) => {
-                          const l = parseFloat(pct(w));
-                          if (l<0||l>100) return null;
+                          const l = parseFloat(pct(w)); if (l<0||l>100) return null;
                           return <div key={i} className="absolute top-0 h-full border-l border-indigo-100" style={{left:`${l}%`}}></div>;
                         })}
                         <div className="absolute top-0 h-full border-l-2 border-red-300 z-20" style={{left:`${todayPct}%`}}></div>
@@ -3156,12 +4096,27 @@
                           return (
                             <div key={b.id} className="absolute z-10"
                               style={{left:`${left}%`, width:`${width}%`, top:"14px", bottom:"6px"}}>
-                              <div
-                                title={`Batch #${b.batch_id} · ${b.beer_name}\nPlanned: ${b.brew_day} → ${b.release_date}`}
+                              <div title={`Batch #${b.batch_id} · ${b.beer_name}\nPlanned: ${b.brew_day} → ${b.release_date}`}
                                 className="absolute inset-0 rounded-lg bg-indigo-200 border-2 border-dashed border-indigo-400 flex items-center px-2 overflow-hidden cursor-default">
-                                <span className="text-xs font-medium truncate text-indigo-700">
-                                  #{b.batch_id} {b.beer_name}
-                                </span>
+                                <span className="text-xs font-medium truncate text-indigo-700">#{b.batch_id} {b.beer_name}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {floatingTasks.map(t => {
+                          const tS = new Date(t.start_date);
+                          const tE = t.end_date ? new Date(t.end_date) : tS;
+                          const rawL = (tS - WIN_START) / TOTAL_MS * 100;
+                          const rawW = (Math.max(tE - tS, 0) + 86400000) / TOTAL_MS * 100;
+                          const left = Math.max(0, rawL);
+                          const width = Math.min(100 - left, rawW - Math.max(0, -rawL));
+                          if (width <= 0) return null;
+                          return (
+                            <div key={`ft-${t.id}`} className="absolute z-10"
+                              style={{left:`${left}%`, width:`${width}%`, top:"14px", bottom:"6px"}}>
+                              <div title={`${t.task}\n${t.assigned_to||"Unassigned"}`}
+                                className={`absolute inset-0 rounded-md ${taskPinColor(t.task)} opacity-80 flex items-center px-1.5 overflow-hidden`}>
+                                <span className="text-white text-xs font-medium truncate">{t.task}</span>
                               </div>
                             </div>
                           );
@@ -3177,202 +4132,410 @@
 
           {/* Planned Tasks List */}
           <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-            <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="font-semibold text-gray-800 text-sm">Planned Tasks</h3>
-              <span className="text-xs text-gray-400">{batchTasks.length} task{batchTasks.length !== 1 ? "s" : ""}</span>
+            {/* Header + Active/Done tabs */}
+            <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
+              <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+                {[{id:"active",label:"Active"},{id:"done",label:"Done"}].map(tb => (
+                  <button key={tb.id} onClick={() => setTaskListTab(tb.id)}
+                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${taskListTab===tb.id ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                    {tb.label}
+                    <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-xs font-bold
+                      ${tb.id==='active' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}">
+                      {batchTasks.filter(t => tb.id==="active" ? (t.status||"Pending")!=="Done" : t.status==="Done").length}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <span className="text-xs text-gray-400">{batchTasks.length} task{batchTasks.length !== 1 ? "s" : ""} total</span>
             </div>
-            {batchTasks.length === 0 ? (
-              <div className="px-5 py-8 text-center text-sm text-gray-400">
-                No tasks planned yet. Click <span className="font-semibold text-amber-600">+ Add Task</span> to schedule one.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-gray-50/60 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                      <th className="px-4 py-2.5 text-left">Batch</th>
-                      <th className="px-4 py-2.5 text-left">Beer</th>
-                      <th className="px-4 py-2.5 text-left">Task</th>
-                      <th className="px-4 py-2.5 text-left">Day</th>
-                      <th className="px-4 py-2.5 text-left">Date</th>
-                      <th className="px-4 py-2.5 text-left">Assigned To</th>
-                      <th className="px-4 py-2.5"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {(() => {
-                      // Sort: group by assigned_to, within each group newest task date first
-                      const sorted = [...batchTasks].sort((a, b) => {
-                        const pA = a.assigned_to || "~";
-                        const pB = b.assigned_to || "~";
-                        if (pA !== pB) return pA.localeCompare(pB);
-                        const batchA = batches.find(x => x.batch_id === a.batch_id);
-                        const batchB = batches.find(x => x.batch_id === b.batch_id);
-                        const msA = batchA?.brew_day ? new Date(batchA.brew_day).getTime() + (a.day - 1) * 86400000 : 0;
-                        const msB = batchB?.brew_day ? new Date(batchB.brew_day).getTime() + (b.day - 1) * 86400000 : 0;
-                        return msB - msA;
-                      });
-                      const rows = [];
-                      let lastPerson = null;
-                      sorted.forEach(t => {
-                        const person = t.assigned_to || "Unassigned";
-                        if (person !== lastPerson) {
-                          lastPerson = person;
-                          rows.push(
-                            <tr key={`hdr-${person}`} className="bg-amber-50/60">
-                              <td colSpan={7} className="px-4 py-1.5 text-xs font-semibold text-amber-700 uppercase tracking-wide">{person}</td>
-                            </tr>
-                          );
-                        }
-                        const b = batches.find(x => x.batch_id === t.batch_id);
-                        const tDate = (() => {
-                          if (!b || !b.brew_day) return "—";
-                          const d = new Date(b.brew_day);
-                          d.setDate(d.getDate() + t.day - 1);
-                          return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
-                        })();
-                        const pinC = taskPinColor(t.task);
-                        rows.push(
-                          <tr key={t.id} className="hover:bg-gray-50/50">
-                            <td className="px-4 py-2.5 font-mono text-xs text-gray-600">#{t.batch_id}</td>
-                            <td className="px-4 py-2.5 text-gray-700 max-w-xs truncate">{b ? b.beer_name : "—"}</td>
-                            <td className="px-4 py-2.5">
-                              <span className="inline-flex items-center gap-1.5">
-                                <span className={`w-2 h-2 rounded-full inline-block ${pinC}`}></span>
-                                {t.task}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2.5 text-gray-600">Day {t.day}</td>
-                            <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{tDate}</td>
-                            <td className="px-4 py-2.5">
-                              {t.assigned_to
-                                ? <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full text-xs font-medium">{t.assigned_to}</span>
-                                : <span className="text-gray-300 text-xs">—</span>}
-                            </td>
-                            <td className="px-4 py-2.5 text-right">
-                              <button
-                                onClick={() => handleDeleteTask(t.id)}
-                                className="text-xs text-red-400 hover:text-red-600 transition-colors px-2 py-0.5 rounded hover:bg-red-50"
-                              >Delete</button>
-                            </td>
-                          </tr>
-                        );
-                      });
-                      return rows;
-                    })()}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            {(() => {
+              const filtered = batchTasks.filter(t =>
+                taskListTab === "active" ? (t.status || "Pending") !== "Done" : t.status === "Done"
+              );
+              if (filtered.length === 0) return (
+                <div className="px-5 py-8 text-center text-sm text-gray-400">
+                  {taskListTab === "active"
+                    ? <>No active tasks. Click <span className="font-semibold text-amber-600">+ Add Task</span> to schedule one.</>
+                    : "No completed tasks yet."}
+                </div>
+              );
+              // Group tasks (multi-staff) first, then individual staff A-Z, then Unassigned
+              const byDate = (a, b) => (getTaskDate(a)?.getTime()||0) - (getTaskDate(b)?.getTime()||0);
+              const groupTasks    = [...filtered].filter(t => getAssignedStaff(t).length > 1).sort(byDate);
+              const soloTasks     = [...filtered].filter(t => getAssignedStaff(t).length === 1);
+              const unassignedTs  = [...filtered].filter(t => getAssignedStaff(t).length === 0).sort(byDate);
+              // Group solo tasks by staff name
+              const soloByStaff = {};
+              soloTasks.forEach(t => {
+                const s = getAssignedStaff(t)[0];
+                if (!soloByStaff[s]) soloByStaff[s] = [];
+                soloByStaff[s].push(t);
+              });
+              const soloStaffNames = Object.keys(soloByStaff).sort();
+              soloStaffNames.forEach(s => soloByStaff[s].sort(byDate));
+
+              const renderRow = (t, rowBg) => {
+                const batch = t.batch_id ? batches.find(x => x.batch_id === t.batch_id) : null;
+                const tStart = getTaskDate(t);
+                const tEnd   = getTaskEndDate(t);
+                const fmtD = d => d ? d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}) : "—";
+                const pinC = taskPinColor(t.task);
+                const sCfg = TASK_STATUS_CFG[t.status || "Pending"] || TASK_STATUS_CFG["Pending"];
+                const staff = getAssignedStaff(t);
+                return (
+                  <tr key={t.id} className={`${rowBg} ${t.status==="Done" ? "opacity-60" : ""}`}>
+                    <td className="px-4 py-2.5 font-mono text-xs text-gray-600">
+                      {t.batch_id ? `#${t.batch_id}` : <span className="text-purple-500 font-semibold text-xs">Standalone</span>}
+                    </td>
+                    <td className="px-4 py-2.5 text-gray-700 max-w-[110px] truncate">
+                      {batch ? batch.beer_name : (t.fermenter || <span className="text-gray-300">—</span>)}
+                    </td>
+                    <td className="px-4 py-2.5 whitespace-nowrap">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${pinC}`}></span>
+                        {t.task}
+                        {t.is_ot && <span className="px-1.5 py-0.5 bg-orange-100 text-orange-600 rounded text-xs font-bold">OT</span>}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap text-xs">{fmtD(tStart)}</td>
+                    <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap text-xs">{fmtD(tEnd)}</td>
+                    <td className="px-4 py-2.5">
+                      {staff.length > 0
+                        ? <div className="flex flex-wrap gap-1">
+                            {staff.map(s => <span key={s} className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full text-xs font-medium whitespace-nowrap">{s}</span>)}
+                          </div>
+                        : <span className="text-gray-300 text-xs">—</span>}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <select value={t.status || "Pending"}
+                        onChange={e => handleUpdateTask(t.id, { status: e.target.value })}
+                        className={`text-xs px-2 py-1 rounded-full border-0 font-medium cursor-pointer focus:outline-none focus:ring-1 focus:ring-offset-1 focus:ring-gray-300 ${sCfg.bg} ${sCfg.text}`}>
+                        {TASK_STATUS_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </td>
+                    <td className="px-4 py-2.5 text-center text-xs text-orange-600 font-semibold whitespace-nowrap">
+                      {t.is_ot
+                        ? (parseFloat(t.ot_hours) === 0.5 ? "Half Day" : parseFloat(t.ot_hours) === 1 ? "Full Day" : t.ot_hours > 0 ? `${t.ot_hours}d` : <span className="text-gray-300">—</span>)
+                        : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-4 py-2.5 min-w-[110px]">
+                      <input type="text" value={t.remark || ""}
+                        onChange={e => handleUpdateTask(t.id, { remark: e.target.value })}
+                        placeholder="Add remark…"
+                        className="w-full text-xs border-0 bg-transparent text-gray-600 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-amber-300 rounded px-1" />
+                    </td>
+                    <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button onClick={() => openEditTask(t)}
+                          className="text-xs text-blue-500 hover:text-blue-700 transition-colors px-2 py-0.5 rounded hover:bg-blue-50">Edit</button>
+                        <button onClick={() => handleDeleteTask(t.id)}
+                          className="text-xs text-red-400 hover:text-red-600 transition-colors px-2 py-0.5 rounded hover:bg-red-50">Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              };
+
+              const sectionHdr = (key, label, bgHdr, textColor, count) => (
+                <tr key={`hdr-${key}`}>
+                  <td colSpan={10} className={`px-4 py-1.5 ${bgHdr}`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-bold uppercase tracking-widest ${textColor}`}>{label}</span>
+                      <span className={`text-xs font-semibold ${textColor} opacity-60`}>({count})</span>
+                    </div>
+                  </td>
+                </tr>
+              );
+
+              const rows = [];
+              // ── Group Tasks ──
+              if (groupTasks.length > 0) {
+                rows.push(sectionHdr("group", "👥 Group Tasks", "bg-violet-100/70", "text-violet-700", groupTasks.length));
+                groupTasks.forEach(t => rows.push(renderRow(t, "bg-violet-50/40 hover:bg-violet-50/70")));
+              }
+              // ── Individual staff ──
+              soloStaffNames.forEach(s => {
+                rows.push(sectionHdr(`staff-${s}`, `👤 ${s}`, "bg-amber-50/80", "text-amber-700", soloByStaff[s].length));
+                soloByStaff[s].forEach(t => rows.push(renderRow(t, "hover:bg-amber-50/30")));
+              });
+              // ── Unassigned ──
+              if (unassignedTs.length > 0) {
+                rows.push(sectionHdr("unassigned", "⚪ Unassigned", "bg-gray-100/80", "text-gray-500", unassignedTs.length));
+                unassignedTs.forEach(t => rows.push(renderRow(t, "bg-gray-50/50 hover:bg-gray-100/50")));
+              }
+
+              return (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50/60 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                        <th className="px-4 py-2.5 text-left">Batch</th>
+                        <th className="px-4 py-2.5 text-left">Beer / Lane</th>
+                        <th className="px-4 py-2.5 text-left">Task</th>
+                        <th className="px-4 py-2.5 text-left whitespace-nowrap">Start</th>
+                        <th className="px-4 py-2.5 text-left whitespace-nowrap">End</th>
+                        <th className="px-4 py-2.5 text-left">Assigned</th>
+                        <th className="px-4 py-2.5 text-left">Status</th>
+                        <th className="px-4 py-2.5 text-center">OT</th>
+                        <th className="px-4 py-2.5 text-left">Remark</th>
+                        <th className="px-4 py-2.5"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">{rows}</tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Add Task Modal */}
           {showAddTask && (
             <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[92vh] overflow-y-auto">
+                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white rounded-t-2xl z-10">
                   <h2 className="font-semibold text-gray-800">Add Planned Task</h2>
-                  <button onClick={() => setShowAddTask(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+                  <button onClick={() => { setShowAddTask(false); setTaskForm(BLANK_TASK_FORM); }} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
                 </div>
                 <form onSubmit={handleAddTask} className="p-6 space-y-4">
 
-                  {/* Batch selector */}
+                  {/* Batch / Standalone toggle */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Batch</label>
-                    <select
-                      value={taskForm.batch_id}
-                      onChange={e => setTaskForm(f => ({...f, batch_id: e.target.value}))}
-                      required
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
-                    >
-                      <option value="">Select batch…</option>
-                      {activeBatches.map(b => (
-                        <option key={b.batch_id} value={b.batch_id}>
-                          #{b.batch_id} · {b.beer_name}{b.fermenter ? ` (${b.fermenter})` : ""}
-                        </option>
-                      ))}
-                    </select>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Task Type</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => setTaskForm(f => ({...f, is_batch:true, fermenter:""}))}
+                        className={`py-2 text-sm font-medium rounded-lg border transition-colors ${taskForm.is_batch ? "bg-amber-500 text-white border-amber-500" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>
+                        Linked to Batch
+                      </button>
+                      <button type="button" onClick={() => setTaskForm(f => ({...f, is_batch:false, batch_id:""}))}
+                        className={`py-2 text-sm font-medium rounded-lg border transition-colors ${!taskForm.is_batch ? "bg-purple-500 text-white border-purple-500" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>
+                        Standalone
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Task name + presets */}
+                  {/* Batch selector */}
+                  {taskForm.is_batch && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">Batch</label>
+                      <select value={taskForm.batch_id}
+                        onChange={e => {
+                          const b = activeBatches.find(x => x.batch_id === e.target.value);
+                          setTaskForm(f => ({...f, batch_id: e.target.value,
+                            start_date: b?.brew_day || f.start_date,
+                            end_date: b?.brew_day || f.end_date,
+                          }));
+                        }}
+                        required={taskForm.is_batch}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300">
+                        <option value="">Select batch…</option>
+                        {activeBatches.map(b => (
+                          <option key={b.batch_id} value={b.batch_id}>#{b.batch_id} · {b.beer_name}{b.fermenter ? ` (${b.fermenter})` : ""}</option>
+                        ))}
+                      </select>
+                      {selectedBatch && (
+                        <p className="text-xs text-gray-400 mt-1">Batch period: <span className="text-amber-600 font-medium">{selectedBatch.brew_day}</span> → <span className="text-amber-600 font-medium">{selectedBatch.release_date || "TBD"}</span></p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Fermenter lane (standalone) */}
+                  {!taskForm.is_batch && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">Fermenter Lane <span className="text-gray-400 font-normal">(optional — shows on Gantt)</span></label>
+                      <select value={taskForm.fermenter}
+                        onChange={e => setTaskForm(f => ({...f, fermenter: e.target.value}))}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300">
+                        <option value="">— No specific fermenter —</option>
+                        {FERMENTER_IDS.map(fid => <option key={fid} value={fid}>{fid}</option>)}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Task name */}
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1.5">Task</label>
-                    <input
-                      type="text"
-                      value={taskForm.task}
+                    <input type="text" value={taskForm.task}
                       onChange={e => setTaskForm(f => ({...f, task: e.target.value}))}
-                      placeholder="e.g. Check gravity"
-                      required
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 mb-2"
-                    />
+                      placeholder="e.g. Check gravity" required
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 mb-2" />
                     <div className="flex flex-wrap gap-1.5">
                       {TASK_PRESETS.map(p => (
-                        <button
-                          type="button"
-                          key={p}
+                        <button type="button" key={p}
                           onClick={() => setTaskForm(f => ({...f, task: p}))}
-                          className={`px-2.5 py-1 rounded-full text-xs border transition-all ${taskForm.task === p ? "bg-amber-500 text-white border-amber-500" : "border-gray-200 text-gray-600 hover:border-amber-300 hover:text-amber-700"}`}
-                        >
+                          className={`px-2.5 py-1 rounded-full text-xs border transition-all ${taskForm.task===p ? "bg-amber-500 text-white border-amber-500" : "border-gray-200 text-gray-600 hover:border-amber-300 hover:text-amber-700"}`}>
                           {p}
                         </button>
                       ))}
                     </div>
                   </div>
 
-                  {/* Day + preview date */}
+                  {/* Date range */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Day of Batch</label>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="number"
-                        min="1"
-                        max="90"
-                        value={taskForm.day}
-                        onChange={e => setTaskForm(f => ({...f, day: e.target.value}))}
-                        required
-                        className="w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
-                      />
-                      {previewDate && (
-                        <span className="text-xs text-gray-500">
-                          = <span className="font-semibold text-amber-700">
-                            {previewDate.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"})}
-                          </span>
-                        </span>
-                      )}
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Date</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <p className="text-xs text-gray-400 mb-1">Start Date</p>
+                        <input type="date" required value={taskForm.start_date}
+                          min={taskForm.is_batch && selectedBatch?.brew_day ? selectedBatch.brew_day : undefined}
+                          max={taskForm.is_batch && selectedBatch?.release_date ? selectedBatch.release_date : undefined}
+                          onChange={e => setTaskForm(f => ({...f, start_date: e.target.value,
+                            end_date: (!f.end_date || f.end_date < e.target.value) ? e.target.value : f.end_date
+                          }))}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-400 mb-1">End Date <span className="text-gray-300">(multi-day)</span></p>
+                        <input type="date" value={taskForm.end_date}
+                          min={taskForm.start_date || (taskForm.is_batch && selectedBatch?.brew_day ? selectedBatch.brew_day : undefined)}
+                          max={taskForm.is_batch && selectedBatch?.release_date ? selectedBatch.release_date : undefined}
+                          onChange={e => setTaskForm(f => ({...f, end_date: e.target.value}))}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
+                      </div>
                     </div>
-                    <p className="text-xs text-gray-400 mt-1">Day 1 = brew day</p>
+                    {taskForm.is_batch && selectedBatch && (
+                      <p className="text-xs text-amber-600 mt-1.5 flex items-center gap-1">
+                        <svg className="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"/></svg>
+                        Must fall within batch: {selectedBatch.brew_day} → {selectedBatch.release_date || "TBD"}
+                      </p>
+                    )}
                   </div>
 
-                  {/* Assigned To (optional) */}
+                  {/* Assigned To */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                      Assigned To <span className="text-gray-400 font-normal">(optional)</span>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Assigned To <span className="text-gray-400 font-normal">(optional)</span></label>
+                    <StaffMultiSelect value={taskForm.assigned_to} onChange={v => setTaskForm(f => ({...f, assigned_to: v}))} />
+                  </div>
+
+                  {/* OT */}
+                  <div className="p-3 bg-orange-50 rounded-xl space-y-3 border border-orange-100">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input type="checkbox" checked={!!taskForm.is_ot}
+                        onChange={e => setTaskForm(f => ({...f, is_ot: e.target.checked, ot_hours: e.target.checked ? f.ot_hours : ""}))}
+                        className="w-4 h-4 rounded accent-orange-500" />
+                      <span className="text-sm font-medium text-orange-700">Overtime (OT)</span>
                     </label>
-                    <select
-                      value={taskForm.assigned_to}
-                      onChange={e => setTaskForm(f => ({...f, assigned_to: e.target.value}))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
-                    >
-                      <option value="">— Unassigned —</option>
-                      {STAFF.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
+                    {taskForm.is_ot && (
+                      <div>
+                        <label className="text-xs font-medium text-orange-600 mb-1 block">OT Duration</label>
+                        <select required={taskForm.is_ot} value={taskForm.ot_hours}
+                          onChange={e => setTaskForm(f => ({...f, ot_hours: e.target.value}))}
+                          className="w-full border border-orange-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white">
+                          <option value="">— Select —</option>
+                          <option value="0.5">Half Day (0.5d)</option>
+                          <option value="1">Full Day (1d)</option>
+                        </select>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex gap-3 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setShowAddTask(false)}
-                      className="flex-1 border border-gray-200 text-gray-600 rounded-lg py-2 text-sm hover:bg-gray-50 transition-colors"
-                    >Cancel</button>
-                    <button
-                      type="submit"
-                      className="flex-1 bg-amber-500 text-white rounded-lg py-2 text-sm font-medium hover:bg-amber-600 transition-colors"
-                    >Add Task</button>
+                    <button type="button" onClick={() => { setShowAddTask(false); setTaskForm(BLANK_TASK_FORM); }}
+                      className="flex-1 border border-gray-200 text-gray-600 rounded-lg py-2 text-sm hover:bg-gray-50 transition-colors">Cancel</button>
+                    <button type="submit"
+                      className="flex-1 bg-amber-500 text-white rounded-lg py-2 text-sm font-medium hover:bg-amber-600 transition-colors">Add Task</button>
                   </div>
                 </form>
               </div>
             </div>
           )}
+
+          {/* ── Edit Task Modal ── */}
+          {editTask && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
+                  <h3 className="font-semibold text-gray-800">Edit Task</h3>
+                  <button type="button" onClick={() => setEditTask(null)}
+                    className="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 text-sm transition-colors">✕</button>
+                </div>
+                <form onSubmit={handleEditSave} className="px-5 py-4 space-y-4">
+                  {/* Task name */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Task Name <span className="text-red-400">*</span></label>
+                    <input type="text" required value={editForm.task}
+                      onChange={e => setEditForm(f => ({...f, task: e.target.value}))}
+                      placeholder="e.g. Dry hop addition"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
+                  </div>
+
+                  {/* Date range */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Date Range <span className="text-red-400">*</span></label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <p className="text-xs text-gray-400 mb-1">Start Date</p>
+                        <input type="date" required value={editForm.start_date}
+                          onChange={e => setEditForm(f => ({...f, start_date: e.target.value, end_date: f.end_date < e.target.value ? e.target.value : f.end_date}))}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-400 mb-1">End Date</p>
+                        <input type="date" value={editForm.end_date}
+                          min={editForm.start_date || undefined}
+                          onChange={e => setEditForm(f => ({...f, end_date: e.target.value}))}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Assigned To */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Assigned To</label>
+                    <StaffMultiSelect value={editForm.assigned_to} onChange={v => setEditForm(f => ({...f, assigned_to: v}))} />
+                  </div>
+
+                  {/* Status */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Status</label>
+                    <select value={editForm.status}
+                      onChange={e => setEditForm(f => ({...f, status: e.target.value}))}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300">
+                      {["Pending","In Progress","Done"].map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+
+                  {/* Remark */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Remark <span className="text-gray-400 font-normal">(optional)</span></label>
+                    <input type="text" value={editForm.remark}
+                      onChange={e => setEditForm(f => ({...f, remark: e.target.value}))}
+                      placeholder="Any notes..."
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
+                  </div>
+
+                  {/* OT */}
+                  <div className="p-3 bg-orange-50 rounded-xl space-y-3 border border-orange-100">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input type="checkbox" checked={!!editForm.is_ot}
+                        onChange={e => setEditForm(f => ({...f, is_ot: e.target.checked, ot_hours: e.target.checked ? f.ot_hours : ""}))}
+                        className="w-4 h-4 rounded accent-orange-500" />
+                      <span className="text-sm font-medium text-orange-700">Overtime (OT)</span>
+                    </label>
+                    {editForm.is_ot && (
+                      <div>
+                        <label className="text-xs font-medium text-orange-600 mb-1 block">OT Duration</label>
+                        <select required={editForm.is_ot} value={editForm.ot_hours}
+                          onChange={e => setEditForm(f => ({...f, ot_hours: e.target.value}))}
+                          className="w-full border border-orange-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-300 bg-white">
+                          <option value="">— Select —</option>
+                          <option value="0.5">Half Day (0.5d)</option>
+                          <option value="1">Full Day (1d)</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-3 pt-1">
+                    <button type="button" onClick={() => setEditTask(null)}
+                      className="flex-1 border border-gray-200 text-gray-600 rounded-lg py-2 text-sm hover:bg-gray-50 transition-colors">Cancel</button>
+                    <button type="submit"
+                      className="flex-1 bg-amber-500 text-white rounded-lg py-2 text-sm font-medium hover:bg-amber-600 transition-colors">Save Changes</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </>)}
 
           {/* Task hover bubble — fixed, follows mouse position */}
           {hoveredTask && (
@@ -3391,20 +4554,23 @@
                   <span className="text-sm font-semibold leading-tight">{hoveredTask.task}</span>
                 </div>
                 <div className="mt-1.5 space-y-0.5 pl-4">
-                  <div className="text-xs text-gray-300 flex items-center gap-1">
-                    <span className="text-gray-500">Day</span>
-                    <span className="font-medium text-white">{hoveredTask.day}</span>
-                    <span className="text-gray-500 mx-0.5">·</span>
-                    <span className="font-medium text-amber-300">{hoveredTask.dateStr}</span>
-                  </div>
-                  {hoveredTask.assigned_to ? (
-                    <div className="text-xs text-gray-300 flex items-center gap-1">
-                      <span className="text-gray-500">👤</span>
-                      <span className="font-medium text-white">{hoveredTask.assigned_to}</span>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-gray-500 italic">Unassigned</div>
+                  <div className="text-xs text-amber-300 font-medium">{hoveredTask.dateStr}</div>
+                  {hoveredTask.status && hoveredTask.status !== "Pending" && (
+                    <div className="text-xs text-gray-400">{hoveredTask.status}</div>
                   )}
+                  {(() => {
+                    const staff = Array.isArray(hoveredTask.assigned_to)
+                      ? hoveredTask.assigned_to
+                      : (hoveredTask.assigned_to ? [hoveredTask.assigned_to] : []);
+                    return staff.length > 0 ? (
+                      <div className="text-xs text-gray-300 flex items-start gap-1">
+                        <span className="text-gray-500 shrink-0">👤</span>
+                        <span className="font-medium text-white">{staff.join(", ")}</span>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-gray-500 italic">Unassigned</div>
+                    );
+                  })()}
                 </div>
                 {/* Arrow */}
                 <div className="absolute left-1/2 -translate-x-1/2 -bottom-1.5 w-3 h-3 bg-gray-900 rotate-45 rounded-sm"></div>
@@ -3412,6 +4578,153 @@
             </div>
           )}
 
+        </div>
+      );
+    }
+
+    // ─── STAFF MANAGEMENT PAGE ────────────────────────────────────────────────
+    function StaffPage({ staff, setStaff }) {
+      const DEPTS = ["Brewery", "Bar"];
+      const [filterDept, setFilterDept] = useState("All");
+      const [showModal, setShowModal]   = useState(false);
+      const [editId, setEditId]         = useState(null); // null = add
+      const [form, setForm]             = useState({ name:"", dept:"Brewery" });
+
+      function openAdd()    { setForm({ name:"", dept:"Brewery" }); setEditId(null); setShowModal(true); }
+      function openEdit(s)  { setForm({ name:s.name, dept:s.dept }); setEditId(s.id); setShowModal(true); }
+      function handleSave(e) {
+        e.preventDefault();
+        if (!form.name.trim()) return;
+        if (editId !== null) {
+          setStaff(prev => prev.map(s => s.id === editId ? { ...s, name:form.name.trim(), dept:form.dept } : s));
+        } else {
+          const newId = staff.length > 0 ? Math.max(...staff.map(s=>s.id))+1 : 1;
+          setStaff(prev => [...prev, { id:newId, name:form.name.trim(), dept:form.dept }]);
+        }
+        setShowModal(false);
+      }
+      function handleDelete(id) {
+        if (!window.confirm("Remove this staff member?")) return;
+        setStaff(prev => prev.filter(s => s.id !== id));
+      }
+
+      const DEPT_COLORS = { Brewery:"bg-amber-100 text-amber-700", Bar:"bg-sky-100 text-sky-700" };
+      const visible = staff.filter(s => filterDept === "All" || s.dept === filterDept);
+      const byDept = {};
+      DEPTS.forEach(d => { byDept[d] = visible.filter(s => s.dept === d); });
+
+      return (
+        <div className="space-y-5">
+          {/* Header */}
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h1 className="text-xl font-semibold text-gray-800">Team</h1>
+              <p className="text-sm text-gray-400 mt-0.5">{staff.length} staff member{staff.length !== 1 ? "s" : ""} · Brewery: {staff.filter(s=>s.dept==="Brewery").length} · Bar: {staff.filter(s=>s.dept==="Bar").length}</p>
+            </div>
+            <button onClick={openAdd}
+              className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium rounded-xl transition-colors">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+              Add Staff
+            </button>
+          </div>
+
+          {/* Dept filter tabs */}
+          <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
+            {["All",...DEPTS].map(d => (
+              <button key={d} onClick={() => setFilterDept(d)}
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${filterDept===d?"bg-white text-gray-800 shadow-sm":"text-gray-500 hover:text-gray-700"}`}>
+                {d} <span className="ml-1 text-xs opacity-60">{d==="All" ? staff.length : staff.filter(s=>s.dept===d).length}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Cards by department */}
+          {(filterDept === "All" ? DEPTS : [filterDept]).map(dept => {
+            const members = staff.filter(s => s.dept === dept && (filterDept==="All" || s.dept===filterDept));
+            if (members.length === 0 && filterDept !== "All") return null;
+            return (
+              <div key={dept} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                <div className={`px-5 py-3 border-b border-gray-100 flex items-center gap-3`}>
+                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${DEPT_COLORS[dept] || "bg-gray-100 text-gray-600"}`}>{dept}</span>
+                  <span className="text-sm text-gray-400">{members.length} member{members.length!==1?"s":""}</span>
+                  <span className="ml-auto text-xs text-gray-400">
+                    {dept === "Brewery" ? "Can be assigned to Brewery tasks (Fill Log, Fermenters, etc.)" : "Can be assigned to Bar tasks (Tap management, etc.)"}
+                  </span>
+                </div>
+                {members.length === 0
+                  ? <p className="px-5 py-6 text-sm text-gray-400 text-center">No {dept} staff yet. Click <span className="font-semibold text-amber-600">Add Staff</span>.</p>
+                  : (
+                    <div className="divide-y divide-gray-50">
+                      {members.map(s => (
+                        <div key={s.id} className="flex items-center gap-4 px-5 py-3 hover:bg-gray-50/50 transition-colors">
+                          <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0"
+                            style={{background:`hsl(${(s.name.charCodeAt(0)*37)%360},55%,55%)`}}>
+                            {s.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold text-gray-800">{s.name}</p>
+                            <p className="text-xs text-gray-400">{s.dept} Team</p>
+                          </div>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${DEPT_COLORS[s.dept]||"bg-gray-100 text-gray-500"}`}>{s.dept}</span>
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => openEdit(s)}
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                            </button>
+                            <button onClick={() => handleDelete(s.id)}
+                              className="p-1.5 rounded-lg text-red-300 hover:text-red-500 hover:bg-red-50 transition-colors">
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                }
+              </div>
+            );
+          })}
+
+          {/* Add / Edit Modal */}
+          {showModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+                <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
+                  <h3 className="font-semibold text-gray-800">{editId !== null ? "Edit Staff Member" : "Add Staff Member"}</h3>
+                  <button onClick={() => setShowModal(false)} className="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 text-sm">✕</button>
+                </div>
+                <form onSubmit={handleSave} className="px-5 py-4 space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Full Name <span className="text-red-400">*</span></label>
+                    <input type="text" required value={form.name}
+                      onChange={e => setForm(f => ({...f, name: e.target.value}))}
+                      placeholder="e.g. John"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Department</label>
+                    <div className="flex gap-2">
+                      {DEPTS.map(d => (
+                        <label key={d} className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all ${form.dept===d ? (d==="Brewery"?"border-amber-400 bg-amber-50":"border-sky-400 bg-sky-50") : "border-gray-200 hover:border-gray-300"}`}>
+                          <input type="radio" name="dept" value={d} checked={form.dept===d} onChange={() => setForm(f=>({...f,dept:d}))} className="sr-only"/>
+                          <span className="text-xl">{d==="Brewery"?"🍺":"🍸"}</span>
+                          <span className={`text-sm font-medium ${form.dept===d ? (d==="Brewery"?"text-amber-700":"text-sky-700") : "text-gray-600"}`}>{d}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex gap-3 pt-1">
+                    <button type="button" onClick={() => setShowModal(false)}
+                      className="flex-1 border border-gray-200 text-gray-600 rounded-lg py-2 text-sm hover:bg-gray-50 transition-colors">Cancel</button>
+                    <button type="submit"
+                      className="flex-1 bg-amber-500 text-white rounded-lg py-2 text-sm font-medium hover:bg-amber-600 transition-colors">
+                      {editId !== null ? "Save Changes" : "Add Staff"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
@@ -3881,6 +5194,7 @@
 
     // ─── KEG RECEIVED PAGE ────────────────────────────────────────────────────
     function KegReceivedPage({ stockOut, barKegIn, setBarKegIn, supplierKegIn, setSupplierKegIn, tapLog, setTapLog, currentUser }) {
+      const BAR_STAFF = React.useContext(BarStaffCtx);
       const [tab, setTab]               = useState("brewery");
       const [receivedBy, setReceivedBy] = useState(currentUser?.name || "");
       const [search, setSearch]         = useState("");
@@ -3942,8 +5256,16 @@
           <div className="bg-white rounded-2xl border border-gray-100 p-5 mb-5 flex flex-wrap gap-4 items-end">
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1.5">Received By</label>
-              <input value={receivedBy} onChange={e=>setReceivedBy(e.target.value)} placeholder="Your name"
-                className={inputCls + " w-40"} />
+              {BAR_STAFF.length > 0 ? (
+                <select value={receivedBy} onChange={e=>setReceivedBy(e.target.value)}
+                  className={inputCls + " w-44"}>
+                  <option value="">— Select —</option>
+                  {BAR_STAFF.map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              ) : (
+                <input value={receivedBy} onChange={e=>setReceivedBy(e.target.value)} placeholder="Your name"
+                  className={inputCls + " w-40"} />
+              )}
             </div>
           </div>
 
@@ -4138,6 +5460,7 @@
 
     // ─── TAP MANAGEMENT PAGE ──────────────────────────────────────────────────
     function TapManagementPage({ tapLog, setTapLog }) {
+      const BAR_STAFF = React.useContext(BarStaffCtx);
       const [tab, setTab] = useState("queue");
       const TAP_LINES = Array.from({length:14}, (_,i) => `Tap ${i+1}`);
 
@@ -4525,6 +5848,7 @@
       const [beerList, setBeerList]     = useState(INITIAL_BEER_LIST);
       const [batchTasks, setBatchTasks] = useState(INITIAL_BATCH_TASKS);
       const [brewsheets, setBrewsheets] = useState(INITIAL_BREWSHEETS);
+      const [staff, setStaff]           = useState(INITIAL_STAFF);
       const [selectedBatchId, setSelectedBatchId] = useState(null);
       const [barKegIn, setBarKegIn]         = useState([]);
       const [supplierKegIn, setSupplierKegIn] = useState([]);
@@ -4574,7 +5898,8 @@
           if (data.BrokenLog.length)  setBrokenLog(data.BrokenLog);    else emptySheets.push(["BrokenLog",  INITIAL_BROKEN_LOG]);
           if (data.Batches.length)    setBatches(data.Batches);        else emptySheets.push(["Batches",    INITIAL_BATCHES]);
           if (data.BeerList.length)   setBeerList(data.BeerList);      else emptySheets.push(["BeerList",   INITIAL_BEER_LIST]);
-          if (data.BatchTasks.length) setBatchTasks(data.BatchTasks);  else emptySheets.push(["BatchTasks", INITIAL_BATCH_TASKS]);
+          if (data.BatchTasks.length) setBatchTasks(deduplicateTasks(data.BatchTasks));  else emptySheets.push(["BatchTasks", INITIAL_BATCH_TASKS]);
+          if (data.Staff && data.Staff.length) setStaff(data.Staff); else emptySheets.push(["Staff", INITIAL_STAFF]);
           if (data.BarKegIn.length)      setBarKegIn(data.BarKegIn);
           if (data.SupplierKegIn.length) setSupplierKegIn(data.SupplierKegIn);
           if (data.TapLog.length)        setTapLog(data.TapLog);
@@ -4632,6 +5957,12 @@
       useSave("Batches",    batches,    [batches]);
       useSave("BeerList",   beerList,   [beerList]);
       useSave("BatchTasks",    batchTasks,    [batchTasks]);
+      useSave("Staff",         staff,         [staff]);
+
+      // Keep module-level STAFF in sync so useState() defaults in components work
+      const breweryStaff = useMemo(() => staff.filter(s => s.dept === "Brewery").map(s => s.name), [staff]);
+      const barStaff     = useMemo(() => staff.filter(s => s.dept === "Bar").map(s => s.name), [staff]);
+      useEffect(() => { STAFF.length = 0; breweryStaff.forEach(n => STAFF.push(n)); }, [breweryStaff]);
       useSave("BarKegIn",      barKegIn,      [barKegIn]);
       useSave("SupplierKegIn", supplierKegIn, [supplierKegIn]);
       useSave("TapLog",        tapLog,        [tapLog]);
@@ -4674,6 +6005,8 @@
 
       // ── Main app (offline or ready) ──────────────────────────────────────────
       return (
+        <StaffCtx.Provider value={breweryStaff}>
+        <BarStaffCtx.Provider value={barStaff}>
         <div className="min-h-screen bg-gray-50">
           {syncBadge}
           <Sidebar page={page} setPage={setPage} currentUser={currentUser} onSignOut={authState==="ready" ? handleSignOut : null} />
@@ -4682,10 +6015,12 @@
               {page === "dashboard"  && <Dashboard  kegStatus={kegStatus} fillLog={fillLog} stockOut={stockOut} beerList={beerList} />}
               {page === "keg-status" && <KegStatusPage kegStatus={kegStatus} setKegStatus={setKegStatus} />}
               {page === "fill-log"   && <FillLogPage   fillLog={fillLog} setFillLog={setFillLog} beerList={beerList} kegStatus={kegStatus} setKegStatus={setKegStatus} batches={batches} />}
-              {page === "stock-out"   && <StockOutPage   stockOut={stockOut} setStockOut={setStockOut} kegStatus={kegStatus} setKegStatus={setKegStatus} />}
-              {page === "broken-log"  && <BrokenLogPage  brokenLog={brokenLog} setBrokenLog={setBrokenLog} kegStatus={kegStatus} setKegStatus={setKegStatus} />}
+              {page === "stock-out"     && <StockOutPage     stockOut={stockOut} setStockOut={setStockOut} kegStatus={kegStatus} setKegStatus={setKegStatus} />}
+              {page === "keg-cleaning"  && <KegCleaningPage  kegStatus={kegStatus} setKegStatus={setKegStatus} brokenLog={brokenLog} setBrokenLog={setBrokenLog} stockOut={stockOut} />}
+              {page === "broken-log"    && <BrokenLogPage    brokenLog={brokenLog} setBrokenLog={setBrokenLog} kegStatus={kegStatus} setKegStatus={setKegStatus} />}
               {page === "batches"     && <BatchesPage    batches={batches} setBatches={setBatches} beerList={beerList} setBeerList={setBeerList} fillLog={fillLog} batchTasks={batchTasks} setBatchTasks={setBatchTasks} onOpenBrewsheet={openBrewsheet} />}
               {page === "fermenters"  && <FermenterDashboard batches={batches} setBatches={setBatches} fillLog={fillLog} batchTasks={batchTasks} setBatchTasks={setBatchTasks} />}
+              {page === "team"        && <StaffPage staff={staff} setStaff={setStaff} />}
               {page === "brewsheet"   && (() => { const b = batches.find(x=>x.batch_id===selectedBatchId); return b ? <BrewsheetPage batch={b} brewsheet={brewsheets[b.batch_id]} onSave={saveBrewsheet} onBack={()=>setPage("batches")}/> : null; })()}
               {page === "bar-dashboard"     && <BarDashboardPage tapLog={tapLog} barKegIn={barKegIn} supplierKegIn={supplierKegIn} />}
               {page === "storage-inventory" && <StorageInventoryPage kegStatus={kegStatus} />}
@@ -4694,6 +6029,8 @@
             </div>
           </main>
         </div>
+        </BarStaffCtx.Provider>
+        </StaffCtx.Provider>
       );
     }
 
