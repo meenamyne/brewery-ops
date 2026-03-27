@@ -54,6 +54,7 @@
     };
 
     let _gTok = null; // OAuth access token (module-level, set on auth)
+    const STORAGE_KEY = "brewery_ops_user"; // localStorage key for persisted session
 
     async function gFetch(method, path, body) {
       const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}${path}`, {
@@ -1179,6 +1180,14 @@
       const [filterSize, setFilterSize] = useState("All");
       const [showAddKeg, setShowAddKeg] = useState(false);
       const [kegForm, setKegForm] = useState({ size: "20", qty: 1 });
+      const [editSizeKeg, setEditSizeKeg] = useState(null); // { keg_id, size }
+      function handleEditSize(e) {
+        e.preventDefault();
+        setKegStatus(prev => prev.map(k =>
+          k.keg_id === editSizeKeg.keg_id ? { ...k, size: editSizeKeg.size } : k
+        ));
+        setEditSizeKeg(null);
+      }
       const [dateMode, setDateMode] = useState("all"); // "today" | "period" | "all"
       const [dateFrom, setDateFrom] = useState("");
       const [dateTo,   setDateTo]   = useState("");
@@ -1289,15 +1298,18 @@
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Return Date</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Location</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Updated By</th>
+                    <th className="w-8"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.length === 0 ? (
-                    <tr><td colSpan={9} className="text-center py-10 text-gray-400 text-sm">No kegs match your filters</td></tr>
+                    <tr><td colSpan={10} className="text-center py-10 text-gray-400 text-sm">No kegs match your filters</td></tr>
                   ) : filtered.map((k, i) => (
                     <tr key={k.keg_id} className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${i % 2 === 0 ? "" : "bg-gray-50/40"}`}>
                       <td className="px-4 py-3 font-mono text-xs font-medium text-gray-700 whitespace-nowrap">{k.keg_id}</td>
-                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{k.size}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className="text-gray-600">{k.size}</span>
+                      </td>
                       <td className="px-4 py-3"><StatusBadge status={k.status} /></td>
                       <td className="px-4 py-3 text-gray-700 max-w-48 truncate">{k.beer_name || "—"}</td>
                       <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(k.fill_date)}</td>
@@ -1305,12 +1317,45 @@
                       <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(k.return_date)}</td>
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{k.location || "—"}</td>
                       <td className="px-4 py-3 text-gray-500">{k.last_updated_by}</td>
+                      <td className="px-4 py-3 text-right">
+                        <button onClick={() => setEditSizeKeg({ keg_id: k.keg_id, size: k.size })}
+                          title="Edit keg size"
+                          className="p-1 text-gray-300 hover:text-amber-500 transition-colors">
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           </div>
+
+          {editSizeKeg && (
+            <Modal title={`Fix Keg Size — ${editSizeKeg.keg_id}`} onClose={() => setEditSizeKeg(null)}>
+              <form onSubmit={handleEditSize} className="space-y-4">
+                <p className="text-xs text-gray-500">Correct the physical capacity of this keg. This does not affect fill log history.</p>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1.5">Physical Capacity</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {KEG_SIZES.map(s => (
+                      <button type="button" key={s}
+                        onClick={() => setEditSizeKeg(k => ({...k, size: s}))}
+                        className={`py-2 rounded-xl border text-sm font-medium transition-colors ${editSizeKeg.size === s ? "border-amber-500 bg-amber-50 text-amber-700" : "border-gray-200 text-gray-600 hover:border-amber-300"}`}>
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button type="button" onClick={() => setEditSizeKeg(null)}
+                    className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+                  <button type="submit"
+                    className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-medium">Save</button>
+                </div>
+              </form>
+            </Modal>
+          )}
 
           {showAddKeg && (
             <Modal title="Add New Empty Kegs" onClose={() => setShowAddKeg(false)}>
@@ -1439,11 +1484,15 @@
         const now = Date.now();
         const newEntries = form.selected_kegs.map((kegId, i) => {
           const isLast = i === form.selected_kegs.length - 1;
+          // Always use the keg's registered physical capacity from KegStatus,
+          // NOT form.keg_size (which is just a filter). This prevents the keg
+          // size from being recorded as the fill amount on partial fills.
+          const kegRecord = kegStatus.find(k => k.keg_id === kegId);
           return {
             id: now + i,
             date_filled: form.date_filled,
             beer_name: beerName,
-            keg_size: form.keg_size,
+            keg_size: kegRecord?.size || form.keg_size,
             keg_id: kegId,
             filled_by: form.filled_by,
             batch_no: form.batch_id,
@@ -1537,7 +1586,7 @@
                       <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(r.date_filled)}</td>
                       <td className="px-4 py-3 text-gray-700 max-w-48 truncate">{r.beer_name}</td>
                       <td className="px-4 py-3 font-mono text-xs font-medium text-gray-700 whitespace-nowrap">{r.keg_id}</td>
-                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{r.keg_size}</td>
+                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{kegStatus.find(k=>k.keg_id===r.keg_id)?.size || r.keg_size}</td>
                       <td className="px-4 py-3 text-gray-700 font-medium">{r.litres} L</td>
                       <td className="px-4 py-3 text-gray-600">{r.filled_by}</td>
                       <td className="px-4 py-3 text-gray-500">{r.batch_no || "—"}</td>
@@ -2180,7 +2229,7 @@
         if (selectedIds.size === 0) return;
         setKegStatus(prev => prev.map(k =>
           selectedIds.has(k.keg_id) && k.status === "Return"
-            ? { ...k, status: "Empty", beer_name: "", last_updated_by: "—" }
+            ? { ...k, status: "Empty", beer_name: "", size: k.size, last_updated_by: "—" }
             : k
         ));
         setSelectedIds(new Set());
@@ -2310,7 +2359,7 @@
                           <div className="flex items-center justify-end gap-2">
                             <button onClick={() => {
                                 setKegStatus(prev => prev.map(k =>
-                                  k.keg_id === keg.keg_id ? { ...k, status: "Empty", beer_name: "", last_updated_by: "—" } : k
+                                  k.keg_id === keg.keg_id ? { ...k, status: "Empty", beer_name: "", size: k.size, last_updated_by: "—" } : k
                                 ));
                                 setSelectedIds(prev => { const n = new Set(prev); n.delete(keg.keg_id); return n; });
                               }}
@@ -5993,6 +6042,29 @@
       const [syncStatus, setSyncStatus]   = useState(null);
       const dataReadyRef = useRef(false);
 
+      // ── Auto-login on mount: if a previous session was saved, silently re-auth ─
+      useEffect(() => {
+        if (OFFLINE_MODE) return;
+        const saved = (() => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; } })();
+        if (!saved?.email) return; // no saved session
+        // We have a previous user — silently request a fresh token (no popup)
+        setAuthState("signing-in");
+        try {
+          const tc = google.accounts.oauth2.initTokenClient({
+            client_id: GOOGLE_CLIENT_ID,
+            scope: "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email",
+            prompt: "",          // empty = silent, no account chooser popup
+            login_hint: saved.email,
+            callback: handleTokenCallback,
+          });
+          tc.requestAccessToken();
+        } catch(e) {
+          // Silent auth failed — clear stale session and show login page
+          localStorage.removeItem(STORAGE_KEY);
+          setAuthState("idle");
+        }
+      }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
       // ── Google Sign-In ───────────────────────────────────────────────────────
       async function handleSignIn() {
         if (OFFLINE_MODE) { setAuthState("offline"); return; }
@@ -6012,13 +6084,22 @@
       }
 
       async function handleTokenCallback(resp) {
-        if (resp.error) { setAuthError(`Sign-in failed: ${resp.error}`); setAuthState("idle"); return; }
+        if (resp.error) {
+          // Silent re-auth failed (e.g. user revoked access) — clear saved session
+          localStorage.removeItem(STORAGE_KEY);
+          setAuthError(resp.error === "interaction_required" ? null : `Sign-in failed: ${resp.error}`);
+          setAuthState("idle");
+          return;
+        }
         _gTok = resp.access_token;
         setAuthState("loading");
         try {
           const uResp = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers:{ Authorization:`Bearer ${_gTok}` } });
           const user = await uResp.json();
-          setCurrentUser({ name: user.name, email: user.email, picture: user.picture });
+          const userObj = { name: user.name, email: user.email, picture: user.picture };
+          setCurrentUser(userObj);
+          // Persist session so the next page load auto-signs in silently
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(userObj)); } catch {}
           // Ensure all sheet tabs exist (creates any missing ones automatically)
           await ensureSheetsExist();
           const data = await sheetsLoadAll();
@@ -6061,6 +6142,9 @@
 
       function handleSignOut() {
         _gTok = null; dataReadyRef.current = false;
+        try { localStorage.removeItem(STORAGE_KEY); } catch {}
+        // Revoke the Google token so it truly signs out
+        try { google.accounts.oauth2.revoke(_gTok, () => {}); } catch {}
         setCurrentUser(null); setAuthState("idle"); setSyncStatus(null);
       }
 
