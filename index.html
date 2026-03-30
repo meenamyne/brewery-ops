@@ -1827,6 +1827,19 @@
         setReturnTarget(null);
       }
 
+      function handleUndoReturn(row) {
+        // Clear date_returned on StockOut record
+        setStockOut(prev => prev.map(r =>
+          r.id === row.id ? { ...r, date_returned: "" } : r
+        ));
+        // Revert keg status back to Out
+        setKegStatus(prev => prev.map(k =>
+          k.keg_id === row.keg_id
+            ? { ...k, status: "Out", return_date: "", location: row.destination, last_updated_by: row.recorded_by }
+            : k
+        ));
+      }
+
       function handleBatchReturn(e) {
         e.preventDefault();
         const ids = selectedIds;
@@ -2008,6 +2021,13 @@
                                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-sky-600 bg-sky-50 hover:bg-sky-100 rounded-lg transition-colors whitespace-nowrap">
                                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
                                     Return
+                                  </button>
+                                )}
+                                {r.date_returned && (
+                                  <button onClick={() => handleUndoReturn(r)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-orange-500 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors whitespace-nowrap">
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0019 16V8a1 1 0 00-1.6-.8l-5.333 4z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0011 16V8a1 1 0 00-1.6-.8l-5.334 4z"/></svg>
+                                    Undo Return
                                   </button>
                                 )}
                                 <button onClick={() => handleDeleteStockOut(r.id, r.keg_id, r.beer_name)}
