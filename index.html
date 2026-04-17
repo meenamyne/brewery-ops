@@ -156,7 +156,7 @@
       { id:2, name:"Gunn",  dept:"Brewery" },
       { id:3, name:"Meena", dept:"Brewery" },
     ];
-    const DESTINATIONS = ["UPB", "Beer Pradith", "Yod Beer", "Client", "Event"];
+    const DESTINATIONS = ["UPB", "UPB Lake Club", "Beer Pradith", "Yod Beer", "Client", "Event", "Group B"];
     const KEG_SIZES = ["6 L", "12 L", "14 L", "20 L", "30 L", "50 L"];
 
     const INITIAL_KEG_STATUS = [
@@ -428,6 +428,9 @@
       { id:"dashboard",  label:"Dashboard",
         icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>,
         dividerAfter: false },
+      { id:"stock-out-summary", label:"Keg Out Report",
+        icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>,
+        dividerAfter: true },
       // ── Brewing process (in order) ─────────────────────────────────────────
       { id:"batches",    label:"Batches",
         icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>,
@@ -2197,6 +2200,183 @@
                 </div>
               </form>
             </Modal>
+          )}
+        </div>
+      );
+    }
+
+    // ─── STOCK OUT SUMMARY PAGE ──────────────────────────────────────────────
+    function StockOutSummaryPage({ stockOut }) {
+      const [summaryMonth, setSummaryMonth] = useState(() => {
+        const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`;
+      });
+      const [filterDest, setFilterDest] = useState("All");
+
+      // Month options derived from all stock-out records, descending
+      const monthOpts = useMemo(()=>
+        [...new Set(stockOut.map(r => r.date_out?.slice(0,7)).filter(Boolean))].sort().reverse()
+      ,[stockOut]);
+
+      // Ensure selected month is always valid
+      const activeMonth = monthOpts.includes(summaryMonth)
+        ? summaryMonth
+        : (monthOpts[0] || summaryMonth);
+
+      // All rows for selected month (before location filter)
+      const monthRows = useMemo(()=>
+        stockOut.filter(r => r.date_out && r.date_out.startsWith(activeMonth))
+      ,[stockOut, activeMonth]);
+
+      // Location options: destinations present in this month
+      const locOpts = useMemo(()=>{
+        const destSet = new Set(monthRows.map(r => r.destination).filter(Boolean));
+        return DESTINATIONS.filter(d => destSet.has(d)).concat([...destSet].filter(d => !DESTINATIONS.includes(d)));
+      },[monthRows]);
+
+      // Rows after applying location filter
+      const filteredRows = useMemo(()=>
+        filterDest === "All" ? monthRows : monthRows.filter(r => r.destination === filterDest)
+      ,[monthRows, filterDest]);
+
+      // Destinations to show as columns (only the filtered one, or all present)
+      const dests = useMemo(()=>
+        filterDest === "All" ? locOpts : [filterDest]
+      ,[locOpts, filterDest]);
+
+      // Pivot: beerName → date → dest → count  (over filteredRows)
+      const { pivot, beerNames } = useMemo(()=>{
+        const p = {};
+        filteredRows.forEach(r => {
+          const beer = r.beer_name || "Unknown";
+          const date = r.date_out;
+          const dest = r.destination || "—";
+          if (!p[beer]) p[beer] = {};
+          if (!p[beer][date]) p[beer][date] = {};
+          p[beer][date][dest] = (p[beer][date][dest] || 0) + 1;
+        });
+        return { pivot: p, beerNames: Object.keys(p).sort() };
+      },[filteredRows]);
+
+      const destTotals = useMemo(()=>{
+        const t = {};
+        dests.forEach(d => { t[d] = filteredRows.filter(r => r.destination===d).length; });
+        return t;
+      },[filteredRows, dests]);
+
+      const grandTotal = filteredRows.length;
+      const monthLabel = (m) => new Date(m+"-01T00:00:00").toLocaleString("en-US",{month:"long",year:"numeric"});
+
+      const selectCls = "px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-400 bg-white shadow-sm";
+
+      return (
+        <div className="p-6 space-y-5 overflow-y-auto h-full">
+          {/* Header */}
+          <div className="flex items-start justify-between flex-wrap gap-4">
+            <div>
+              <h1 className="text-xl font-semibold text-gray-800">Keg Out Report</h1>
+              <p className="text-sm text-gray-400 mt-0.5">Kegs out by beer and destination</p>
+            </div>
+            {/* Filters */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-500 font-medium uppercase tracking-wide whitespace-nowrap">Month</label>
+                <select value={activeMonth} onChange={e=>setSummaryMonth(e.target.value)} className={selectCls}>
+                  {monthOpts.length === 0 && <option value={activeMonth}>{monthLabel(activeMonth)}</option>}
+                  {monthOpts.map(m => <option key={m} value={m}>{monthLabel(m)}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-500 font-medium uppercase tracking-wide whitespace-nowrap">Location</label>
+                <select value={filterDest} onChange={e=>setFilterDest(e.target.value)} className={selectCls}>
+                  <option value="All">All locations</option>
+                  {locOpts.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* KPI strip */}
+          {grandTotal > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {dests.map(d=>(
+                <div key={d} className="bg-white rounded-2xl border border-gray-100 px-4 py-3">
+                  <p className="text-xs text-gray-400 mb-1 truncate">{d}</p>
+                  <p className="text-2xl font-bold text-violet-600">{destTotals[d]||0}</p>
+                  <p className="text-xs text-gray-400">kegs</p>
+                </div>
+              ))}
+              <div className="bg-violet-50 rounded-2xl border border-violet-100 px-4 py-3">
+                <p className="text-xs text-violet-400 mb-1">Total</p>
+                <p className="text-2xl font-bold text-violet-700">{grandTotal}</p>
+                <p className="text-xs text-violet-400">kegs</p>
+              </div>
+            </div>
+          )}
+
+          {/* Pivot table */}
+          {grandTotal === 0 ? (
+            <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-sm text-gray-400">
+              No stock-out records for {monthLabel(activeMonth)}
+            </div>
+          ) : (
+            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+              <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/60">
+                <span className="text-sm font-semibold text-gray-700">{monthLabel(activeMonth)} · Kegs Out by Location</span>
+              </div>
+              <div className="table-scroll">
+                <table className="w-full text-sm" style={{borderCollapse:"collapse"}}>
+                  <thead>
+                    <tr className="bg-gray-50 border-b-2 border-gray-200">
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap" style={{minWidth:180}}>Beer Name</th>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Date Out</th>
+                      {dests.map(d=>(
+                        <th key={d} className="text-center px-4 py-3 text-xs font-semibold text-violet-600 uppercase tracking-wide whitespace-nowrap">{d}</th>
+                      ))}
+                      <th className="text-center px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {beerNames.map((beer, bi) => {
+                      const dates = Object.keys(pivot[beer]).sort();
+                      return dates.map((date, di) => {
+                        const rowCells = pivot[beer][date];
+                        const rowTotal = dests.reduce((s,d) => s + (rowCells[d]||0), 0);
+                        const isFirstDate = di === 0;
+                        const isLastDate  = di === dates.length - 1;
+                        const isLastBeer  = bi === beerNames.length - 1;
+                        return (
+                          <tr key={`${beer}-${date}`}
+                            style={{borderBottom: isLastDate && !isLastBeer ? "2px solid #e5e7eb" : "1px solid #f3f4f6"}}
+                            className={bi%2===0?"bg-white":"bg-gray-50/40"}>
+                            <td className="px-4 py-2.5 font-medium text-gray-700 whitespace-nowrap" style={{verticalAlign:"top"}}>
+                              {isFirstDate ? beer : ""}
+                            </td>
+                            <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap font-mono text-xs">{date}</td>
+                            {dests.map(d => (
+                              <td key={d} className="px-4 py-2.5 text-center">
+                                {rowCells[d] ? (
+                                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-violet-100 text-violet-700 text-xs font-bold">{rowCells[d]}</span>
+                                ) : (
+                                  <span className="text-gray-200">—</span>
+                                )}
+                              </td>
+                            ))}
+                            <td className="px-4 py-2.5 text-center font-semibold text-gray-600">{rowTotal}</td>
+                          </tr>
+                        );
+                      });
+                    })}
+                    <tr className="bg-gray-100 border-t-2 border-gray-300 font-semibold">
+                      <td className="px-4 py-3 text-gray-700" colSpan={2}>Total</td>
+                      {dests.map(d=>(
+                        <td key={d} className="px-4 py-3 text-center text-violet-700">{destTotals[d]||0}</td>
+                      ))}
+                      <td className="px-4 py-3 text-center text-gray-800">{grandTotal}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
         </div>
       );
@@ -6251,7 +6431,8 @@
               {page === "dashboard"  && <Dashboard  kegStatus={kegStatus} fillLog={fillLog} stockOut={stockOut} beerList={beerList} />}
               {page === "keg-status" && <KegStatusPage kegStatus={kegStatus} setKegStatus={setKegStatus} />}
               {page === "fill-log"   && <FillLogPage   fillLog={fillLog} setFillLog={setFillLog} beerList={beerList} kegStatus={kegStatus} setKegStatus={setKegStatus} batches={batches} />}
-              {page === "stock-out"     && <StockOutPage     stockOut={stockOut} setStockOut={setStockOut} kegStatus={kegStatus} setKegStatus={setKegStatus} />}
+              {page === "stock-out"         && <StockOutPage        stockOut={stockOut} setStockOut={setStockOut} kegStatus={kegStatus} setKegStatus={setKegStatus} />}
+              {page === "stock-out-summary" && <StockOutSummaryPage  stockOut={stockOut} />}
               {page === "keg-cleaning"  && <KegCleaningPage  kegStatus={kegStatus} setKegStatus={setKegStatus} brokenLog={brokenLog} setBrokenLog={setBrokenLog} stockOut={stockOut} />}
               {page === "broken-log"    && <BrokenLogPage    brokenLog={brokenLog} setBrokenLog={setBrokenLog} kegStatus={kegStatus} setKegStatus={setKegStatus} />}
               {page === "batches"     && <BatchesPage    batches={batches} setBatches={setBatches} beerList={beerList} setBeerList={setBeerList} fillLog={fillLog} batchTasks={batchTasks} setBatchTasks={setBatchTasks} onOpenBrewsheet={openBrewsheet} />}
