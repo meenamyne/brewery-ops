@@ -1,0 +1,2081 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UPB HR Management</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Sukhumvit Set', sans-serif; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+    .fade-in { animation: fadeIn 0.18s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(2px);} to { opacity: 1; transform: translateY(0);} }
+    .slide-in { animation: slideIn 0.22s ease-out; }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-presets="env,react">
+    const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+    // ─── CONFIG ───────────────────────────────────────────────────────────────
+    // Reuses the OAuth client from the Scheduler. To switch to your own:
+    // create one at https://console.cloud.google.com → Credentials → OAuth Client ID,
+    // then paste below. Add the GitHub Pages origin under "Authorized JavaScript origins".
+    const GOOGLE_CLIENT_ID = "787778307584-v1bfnkpnfgu9j1ueni9mi97chlpdu2ec.apps.googleusercontent.com";
+    const SHEET_ID         = "1ZTJcs_TCPRBKoODJNapjG1ztPdFZ8DwtwHgDurRfbao";
+    // Set to true to force demo/sample data without hitting Google APIs.
+    const FORCE_OFFLINE    = false;
+    const OFFLINE_MODE     = FORCE_OFFLINE || !GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.includes("PASTE");
+    const STORAGE_KEY      = "upb_hr_user";
+
+    // Branches & departments
+    const BRANCHES = [
+      { id: "HQ", label: "UPB HQ" },
+      { id: "LC", label: "UPB Lake Club" },
+    ];
+    const DEPARTMENTS = [
+      { id: "brewery",    label: "Brewery",    color: "amber"  },
+      { id: "restaurant", label: "Restaurant", color: "teal"   },
+      { id: "kitchen",    label: "Kitchen",    color: "rose"   },
+      { id: "office",     label: "Office",     color: "indigo" },
+    ];
+    const HIRING_STATUSES = ["Full Time", "Part Time", "Probation", "Contract", "Resigned", "Terminated"];
+
+    // Leave types — code is the canonical key, name_th matches what's already in your sheet
+    const LEAVE_TYPES = [
+      { code: "sick",      name_th: "ลาป่วย",         name_en: "Sick Leave",        paid: "Yes" },
+      { code: "annual",    name_th: "ลาพักร้อน",       name_en: "Annual Leave",      paid: "Yes" },
+      { code: "personal",  name_th: "ลากิจ",           name_en: "Personal Leave",    paid: "Yes" },
+      { code: "special",   name_th: "วันหยุดพิเศษ",    name_en: "Special Holiday",   paid: "Yes" },
+      { code: "unpaid",    name_th: "ลาไม่รับค่าจ้าง", name_en: "Unpaid Leave",      paid: "No"  },
+    ];
+    const LEAVE_NAME_TO_CODE = LEAVE_TYPES.reduce((m, t) => { m[t.name_th] = t.code; m[t.name_en.toLowerCase()] = t.code; return m; }, {});
+
+    const PAGE_SIZE = 25;
+
+    // ─── SHEET COLUMNS ────────────────────────────────────────────────────────
+    // One tab per key, each with its own ordered column list. Using employee_id
+    // everywhere (not name) so renaming a person doesn't break linked rows.
+    const SHEET_COLS = {
+      Employees: [
+        "employee_id","prefix","first_name","last_name","nickname","id_card","birth_date",
+        "position","department","branch","hiring_status","start_date","end_date",
+        "salary_monthly","salary_daily","note"
+      ],
+      Departments: ["id","label","branch","note"],
+      Positions: ["id","name_th","name_en","department","default_employment_type"],
+      JobDescriptions: ["position_id","qualifications","responsibilities","benefits_summary","updated_by","updated_at"],
+      LeaveTypes: ["code","name_th","name_en","paid"],
+      LeaveRecords: [
+        "id","employee_id","leave_type","start_date","end_date","days","status","note","recorded_by","recorded_at"
+      ],
+      LeaveQuota: ["employee_id","year","sick","annual","personal","special","unpaid","prorate_eligible_date"],
+      BusinessCalendar: [
+        "id","year","date_start","date_end","name_th","name_en","note","days_off",
+        "applies_brewery","applies_restaurant","applies_kitchen","applies_office"
+      ],
+      Compensation: ["id","item_th","item_en","category","brewery","bar_restaurant","kitchen","office","remark"],
+      Settings: ["key","value"],
+    };
+
+    // ─── GOOGLE SHEETS API ────────────────────────────────────────────────────
+    let _gTok = null;
+
+    async function gFetch(method, path, body) {
+      const base = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}`;
+      const res = await fetch(base + path, {
+        method,
+        headers: { Authorization: `Bearer ${_gTok}`, "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (!res.ok) throw new Error(`${method} ${path} → ${res.status}: ${await res.text()}`);
+      return res.json();
+    }
+
+    // Load every tab in one batch request, return { [tabName]: rowObjects[] }
+    async function sheetsLoadAll() {
+      const names = Object.keys(SHEET_COLS);
+      const qp = names.map(n => `ranges=${encodeURIComponent(n + "!A1:Z")}`).join("&");
+      const { valueRanges } = await gFetch("GET", `/values:batchGet?${qp}`);
+      const out = {};
+      valueRanges.forEach((vr, i) => {
+        const name = names[i], cols = SHEET_COLS[name];
+        const [, ...rows] = vr.values || [[]];
+        out[name] = rows
+          .map(r => { const o = {}; cols.forEach((c, ci) => { o[c] = r[ci] ?? ""; }); return o; })
+          .filter(o => Object.values(o).some(v => v !== "" && v != null));
+      });
+      return out;
+    }
+
+    // Overwrite a full sheet tab — simpler than partial range updates
+    async function sheetsSave(name, items) {
+      const cols = SHEET_COLS[name];
+      const values = [
+        cols,
+        ...items.map(item => cols.map(c => (item[c] == null ? "" : String(item[c])))),
+      ];
+      // Clear first to drop trailing rows that may exist after a delete
+      await gFetch("POST", `/values/${encodeURIComponent(name + "!A1:Z")}:clear`, {});
+      await gFetch("PUT",
+        `/values/${encodeURIComponent(name + "!A1")}?valueInputOption=RAW`,
+        { range: name + "!A1", majorDimension: "ROWS", values }
+      );
+    }
+
+    // Create any missing tabs and write header rows
+    async function ensureSheetsExist() {
+      const meta = await gFetch("GET", "?fields=sheets.properties.title");
+      const existing = new Set((meta.sheets || []).map(s => s.properties.title));
+      const missing = Object.keys(SHEET_COLS).filter(n => !existing.has(n));
+      if (missing.length) {
+        await gFetch("POST", ":batchUpdate", {
+          requests: missing.map(title => ({ addSheet: { properties: { title } } }))
+        });
+        for (const name of missing) {
+          await sheetsSave(name, []);
+        }
+      }
+      // Always make sure header rows exist (even on existing tabs that may be blank)
+      const namesNeedingHeader = [];
+      for (const name of Object.keys(SHEET_COLS)) {
+        try {
+          const r = await gFetch("GET", `/values/${encodeURIComponent(name + "!A1:Z1")}`);
+          const firstRow = (r.values && r.values[0]) || [];
+          if (firstRow.length < SHEET_COLS[name].length) namesNeedingHeader.push(name);
+        } catch { namesNeedingHeader.push(name); }
+      }
+      for (const name of namesNeedingHeader) {
+        await gFetch("PUT",
+          `/values/${encodeURIComponent(name + "!A1")}?valueInputOption=RAW`,
+          { range: name + "!A1", majorDimension: "ROWS", values: [SHEET_COLS[name]] }
+        );
+      }
+    }
+
+    // ─── HELPERS ─────────────────────────────────────────────────────────────
+    function toLocalDateStr(d) {
+      if (!d) return "";
+      if (typeof d === "string") return d.length >= 10 ? d.slice(0, 10) : d;
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    }
+    const TODAY      = toLocalDateStr(new Date());
+    const THIS_YEAR  = new Date().getFullYear();
+    const THIS_MONTH = new Date().getMonth() + 1;
+
+    function fmtDate(d) {
+      if (!d) return "—";
+      try {
+        return new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" });
+      } catch { return d; }
+    }
+    function fmtMoney(n) {
+      const v = parseFloat(n);
+      if (isNaN(v) || v === 0) return "—";
+      return v.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    }
+    function tenureFromStart(startDate, endDate) {
+      if (!startDate) return "";
+      try {
+        const s = new Date(startDate + "T00:00:00");
+        const e = endDate ? new Date(endDate + "T00:00:00") : new Date();
+        if (isNaN(s.getTime())) return "";
+        let years = e.getFullYear() - s.getFullYear();
+        let months = e.getMonth() - s.getMonth();
+        let days = e.getDate() - s.getDate();
+        if (days < 0) { months -= 1; days += new Date(e.getFullYear(), e.getMonth(), 0).getDate(); }
+        if (months < 0) { years -= 1; months += 12; }
+        if (years < 0) return "";
+        return `${years}y ${months}m ${days}d`;
+      } catch { return ""; }
+    }
+    function genId(prefix, list, idKey = "id") {
+      const nums = list.map(x => parseInt(String(x[idKey] || "").replace(/\D/g, "")) || 0);
+      return `${prefix}${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(3, "0")}`;
+    }
+    function diffDaysInclusive(a, b) {
+      if (!a || !b) return 0;
+      try {
+        const d1 = new Date(a + "T00:00:00"), d2 = new Date(b + "T00:00:00");
+        return Math.max(1, Math.round((d2 - d1) / 86400000) + 1);
+      } catch { return 0; }
+    }
+    function fullName(emp) {
+      if (!emp) return "—";
+      const parts = [emp.first_name, emp.last_name].filter(Boolean).join(" ").trim();
+      return parts || emp.nickname || emp.employee_id || "—";
+    }
+    function deptColor(dept) {
+      const d = DEPARTMENTS.find(x => x.id === dept);
+      return d?.color || "gray";
+    }
+    function leaveLabel(typeOrCode) {
+      const t = LEAVE_TYPES.find(x => x.code === typeOrCode || x.name_th === typeOrCode || x.name_en === typeOrCode);
+      return t ? t.name_en : typeOrCode || "—";
+    }
+
+    // ─── AUTO-SAVE HOOK ───────────────────────────────────────────────────────
+    function useSave(name, data, ready) {
+      const timer = useRef(null);
+      const prev  = useRef(null);
+      useEffect(() => {
+        if (!ready || OFFLINE_MODE) return;
+        const json = JSON.stringify(data);
+        if (json === prev.current) return;
+        prev.current = json;
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => sheetsSave(name, data).catch(console.error), 1800);
+      }, [data, ready]);
+    }
+
+    // ─── SAMPLE DATA (OFFLINE_MODE) ───────────────────────────────────────────
+    const SAMPLE_EMPLOYEES = [
+      { employee_id:"EMP001", prefix:"นางสาว", first_name:"อลิษา",     last_name:"คำวัน",         nickname:"แตงกวา",    id_card:"1629900477793", birth_date:"1998-06-19", position:"พนักงานธุรการ",       department:"office",     branch:"HQ", hiring_status:"Full Time", start_date:"2023-06-01", end_date:"", salary_monthly:"20000", salary_daily:"", note:"" },
+      { employee_id:"EMP002", prefix:"นางสาว", first_name:"เจมจิรา",   last_name:"นุชสวาท",       nickname:"เจม",       id_card:"1110300137751", birth_date:"1995-01-14", position:"ผู้จัดการร้าน",        department:"restaurant", branch:"HQ", hiring_status:"Full Time", start_date:"2022-06-19", end_date:"", salary_monthly:"20000", salary_daily:"", note:"" },
+      { employee_id:"EMP003", prefix:"Mr",     first_name:"Thing",      last_name:"Danpangna",     nickname:"ขัน",       id_card:"P2016694",      birth_date:"1996-01-02", position:"พนักงานครัว",        department:"kitchen",    branch:"HQ", hiring_status:"Full Time", start_date:"2024-02-01", end_date:"", salary_monthly:"14000", salary_daily:"", note:"" },
+      { employee_id:"EMP004", prefix:"Mr",     first_name:"Santisouk",  last_name:"Inthilath",     nickname:"ยูโร",      id_card:"P2366137",      birth_date:"2000-05-11", position:"พนักงานครัว",        department:"kitchen",    branch:"HQ", hiring_status:"Full Time", start_date:"2023-04-01", end_date:"", salary_monthly:"14700", salary_daily:"", note:"" },
+      { employee_id:"EMP005", prefix:"Mr",     first_name:"Somsanouk",  last_name:"Inthilath",     nickname:"ไมเคิล",   id_card:"P2273125",      birth_date:"1997-04-04", position:"พนักงานครัว",        department:"kitchen",    branch:"HQ", hiring_status:"Full Time", start_date:"2023-04-01", end_date:"", salary_monthly:"14700", salary_daily:"", note:"" },
+      { employee_id:"EMP006", prefix:"นาย",    first_name:"กันต์",       last_name:"กรโกสียกาจ",    nickname:"กัน",       id_card:"1103700936769", birth_date:"1992-10-31", position:"Head Brewer",        department:"brewery",    branch:"HQ", hiring_status:"Full Time", start_date:"2023-03-01", end_date:"", salary_monthly:"17600", salary_daily:"", note:"" },
+      { employee_id:"EMP007", prefix:"นาย",    first_name:"สิรวิชญ์",     last_name:"เขียวนาวาวงศ์ษา", nickname:"เจนท์",   id_card:"1101402196595", birth_date:"1999-08-26", position:"Assistant Brewer",   department:"brewery",    branch:"HQ", hiring_status:"Full Time", start_date:"2025-02-03", end_date:"", salary_monthly:"26000", salary_daily:"", note:"" },
+      { employee_id:"EMP008", prefix:"นางสาว", first_name:"ณัฐพร",      last_name:"จำปาคำ",        nickname:"ฟักแฟง",   id_card:"1329400011763", birth_date:"2002-06-25", position:"พนักงานเสิร์ฟ",       department:"restaurant", branch:"HQ", hiring_status:"Resigned",  start_date:"2025-09-03", end_date:"2026-04-30", salary_monthly:"15000", salary_daily:"", note:"" },
+      { employee_id:"EMP009", prefix:"นาย",    first_name:"สุรพศ",      last_name:"ผ่องสอาด",      nickname:"เสก",      id_card:"1129701359671", birth_date:"2005-07-30", position:"เบียร์เทนเดอร์",      department:"restaurant", branch:"HQ", hiring_status:"Full Time", start_date:"2025-10-01", end_date:"", salary_monthly:"15000", salary_daily:"", note:"" },
+      { employee_id:"EMP010", prefix:"นางสาว", first_name:"พิชชาภา",    last_name:"มีพร้อม",       nickname:"บิ้ว",      id_card:"1103704017326", birth_date:"2005-09-29", position:"พนักงานเสิร์ฟ",       department:"restaurant", branch:"HQ", hiring_status:"Part Time", start_date:"2025-05-16", end_date:"", salary_monthly:"", salary_daily:"500", note:"" },
+      { employee_id:"EMP011", prefix:"นาย",    first_name:"ไชยวัฒน์",   last_name:"สุทธี",         nickname:"นน",       id_card:"1100201711238", birth_date:"2003-06-15", position:"พนักงานเสิร์ฟ",       department:"restaurant", branch:"LC", hiring_status:"Part Time", start_date:"2025-11-10", end_date:"", salary_monthly:"", salary_daily:"700", note:"" },
+      { employee_id:"EMP012", prefix:"นางสาว", first_name:"กัญญาภัค",   last_name:"คงตุก",         nickname:"แพรว",     id_card:"1859900284781", birth_date:"2003-10-20", position:"พนักงานเสิร์ฟ",       department:"restaurant", branch:"LC", hiring_status:"Part Time", start_date:"2026-04-08", end_date:"", salary_monthly:"", salary_daily:"700", note:"" },
+    ];
+
+    const SAMPLE_LEAVE_RECORDS = [
+      { id:"L001", employee_id:"EMP008", leave_type:"unpaid",   start_date:"2026-01-01", end_date:"2026-01-01", days:"1", status:"Approved", note:"ไปต่างจังหวัดกับครอบครัว", recorded_by:"Admin", recorded_at:"2025-12-28" },
+      { id:"L002", employee_id:"EMP008", leave_type:"sick",     start_date:"2026-01-17", end_date:"2026-01-17", days:"1", status:"Approved", note:"ปวดเมื่อยกล้ามเนื้อ",       recorded_by:"Admin", recorded_at:"2026-01-18" },
+      { id:"L003", employee_id:"EMP001", leave_type:"annual",   start_date:"2026-02-16", end_date:"2026-02-16", days:"1", status:"Approved", note:"พาเจมส์ไปหาหมอ",            recorded_by:"Admin", recorded_at:"2026-02-15" },
+      { id:"L004", employee_id:"EMP001", leave_type:"sick",     start_date:"2026-02-17", end_date:"2026-02-17", days:"1", status:"Approved", note:"ปวดท้องประจำเดือน",         recorded_by:"Admin", recorded_at:"2026-02-18" },
+      { id:"L005", employee_id:"EMP008", leave_type:"sick",     start_date:"2026-03-14", end_date:"2026-03-14", days:"1", status:"Approved", note:"อุบัติเหตุ รถล้ม",           recorded_by:"Admin", recorded_at:"2026-03-15" },
+    ];
+
+    const SAMPLE_LEAVE_QUOTA = SAMPLE_EMPLOYEES.map(e => ({
+      employee_id: e.employee_id, year: "2026",
+      sick: "30", annual: e.start_date < "2025-01-01" ? "7" : "0",
+      personal: "3", special: e.department === "kitchen" ? "7" : "0", unpaid: "30",
+      prorate_eligible_date: e.start_date >= "2025-01-01" ? `${parseInt(e.start_date.slice(0,4))+1}${e.start_date.slice(4,10)}` : "",
+    }));
+
+    const SAMPLE_CALENDAR = [
+      { id:"H001", year:"2026", date_start:"2026-01-01", date_end:"2026-01-02", name_th:"ปีใหม่", name_en:"New Year",      note:"",                                      days_off:"2", applies_brewery:"yes", applies_restaurant:"",    applies_kitchen:"",    applies_office:"yes" },
+      { id:"H002", year:"2026", date_start:"2026-01-31", date_end:"2026-01-31", name_th:"งดขายแอลฯ ก่อนวันเลือกตั้ง", name_en:"Pre-election no-alcohol", note:"", days_off:"1", applies_brewery:"",    applies_restaurant:"yes", applies_kitchen:"yes", applies_office:"" },
+      { id:"H003", year:"2026", date_start:"2026-03-03", date_end:"2026-03-03", name_th:"วันมาฆบูชา", name_en:"Makha Bucha Day", note:"กีฬาสีโรงเบียร์",                  days_off:"1", applies_brewery:"yes", applies_restaurant:"yes", applies_kitchen:"yes", applies_office:"yes" },
+      { id:"H004", year:"2026", date_start:"2026-04-13", date_end:"2026-04-15", name_th:"วันสงกรานต์", name_en:"Songkran",       note:"",                                  days_off:"3", applies_brewery:"yes", applies_restaurant:"yes", applies_kitchen:"yes", applies_office:"yes" },
+      { id:"H005", year:"2026", date_start:"2026-05-01", date_end:"2026-05-01", name_th:"วันแรงงาน",  name_en:"Labour Day",     note:"",                                  days_off:"1", applies_brewery:"yes", applies_restaurant:"",    applies_kitchen:"",    applies_office:"yes" },
+      { id:"H006", year:"2026", date_start:"2026-05-31", date_end:"2026-05-31", name_th:"วันวิสาขบูชา", name_en:"Visakha Bucha", note:"",                                  days_off:"1", applies_brewery:"yes", applies_restaurant:"yes", applies_kitchen:"yes", applies_office:"yes" },
+      { id:"H007", year:"2026", date_start:"2026-07-29", date_end:"2026-07-30", name_th:"วันอาสาฬหบูชา / เข้าพรรษา", name_en:"Asanha & Khao Phansa", note:"Outing",     days_off:"2", applies_brewery:"yes", applies_restaurant:"yes", applies_kitchen:"yes", applies_office:"yes" },
+      { id:"H008", year:"2026", date_start:"2026-10-26", date_end:"2026-10-26", name_th:"วันออกพรรษา", name_en:"Ok Phansa",     note:"",                                  days_off:"1", applies_brewery:"yes", applies_restaurant:"yes", applies_kitchen:"yes", applies_office:"yes" },
+      { id:"H009", year:"2026", date_start:"2026-12-21", date_end:"2026-12-21", name_th:"กินเลี้ยงปีใหม่", name_en:"NY Party",   note:"",                                  days_off:"1", applies_brewery:"yes", applies_restaurant:"yes", applies_kitchen:"yes", applies_office:"yes" },
+      { id:"H010", year:"2026", date_start:"2026-12-28", date_end:"2026-12-30", name_th:"หยุดปีใหม่",  name_en:"NY Holiday",    note:"",                                  days_off:"3", applies_brewery:"",    applies_restaurant:"yes", applies_kitchen:"yes", applies_office:"" },
+    ];
+
+    const SAMPLE_POSITIONS = [
+      { id:"P01", name_th:"ผู้จัดการร้าน",        name_en:"Bar Manager",        department:"restaurant", default_employment_type:"Full Time" },
+      { id:"P02", name_th:"พนักงานเสิร์ฟ",        name_en:"Service Staff",      department:"restaurant", default_employment_type:"Full Time" },
+      { id:"P03", name_th:"พนักงานแคชเชียร์",    name_en:"Cashier",            department:"restaurant", default_employment_type:"Full Time" },
+      { id:"P04", name_th:"เบียร์เทนเดอร์",       name_en:"Beertender",         department:"restaurant", default_employment_type:"Full Time" },
+      { id:"P05", name_th:"Brewmaster",            name_en:"Brewmaster",         department:"brewery",    default_employment_type:"Full Time" },
+      { id:"P06", name_th:"Head Brewer",           name_en:"Head Brewer",        department:"brewery",    default_employment_type:"Full Time" },
+      { id:"P07", name_th:"พนักงานส่วนผลิตเครื่องดื่ม", name_en:"Assistant Brewer",   department:"brewery",    default_employment_type:"Full Time" },
+      { id:"P08", name_th:"Head Chef",             name_en:"Head Chef",          department:"kitchen",    default_employment_type:"Full Time" },
+      { id:"P09", name_th:"พนักงานครัว",          name_en:"Kitchen Staff",      department:"kitchen",    default_employment_type:"Full Time" },
+      { id:"P10", name_th:"พนักงานธุรการ",        name_en:"Admin",              department:"office",     default_employment_type:"Full Time" },
+      { id:"P11", name_th:"CFO",                   name_en:"CFO",                department:"office",     default_employment_type:"Full Time" },
+      { id:"P12", name_th:"Finance",               name_en:"Finance",            department:"office",     default_employment_type:"Full Time" },
+      { id:"P13", name_th:"Marketing",             name_en:"Marketing",          department:"office",     default_employment_type:"Full Time" },
+      { id:"P14", name_th:"Content",               name_en:"Content",            department:"office",     default_employment_type:"Full Time" },
+      { id:"P15", name_th:"พนักงานซ่อมบำรุง",     name_en:"Maintenance",        department:"office",     default_employment_type:"Contract"  },
+    ];
+
+    const SAMPLE_JDS = [
+      { position_id:"P01", qualifications:"อายุ 25 ปีขึ้นไป ไม่จำกัดเพศ\nวุฒิ ปวส. / ป.ตรี หรือเทียบเท่า\nประสบการณ์บาร์/ร้านอาหาร 2-3 ปี\nทักษะการบริหารทีม", responsibilities:"ควบคุมการดำเนินงานหน้าร้านในแต่ละวัน\nจัดตารางทีมงาน\nรายงานยอดขายรายวัน\nดูแลสต๊อกเครื่องดื่ม\nประสานงานกิจกรรมและโปรโมชั่น", benefits_summary:"เงินเดือน + OT, วันลา, ประกันสังคม, อาหารฟรี 1 มื้อ, เครื่องดื่มฟรี, โบนัสตามผลประกอบการ", updated_by:"Admin", updated_at:"2026-04-01" },
+      { position_id:"P02", qualifications:"อายุไม่เกิน 30 ปี ไม่จำกัดเพศ\nบุคลิกดี ตรงต่อเวลา ยิ้มแย้ม\nรับแรงกดดันได้ดี", responsibilities:"เตรียมบริเวณร้านและของใช้\nต้อนรับและดูแลลูกค้า\nเสิร์ฟอาหารและเครื่องดื่ม\nนับสต๊อก\nดูแลความสะอาดพื้นที่บริการ", benefits_summary:"เงินเดือน + OT, วันลา, ประกันสังคม, อาหารฟรี 1 มื้อ, เครื่องดื่มฟรี, โบนัสประจำวันตามยอดขาย", updated_by:"Admin", updated_at:"2026-04-01" },
+      { position_id:"P09", qualifications:"ทำงานได้ อังคาร-อาทิตย์ 15:00-23:00 น.\nความตั้งใจในการเรียนรู้\nตรงต่อเวลา อดทน\nสุขภาพแข็งแรง ยกของหนักได้", responsibilities:"เตรียมวัตถุดิบ\nประกอบอาหารตามสูตร\nดูแลความสะอาดในครัว\nตรวจเช็กสต๊อก", benefits_summary:"เงินเดือน + OT, วันลา, ประกันสังคม, อาหารฟรี 1 มื้อ, เครื่องดื่มฟรี, ส่วนแบ่งจากเมนูพิเศษ", updated_by:"Admin", updated_at:"2026-04-01" },
+    ];
+
+    const SAMPLE_COMPENSATION = [
+      { id:"C01", item_th:"เงินเดือน",                       item_en:"Salary",                         category:"Basic",     brewery:"✅", bar_restaurant:"✅", kitchen:"✅", office:"✅", remark:"ตามตำแหน่งและประสบการณ์ ปรับประจำปีเฉพาะที่ทำงาน >1 ปี" },
+      { id:"C02", item_th:"ค่าล่วงเวลา",                     item_en:"Overtime",                       category:"Basic",     brewery:"✅", bar_restaurant:"✅", kitchen:"✅", office:"✅", remark:"60 บาท/ชม. นับเวลาจริง" },
+      { id:"C03", item_th:"เครื่องดื่มฟรี",                  item_en:"Free Drinks",                    category:"Zone",      brewery:"✅", bar_restaurant:"✅", kitchen:"✅", office:"",   remark:"บาร์ ดื่มได้ 23:00, ครัว 22:30" },
+      { id:"C04", item_th:"อาหารฟรีตามรอบการทำงาน",          item_en:"Free Meals",                     category:"Zone",      brewery:"✅", bar_restaurant:"✅", kitchen:"✅", office:"✅", remark:"1 มื้อช่วงเย็น" },
+      { id:"C05", item_th:"ชุดพนักงาน",                      item_en:"Uniform",                        category:"Zone",      brewery:"✅", bar_restaurant:"✅", kitchen:"✅", office:"",   remark:"เข็มกลัดและเสื้อยืด 1 ตัว/รอบผลิต" },
+      { id:"C06", item_th:"Tip Pooling",                     item_en:"Tip Pooling",                    category:"Zone",      brewery:"",   bar_restaurant:"✅", kitchen:"",   office:"",   remark:"หน้าบาร์หารเท่า รับภายในวัน" },
+      { id:"C07", item_th:"Incentive จากยอดขาย",            item_en:"Sales Incentive",                category:"Zone",      brewery:"✅", bar_restaurant:"",   kitchen:"✅", office:"",   remark:"จ่ายรายเดือน รวมกับเงินเดือน" },
+      { id:"C08", item_th:"คิดเมนูพิเศษ",                    item_en:"Menu Royalty",                   category:"Zone",      brewery:"",   bar_restaurant:"",   kitchen:"✅", office:"",   remark:"เมนูพิเศษ 1000 บาท บรรจุเป็นเมนูประจำ +500" },
+      { id:"C09", item_th:"โบนัสประจำวันตามยอดขาย",         item_en:"Daily Sales Bonus",              category:"Zone",      brewery:"",   bar_restaurant:"✅", kitchen:"",   office:"",   remark:"100 บาท/คน เมื่อถึงเป้า" },
+      { id:"C10", item_th:"โบนัสจากยอดผลิตเบียร์สด",        item_en:"Brewery Production Bonus",       category:"Zone",      brewery:"✅", bar_restaurant:"",   kitchen:"",   office:"",   remark:"คำนวณรายไตรมาส 1000 บาท/แบทช์/คน เกิน 8 batch/เดือน" },
+      { id:"C11", item_th:"ประกันสังคม",                     item_en:"Social Security",                category:"Welfare",   brewery:"✅", bar_restaurant:"✅", kitchen:"✅", office:"✅", remark:"ตามที่กฎหมายกำหนด" },
+      { id:"C12", item_th:"วันหยุดนักขัตฤกษ์ / วันหยุดพิเศษ", item_en:"Public Holidays",                category:"Welfare",   brewery:"✅", bar_restaurant:"✅", kitchen:"✅", office:"✅", remark:"ตามโควตาบริษัท" },
+      { id:"C13", item_th:"วันลา",                            item_en:"Leave",                          category:"Welfare",   brewery:"✅", bar_restaurant:"✅", kitchen:"✅", office:"✅", remark:"ลากิจ 3 วัน, ลาพักร้อน 7 วัน (อายุงาน 1 ปี+), ลาป่วย 1 วันโดยไม่ต้องมีใบรับรอง" },
+      { id:"C14", item_th:"เงินช่วยเหลือต่าง ๆ",              item_en:"Welfare Aid",                    category:"Welfare",   brewery:"✅", bar_restaurant:"✅", kitchen:"✅", office:"✅", remark:"งานศพในครอบครัว 1000 บาท" },
+      { id:"C15", item_th:"เงินเบิกล่วงหน้า",                 item_en:"Salary Advance",                 category:"Welfare",   brewery:"✅", bar_restaurant:"✅", kitchen:"✅", office:"✅", remark:"เบิกได้ตั้งแต่วันที่ 10" },
+      { id:"C16", item_th:"โบนัสตามผลประกอบการ",            item_en:"Annual Performance Bonus",       category:"Welfare",   brewery:"✅", bar_restaurant:"✅", kitchen:"✅", office:"✅", remark:"อย่างน้อยปีละ 1 ครั้ง (อายุงาน 1 ปี+)" },
+      { id:"C17", item_th:"ส่วนลดพนักงาน",                   item_en:"Staff Discount",                 category:"Welfare",   brewery:"✅", bar_restaurant:"✅", kitchen:"✅", office:"✅", remark:"10% สำหรับอาหารและเครื่องดื่ม" },
+      { id:"C18", item_th:"กิจกรรมพนักงาน",                  item_en:"Company Events",                 category:"Welfare",   brewery:"✅", bar_restaurant:"✅", kitchen:"✅", office:"✅", remark:"งานเลี้ยง ทริปประจำปี" },
+      { id:"C19", item_th:"ประกันอุบัติเหตุกลุ่ม",            item_en:"Group Accident Insurance",       category:"Extra",     brewery:"✅", bar_restaurant:"✅", kitchen:"✅", office:"✅", remark:"เฉพาะพนักงานที่ผ่านการทดลองงาน 1 ปี" },
+      { id:"C20", item_th:"ส่วนลดสำหรับเพื่อนและครอบครัว",   item_en:"Friends & Family Discount",      category:"Extra",     brewery:"✅", bar_restaurant:"✅", kitchen:"✅", office:"✅", remark:"5%" },
+    ];
+
+    const SAMPLE_SETTINGS = [
+      { key:"operating_hours_weekday", value:"จ-ศ 16:00-00:00 น." },
+      { key:"operating_hours_weekend", value:"ส-อา 14:00-00:00 น." },
+      { key:"brewery_hours",           value:"จ-ศ 09:00-17:00 / 10:00-18:00" },
+      { key:"ot_rate_hour",            value:"60" },
+      { key:"ot_rate_brewery_weekend", value:"600/วัน, 75/ชม." },
+      { key:"monthly_off_days",        value:"6 (4+2 weekly)" },
+      { key:"app_title",               value:"UPB HR Management" },
+    ];
+
+    // ─── SHARED UI ───────────────────────────────────────────────────────────
+    const inputCls = "w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent bg-white";
+    const labelCls = "block text-xs font-medium text-gray-500 mb-1.5 uppercase tracking-wide";
+
+    function Modal({ title, onClose, children, wide, xwide }) {
+      const w = xwide ? "max-w-4xl" : wide ? "max-w-2xl" : "max-w-md";
+      return (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 fade-in"
+             onClick={e => e.target === e.currentTarget && onClose()}>
+          <div className={`bg-white rounded-2xl shadow-2xl w-full ${w} max-h-[92vh] flex flex-col`}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+              <h3 className="font-semibold text-gray-800">{title}</h3>
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+            <div className="overflow-y-auto p-6">{children}</div>
+          </div>
+        </div>
+      );
+    }
+
+    function Field({ label, children, required, hint }) {
+      return (
+        <div>
+          <label className={labelCls}>{label}{required && <span className="text-red-400 ml-0.5">*</span>}</label>
+          {children}
+          {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
+        </div>
+      );
+    }
+
+    function DeptBadge({ dept }) {
+      const d = DEPARTMENTS.find(x => x.id === dept);
+      if (!d) return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">—</span>;
+      const cls = {
+        amber:  "bg-amber-50 text-amber-600",
+        teal:   "bg-teal-50 text-teal-600",
+        rose:   "bg-rose-50 text-rose-600",
+        indigo: "bg-indigo-50 text-indigo-600",
+      }[d.color] || "bg-gray-100 text-gray-500";
+      return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{d.label}</span>;
+    }
+
+    function StatusBadge({ status }) {
+      const map = {
+        "Full Time":   "bg-emerald-50 text-emerald-600",
+        "Part Time":   "bg-sky-50 text-sky-600",
+        "Probation":   "bg-amber-50 text-amber-600",
+        "Contract":    "bg-violet-50 text-violet-600",
+        "Resigned":    "bg-gray-100 text-gray-500",
+        "Terminated":  "bg-red-50 text-red-500",
+      };
+      return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${map[status] || "bg-gray-100 text-gray-500"}`}>{status || "—"}</span>;
+    }
+
+    function BranchBadge({ branch }) {
+      const label = (BRANCHES.find(b => b.id === branch) || {}).label || branch || "—";
+      const cls = branch === "HQ" ? "bg-teal-50 text-teal-700" : branch === "LC" ? "bg-blue-50 text-blue-700" : "bg-gray-100 text-gray-500";
+      return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{label}</span>;
+    }
+
+    function LeaveBadge({ code }) {
+      const t = LEAVE_TYPES.find(x => x.code === code);
+      const map = { sick:"bg-red-50 text-red-600", annual:"bg-emerald-50 text-emerald-600", personal:"bg-amber-50 text-amber-600", special:"bg-blue-50 text-blue-600", unpaid:"bg-gray-100 text-gray-500" };
+      const cls = map[code] || "bg-gray-100 text-gray-500";
+      return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}`} title={t?.name_th}>{t?.name_en || code || "—"}</span>;
+    }
+
+    function Pagination({ page, total, perPage, onPage }) {
+      const totalPages = Math.max(1, Math.ceil(total / perPage));
+      if (totalPages <= 1) return <div className="flex items-center justify-end px-4 py-3 text-xs text-gray-400">{total} item{total === 1 ? "" : "s"}</div>;
+      const start = (page - 1) * perPage + 1;
+      const end   = Math.min(page * perPage, total);
+      const pages = [];
+      const add = (n) => pages.push(n);
+      const ell = "…";
+      if (totalPages <= 7) {
+        for (let i = 1; i <= totalPages; i++) add(i);
+      } else {
+        add(1);
+        if (page > 4) add(ell);
+        for (let i = Math.max(2, page - 1); i <= Math.min(totalPages - 1, page + 1); i++) add(i);
+        if (page < totalPages - 3) add(ell);
+        add(totalPages);
+      }
+      return (
+        <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
+          <p className="text-xs text-gray-400">Showing {start}–{end} of {total}</p>
+          <div className="flex items-center gap-1">
+            <button onClick={() => onPage(Math.max(1, page - 1))} disabled={page === 1}
+              className="px-2.5 py-1 text-xs rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed">Prev</button>
+            {pages.map((p, i) => p === ell
+              ? <span key={i} className="px-1 text-xs text-gray-300">…</span>
+              : <button key={i} onClick={() => onPage(p)}
+                  className={`px-2.5 py-1 text-xs rounded-lg ${p === page ? "bg-teal-500 text-white" : "text-gray-600 hover:bg-gray-100"}`}>{p}</button>
+            )}
+            <button onClick={() => onPage(Math.min(totalPages, page + 1))} disabled={page === totalPages}
+              className="px-2.5 py-1 text-xs rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed">Next</button>
+          </div>
+        </div>
+      );
+    }
+
+    function PageHeader({ title, subtitle, action }) {
+      return (
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h1 className="text-xl font-bold text-gray-800">{title}</h1>
+            {subtitle && <p className="text-sm text-gray-400 mt-0.5">{subtitle}</p>}
+          </div>
+          {action}
+        </div>
+      );
+    }
+
+    function EmptyState({ icon, title, hint }) {
+      return (
+        <div className="bg-white rounded-2xl border border-dashed border-gray-200 py-16 text-center">
+          <div className="text-4xl mb-2">{icon || "📄"}</div>
+          <p className="text-sm font-semibold text-gray-600">{title}</p>
+          {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
+        </div>
+      );
+    }
+
+    // ─── ICONS ───────────────────────────────────────────────────────────────
+    const I = {
+      dashboard: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>,
+      employees: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>,
+      leave:     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5 6V7a2 2 0 00-2-2h-3.586a1 1 0 01-.707-.293L11 1.586a1 1 0 00-1.414 0L7.293 4.707A1 1 0 016.586 5H3a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2z"/></svg>,
+      compensation: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>,
+      jd:        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>,
+      calendar:  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>,
+      settings:  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>,
+      add:       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>,
+      edit:      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>,
+      trash:     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3"/></svg>,
+      search:    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>,
+      logo:      <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>,
+    };
+
+    // ─── NAV ─────────────────────────────────────────────────────────────────
+    const NAV = [
+      { id:"dashboard",    label:"Dashboard",            icon:I.dashboard },
+      { id:"employees",    label:"Employees",            icon:I.employees, dividerAfter:true },
+      { id:"leave",        label:"Leave",                icon:I.leave },
+      { id:"compensation", label:"Compensation & Benefits", icon:I.compensation },
+      { id:"jd",           label:"Job Descriptions",     icon:I.jd },
+      { id:"calendar",     label:"Business Calendar",    icon:I.calendar, dividerAfter:true },
+      { id:"settings",     label:"Settings",             icon:I.settings },
+    ];
+
+    // ─── SIDEBAR ─────────────────────────────────────────────────────────────
+    function Sidebar({ page, setPage, user, onSignOut, savingState }) {
+      return (
+        <div className="w-56 shrink-0 bg-white border-r border-gray-100 flex flex-col h-full">
+          <div className="px-5 py-5 border-b border-gray-100">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-teal-500 flex items-center justify-center shrink-0 shadow-sm shadow-teal-200">
+                {I.logo}
+              </div>
+              <div>
+                <p className="text-sm font-bold text-gray-800">UPB HR</p>
+                <p className="text-xs text-gray-400">Management</p>
+              </div>
+            </div>
+          </div>
+
+          <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+            {NAV.map(item => (
+              <React.Fragment key={item.id}>
+                <button onClick={() => setPage(item.id)}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all
+                    ${page === item.id ? "bg-teal-50 text-teal-700" : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"}`}>
+                  <span className={page === item.id ? "text-teal-500" : "text-gray-400"}>{item.icon}</span>
+                  {item.label}
+                </button>
+                {item.dividerAfter && <div className="h-px bg-gray-100 my-1.5 mx-1" />}
+              </React.Fragment>
+            ))}
+          </nav>
+
+          {savingState && (
+            <div className="px-5 pb-1 text-xs text-gray-400">{savingState}</div>
+          )}
+
+          {user && (
+            <div className="px-3 py-4 border-t border-gray-100 shrink-0">
+              <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-gray-50">
+                {user.picture
+                  ? <img src={user.picture} className="w-7 h-7 rounded-full shrink-0" alt="" />
+                  : <div className="w-7 h-7 rounded-full bg-teal-200 flex items-center justify-center text-xs font-bold text-teal-700 shrink-0">{user.name?.[0]}</div>
+                }
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-gray-700 truncate">{user.name}</p>
+                  <p className="text-xs text-gray-400 truncate">{user.email}</p>
+                </div>
+              </div>
+              <button onClick={onSignOut} className="w-full mt-2 text-xs text-gray-400 hover:text-red-400 py-1.5 text-left px-3 transition-colors">
+                Sign out
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─── DASHBOARD PAGE ──────────────────────────────────────────────────────
+    function DashboardPage({ employees, leaveRecords, calendar, positions }) {
+      const activeEmps = employees.filter(e => !["Resigned","Terminated"].includes(e.hiring_status));
+      const byBranch = useMemo(() => {
+        const m = { HQ: 0, LC: 0 };
+        activeEmps.forEach(e => { m[e.branch] = (m[e.branch] || 0) + 1; });
+        return m;
+      }, [employees]);
+      const byDept = useMemo(() => {
+        const m = {}; DEPARTMENTS.forEach(d => m[d.id] = 0);
+        activeEmps.forEach(e => { m[e.department] = (m[e.department] || 0) + 1; });
+        return m;
+      }, [employees]);
+      const onLeaveToday = leaveRecords.filter(l =>
+        l.status === "Approved" && (l.start_date || "") <= TODAY && (l.end_date || "") >= TODAY
+      );
+      const upcomingHolidays = calendar
+        .filter(h => (h.date_start || "") >= TODAY)
+        .sort((a, b) => (a.date_start || "").localeCompare(b.date_start || ""))
+        .slice(0, 5);
+      const recentLeave = [...leaveRecords]
+        .sort((a, b) => (b.start_date || "").localeCompare(a.start_date || ""))
+        .slice(0, 6);
+      const empMap = useMemo(() => Object.fromEntries(employees.map(e => [e.employee_id, e])), [employees]);
+
+      return (
+        <div className="p-6 overflow-y-auto h-full">
+          <PageHeader title="Dashboard" subtitle={`United Peoples Brewery · ${new Date().toLocaleDateString("en-GB", { weekday:"long", day:"numeric", month:"long", year:"numeric" })}`} />
+
+          {/* KPIs */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <KpiCard label="Active Employees" value={activeEmps.length} hint={`Total ${employees.length} on file`} color="teal" />
+            <KpiCard label="UPB HQ" value={byBranch.HQ || 0} hint="Active employees" color="emerald" />
+            <KpiCard label="UPB Lake Club" value={byBranch.LC || 0} hint="Active employees" color="sky" />
+            <KpiCard label="On Leave Today" value={onLeaveToday.length} hint={onLeaveToday.length ? "Approved leave" : "No one on leave"} color={onLeaveToday.length ? "amber" : "gray"} />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Department breakdown */}
+            <div className="bg-white rounded-2xl border border-gray-100 p-5 lg:col-span-1">
+              <p className="text-sm font-semibold text-gray-700 mb-3">By Department</p>
+              <div className="space-y-2">
+                {DEPARTMENTS.map(d => {
+                  const c = byDept[d.id] || 0;
+                  const pct = activeEmps.length ? Math.round((c / activeEmps.length) * 100) : 0;
+                  return (
+                    <div key={d.id}>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <DeptBadge dept={d.id} />
+                        <span className="text-gray-500 font-medium">{c} <span className="text-gray-400">({pct}%)</span></span>
+                      </div>
+                      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full bg-${d.color}-400`} style={{ width: `${pct}%`, background: ({amber:"#fbbf24", teal:"#2dd4bf", rose:"#fb7185", indigo:"#818cf8"})[d.color] }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* On leave today */}
+            <div className="bg-white rounded-2xl border border-gray-100 p-5 lg:col-span-1">
+              <p className="text-sm font-semibold text-gray-700 mb-3">On Leave Today</p>
+              {onLeaveToday.length === 0
+                ? <p className="text-xs text-gray-400 py-6 text-center">No one is on leave today.</p>
+                : <div className="space-y-2">
+                    {onLeaveToday.map(l => {
+                      const emp = empMap[l.employee_id];
+                      return (
+                        <div key={l.id} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-gray-50">
+                          <div className="w-7 h-7 rounded-full bg-teal-100 flex items-center justify-center text-xs font-bold text-teal-700 shrink-0">{(emp?.first_name || emp?.nickname || "?")[0]}</div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-gray-700 truncate">{fullName(emp)}</p>
+                            <p className="text-xs text-gray-400">{fmtDate(l.start_date)} → {fmtDate(l.end_date)}</p>
+                          </div>
+                          <LeaveBadge code={l.leave_type} />
+                        </div>
+                      );
+                    })}
+                  </div>
+              }
+            </div>
+
+            {/* Upcoming holidays */}
+            <div className="bg-white rounded-2xl border border-gray-100 p-5 lg:col-span-1">
+              <p className="text-sm font-semibold text-gray-700 mb-3">Upcoming Holidays</p>
+              {upcomingHolidays.length === 0
+                ? <p className="text-xs text-gray-400 py-6 text-center">No upcoming holidays.</p>
+                : <div className="space-y-2">
+                    {upcomingHolidays.map(h => (
+                      <div key={h.id} className="px-3 py-2 rounded-xl bg-gray-50">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-medium text-gray-700">{h.name_en || h.name_th}</p>
+                          <p className="text-xs text-gray-400">{fmtDate(h.date_start)}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {DEPARTMENTS.map(d => h["applies_" + d.id] === "yes" && <DeptBadge key={d.id} dept={d.id} />)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+              }
+            </div>
+          </div>
+
+          {/* Recent leave */}
+          <div className="bg-white rounded-2xl border border-gray-100 mt-4 overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+              <p className="text-sm font-semibold text-gray-700">Recent Leave</p>
+              <span className="text-xs text-gray-400">Latest 6 records</span>
+            </div>
+            {recentLeave.length === 0
+              ? <p className="text-xs text-gray-400 py-8 text-center">No leave records yet.</p>
+              : <table className="w-full text-sm">
+                  <thead><tr className="border-b border-gray-100 bg-gray-50/60">
+                    {["Employee","Type","From","To","Days","Status"].map(h=>(
+                      <th key={h} className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wide">{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {recentLeave.map(l => {
+                      const emp = empMap[l.employee_id];
+                      return (
+                        <tr key={l.id} className="border-b border-gray-50">
+                          <td className="px-4 py-2.5 text-gray-700">{fullName(emp)} <span className="text-gray-400 ml-1">({emp?.nickname})</span></td>
+                          <td className="px-4 py-2.5"><LeaveBadge code={l.leave_type} /></td>
+                          <td className="px-4 py-2.5 text-gray-600">{fmtDate(l.start_date)}</td>
+                          <td className="px-4 py-2.5 text-gray-600">{fmtDate(l.end_date)}</td>
+                          <td className="px-4 py-2.5 text-gray-600">{l.days}</td>
+                          <td className="px-4 py-2.5"><span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${l.status === "Approved" ? "bg-emerald-50 text-emerald-600" : l.status === "Pending" ? "bg-amber-50 text-amber-600" : "bg-red-50 text-red-500"}`}>{l.status}</span></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+            }
+          </div>
+        </div>
+      );
+    }
+
+    function KpiCard({ label, value, hint, color }) {
+      const colorMap = {
+        teal:    "from-teal-50 to-white",
+        emerald: "from-emerald-50 to-white",
+        sky:     "from-sky-50 to-white",
+        amber:   "from-amber-50 to-white",
+        gray:    "from-gray-50 to-white",
+      };
+      return (
+        <div className={`bg-gradient-to-br ${colorMap[color] || colorMap.teal} rounded-2xl border border-gray-100 p-4`}>
+          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">{label}</p>
+          <p className="text-2xl font-bold text-gray-800 mt-1">{value}</p>
+          {hint && <p className="text-xs text-gray-400 mt-0.5">{hint}</p>}
+        </div>
+      );
+    }
+
+    // ─── EMPLOYEES PAGE ──────────────────────────────────────────────────────
+    function EmployeesPage({ employees, setEmployees, positions, user }) {
+      const [search,    setSearch]    = useState("");
+      const [filterBr,  setFilterBr]  = useState("All");
+      const [filterDp,  setFilterDp]  = useState("All");
+      const [filterSt,  setFilterSt]  = useState("All");
+      const [page,      setPage]      = useState(1);
+      const [editing,   setEditing]   = useState(null); // null | "new" | employee object
+
+      const filtered = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        return employees.filter(e => {
+          if (filterBr !== "All" && e.branch !== filterBr) return false;
+          if (filterDp !== "All" && e.department !== filterDp) return false;
+          if (filterSt !== "All" && e.hiring_status !== filterSt) return false;
+          if (!q) return true;
+          return [e.first_name, e.last_name, e.nickname, e.position, e.employee_id].join(" ").toLowerCase().includes(q);
+        });
+      }, [employees, search, filterBr, filterDp, filterSt]);
+
+      const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+      useEffect(() => { setPage(1); }, [search, filterBr, filterDp, filterSt]);
+
+      function saveEmp(emp) {
+        if (!emp.first_name && !emp.last_name && !emp.nickname) {
+          alert("Please enter at least a first name, last name, or nickname.");
+          return;
+        }
+        if (editing === "new") {
+          const e = { ...emp, employee_id: emp.employee_id || genId("EMP", employees, "employee_id") };
+          setEmployees([...employees, e]);
+        } else {
+          setEmployees(employees.map(x => x.employee_id === emp.employee_id ? emp : x));
+        }
+        setEditing(null);
+      }
+      function deleteEmp(emp) {
+        if (!confirm(`Delete ${fullName(emp)}? This cannot be undone.`)) return;
+        setEmployees(employees.filter(x => x.employee_id !== emp.employee_id));
+        setEditing(null);
+      }
+
+      return (
+        <div className="p-6 overflow-y-auto h-full">
+          <PageHeader
+            title="Employees"
+            subtitle={`${filtered.length} of ${employees.length} employees`}
+            action={
+              <button onClick={() => setEditing("new")}
+                className="flex items-center gap-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-medium transition-colors">
+                {I.add} Add Employee
+              </button>
+            }
+          />
+
+          {/* Filter bar */}
+          <div className="bg-white rounded-2xl border border-gray-100 p-3 mb-4 flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[200px]">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">{I.search}</span>
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, nickname, position, ID…"
+                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-400 bg-white" />
+            </div>
+            <select value={filterBr} onChange={e => setFilterBr(e.target.value)}
+              className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-400">
+              <option value="All">All Branches</option>
+              {BRANCHES.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
+            </select>
+            <select value={filterDp} onChange={e => setFilterDp(e.target.value)}
+              className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-400">
+              <option value="All">All Departments</option>
+              {DEPARTMENTS.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
+            </select>
+            <select value={filterSt} onChange={e => setFilterSt(e.target.value)}
+              className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-400">
+              <option value="All">All Statuses</option>
+              {HIRING_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+
+          {/* Table */}
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b border-gray-100 bg-gray-50/60">
+                  {["ID","Name","Nickname","Position","Department","Branch","Status","Start","Tenure",""].map(h => (
+                    <th key={h} className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {pageRows.length === 0 ? (
+                    <tr><td colSpan={10} className="text-center py-12 text-gray-400 text-sm">No employees match these filters.</td></tr>
+                  ) : pageRows.map(e => (
+                    <tr key={e.employee_id} className="border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer" onClick={() => setEditing(e)}>
+                      <td className="px-4 py-2.5 text-xs text-gray-400 font-mono">{e.employee_id}</td>
+                      <td className="px-4 py-2.5 text-gray-700 font-medium">{[e.prefix, e.first_name, e.last_name].filter(Boolean).join(" ")}</td>
+                      <td className="px-4 py-2.5 text-gray-500">{e.nickname || "—"}</td>
+                      <td className="px-4 py-2.5 text-gray-600">{e.position || "—"}</td>
+                      <td className="px-4 py-2.5"><DeptBadge dept={e.department} /></td>
+                      <td className="px-4 py-2.5"><BranchBadge branch={e.branch} /></td>
+                      <td className="px-4 py-2.5"><StatusBadge status={e.hiring_status} /></td>
+                      <td className="px-4 py-2.5 text-gray-500 text-xs">{fmtDate(e.start_date)}</td>
+                      <td className="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">{tenureFromStart(e.start_date, e.end_date)}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        <button onClick={(ev) => { ev.stopPropagation(); setEditing(e); }} className="text-gray-400 hover:text-teal-500 transition-colors p-1">{I.edit}</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Pagination page={page} total={filtered.length} perPage={PAGE_SIZE} onPage={setPage} />
+          </div>
+
+          {editing && (
+            <EmployeeFormModal
+              employee={editing === "new" ? blankEmployee(employees) : editing}
+              isNew={editing === "new"}
+              positions={positions}
+              onSave={saveEmp}
+              onDelete={deleteEmp}
+              onClose={() => setEditing(null)}
+            />
+          )}
+        </div>
+      );
+    }
+
+    function blankEmployee(employees) {
+      return {
+        employee_id: genId("EMP", employees, "employee_id"),
+        prefix: "", first_name: "", last_name: "", nickname: "", id_card: "", birth_date: "",
+        position: "", department: "restaurant", branch: "HQ",
+        hiring_status: "Full Time", start_date: TODAY, end_date: "",
+        salary_monthly: "", salary_daily: "", note: "",
+      };
+    }
+
+    function EmployeeFormModal({ employee, isNew, positions, onSave, onDelete, onClose }) {
+      const [form, setForm] = useState({ ...employee });
+      const update = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+      // When position changes, infer department from positions list
+      function pickPosition(name) {
+        update("position", name);
+        const p = positions.find(x => x.name_th === name || x.name_en === name);
+        if (p) update("department", p.department);
+      }
+
+      return (
+        <Modal title={isNew ? "Add Employee" : `Edit · ${fullName(employee)}`} onClose={onClose} wide>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Employee ID"><input value={form.employee_id} disabled className={inputCls + " bg-gray-50 text-gray-500"} /></Field>
+            <Field label="Prefix">
+              <select value={form.prefix} onChange={e => update("prefix", e.target.value)} className={inputCls}>
+                <option value="">—</option>
+                {["นาย","นางสาว","นาง","Mr","Ms","Mrs"].map(p => <option key={p}>{p}</option>)}
+              </select>
+            </Field>
+            <Field label="First Name" required><input value={form.first_name} onChange={e => update("first_name", e.target.value)} className={inputCls} /></Field>
+            <Field label="Last Name"><input value={form.last_name} onChange={e => update("last_name", e.target.value)} className={inputCls} /></Field>
+            <Field label="Nickname"><input value={form.nickname} onChange={e => update("nickname", e.target.value)} className={inputCls} /></Field>
+            <Field label="ID Card / Passport"><input value={form.id_card} onChange={e => update("id_card", e.target.value)} className={inputCls} /></Field>
+            <Field label="Birth Date"><input type="date" value={form.birth_date} onChange={e => update("birth_date", e.target.value)} className={inputCls} /></Field>
+            <Field label="Position">
+              <input list="position-list" value={form.position} onChange={e => pickPosition(e.target.value)} className={inputCls} placeholder="Type or pick…" />
+              <datalist id="position-list">
+                {positions.map(p => <option key={p.id} value={p.name_th}>{p.name_en} · {p.department}</option>)}
+                {positions.map(p => <option key={p.id + "_en"} value={p.name_en}>{p.name_th} · {p.department}</option>)}
+              </datalist>
+            </Field>
+            <Field label="Department" required>
+              <select value={form.department} onChange={e => update("department", e.target.value)} className={inputCls}>
+                {DEPARTMENTS.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Branch" required>
+              <select value={form.branch} onChange={e => update("branch", e.target.value)} className={inputCls}>
+                {BRANCHES.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Hiring Status" required>
+              <select value={form.hiring_status} onChange={e => update("hiring_status", e.target.value)} className={inputCls}>
+                {HIRING_STATUSES.map(s => <option key={s}>{s}</option>)}
+              </select>
+            </Field>
+            <Field label="Start Date"><input type="date" value={form.start_date} onChange={e => update("start_date", e.target.value)} className={inputCls} /></Field>
+            <Field label="End Date" hint="Set when an employee resigns or is terminated">
+              <input type="date" value={form.end_date} onChange={e => update("end_date", e.target.value)} className={inputCls} />
+            </Field>
+            <Field label="Monthly Salary (THB)"><input type="number" value={form.salary_monthly} onChange={e => update("salary_monthly", e.target.value)} className={inputCls} placeholder="e.g. 15000" /></Field>
+            <Field label="Daily Wage (THB)"><input type="number" value={form.salary_daily} onChange={e => update("salary_daily", e.target.value)} className={inputCls} placeholder="e.g. 500" /></Field>
+            <div className="col-span-2">
+              <Field label="Note"><textarea value={form.note} onChange={e => update("note", e.target.value)} rows={2} className={inputCls} placeholder="Optional remarks…" /></Field>
+            </div>
+          </div>
+          <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-100">
+            {!isNew
+              ? <button onClick={() => onDelete(form)} className="text-xs text-red-400 hover:text-red-600 flex items-center gap-1">{I.trash} Delete</button>
+              : <span />
+            }
+            <div className="flex items-center gap-2">
+              <button onClick={onClose} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+              <button onClick={() => onSave(form)} className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-medium">Save</button>
+            </div>
+          </div>
+        </Modal>
+      );
+    }
+
+    // ─── LEAVE PAGE ──────────────────────────────────────────────────────────
+    function LeavePage({ employees, leaveRecords, setLeaveRecords, leaveQuota, setLeaveQuota, user }) {
+      const [tab,        setTab]        = useState("records"); // records | quota
+      const [search,     setSearch]     = useState("");
+      const [typeFilter, setTypeFilter] = useState("All");
+      const [year,       setYear]       = useState(THIS_YEAR);
+      const [page,       setPage]       = useState(1);
+      const [editing,    setEditing]    = useState(null);
+      const [editingQ,   setEditingQ]   = useState(null);
+
+      const empMap = useMemo(() => Object.fromEntries(employees.map(e => [e.employee_id, e])), [employees]);
+      const activeEmps = employees.filter(e => !["Resigned","Terminated"].includes(e.hiring_status));
+
+      const filteredRecords = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        return leaveRecords.filter(l => {
+          if (typeFilter !== "All" && l.leave_type !== typeFilter) return false;
+          if ((l.start_date || "").slice(0, 4) !== String(year)) return false;
+          if (!q) return true;
+          const emp = empMap[l.employee_id];
+          return [fullName(emp), emp?.nickname, l.note].join(" ").toLowerCase().includes(q);
+        }).sort((a, b) => (b.start_date || "").localeCompare(a.start_date || ""));
+      }, [leaveRecords, search, typeFilter, year, empMap]);
+
+      const pageRows = filteredRecords.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+      useEffect(() => { setPage(1); }, [search, typeFilter, year, tab]);
+
+      // Compute usage per employee per year
+      const usage = useMemo(() => {
+        const m = {};
+        leaveRecords.forEach(l => {
+          if ((l.start_date || "").slice(0, 4) !== String(year)) return;
+          const eid = l.employee_id;
+          if (!m[eid]) m[eid] = { sick: 0, annual: 0, personal: 0, special: 0, unpaid: 0 };
+          if (m[eid][l.leave_type] != null) m[eid][l.leave_type] += parseFloat(l.days) || 0;
+        });
+        return m;
+      }, [leaveRecords, year]);
+
+      function saveRec(rec) {
+        if (!rec.employee_id) { alert("Please select an employee."); return; }
+        if (!rec.start_date)  { alert("Please enter a start date."); return; }
+        if (!rec.end_date)    rec.end_date = rec.start_date;
+        if (!rec.days)        rec.days = String(diffDaysInclusive(rec.start_date, rec.end_date));
+        const out = {
+          ...rec,
+          recorded_by: rec.recorded_by || (user?.name || "Admin"),
+          recorded_at: rec.recorded_at || TODAY,
+        };
+        if (editing === "new") {
+          out.id = out.id || genId("L", leaveRecords, "id");
+          setLeaveRecords([...leaveRecords, out]);
+        } else {
+          setLeaveRecords(leaveRecords.map(x => x.id === out.id ? out : x));
+        }
+        setEditing(null);
+      }
+      function deleteRec(rec) {
+        if (!confirm("Delete this leave record?")) return;
+        setLeaveRecords(leaveRecords.filter(x => x.id !== rec.id));
+        setEditing(null);
+      }
+      function saveQuota(q) {
+        const exists = leaveQuota.find(x => x.employee_id === q.employee_id && x.year === q.year);
+        if (exists) {
+          setLeaveQuota(leaveQuota.map(x => (x.employee_id === q.employee_id && x.year === q.year) ? q : x));
+        } else {
+          setLeaveQuota([...leaveQuota, q]);
+        }
+        setEditingQ(null);
+      }
+
+      return (
+        <div className="p-6 overflow-y-auto h-full">
+          <PageHeader
+            title="Leave"
+            subtitle={tab === "records" ? "Leave records (admin entry from paper forms)" : "Annual leave quota per employee"}
+            action={
+              <div className="flex items-center gap-2">
+                <select value={year} onChange={e => setYear(parseInt(e.target.value))}
+                  className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-400">
+                  {[THIS_YEAR - 1, THIS_YEAR, THIS_YEAR + 1].map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+                {tab === "records" && (
+                  <button onClick={() => setEditing("new")}
+                    className="flex items-center gap-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-medium transition-colors">
+                    {I.add} New Leave
+                  </button>
+                )}
+              </div>
+            }
+          />
+
+          {/* Tabs */}
+          <div className="flex items-center gap-1 mb-4">
+            {[
+              { id: "records", label: "Records" },
+              { id: "quota",   label: "Quota & Usage" },
+            ].map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className={`px-4 py-1.5 rounded-xl text-sm font-medium transition-colors ${tab === t.id ? "bg-teal-50 text-teal-700" : "text-gray-500 hover:bg-gray-50"}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {tab === "records" ? (
+            <>
+              <div className="bg-white rounded-2xl border border-gray-100 p-3 mb-4 flex flex-wrap items-center gap-2">
+                <div className="relative flex-1 min-w-[200px]">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">{I.search}</span>
+                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employee or note…"
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-400 bg-white" />
+                </div>
+                <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
+                  className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-400">
+                  <option value="All">All Types</option>
+                  {LEAVE_TYPES.map(t => <option key={t.code} value={t.code}>{t.name_en}</option>)}
+                </select>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead><tr className="border-b border-gray-100 bg-gray-50/60">
+                      {["Employee","Type","From","To","Days","Status","Note",""].map(h=>(
+                        <th key={h} className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wide">{h}</th>
+                      ))}
+                    </tr></thead>
+                    <tbody>
+                      {pageRows.length === 0 ? (
+                        <tr><td colSpan={8} className="text-center py-12 text-gray-400 text-sm">No leave records for this filter.</td></tr>
+                      ) : pageRows.map(l => {
+                        const emp = empMap[l.employee_id];
+                        return (
+                          <tr key={l.id} className="border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer" onClick={() => setEditing(l)}>
+                            <td className="px-4 py-2.5 text-gray-700">{fullName(emp)} <span className="text-gray-400 ml-1 text-xs">({emp?.nickname})</span></td>
+                            <td className="px-4 py-2.5"><LeaveBadge code={l.leave_type} /></td>
+                            <td className="px-4 py-2.5 text-gray-600">{fmtDate(l.start_date)}</td>
+                            <td className="px-4 py-2.5 text-gray-600">{fmtDate(l.end_date)}</td>
+                            <td className="px-4 py-2.5 text-gray-700 font-medium">{l.days}</td>
+                            <td className="px-4 py-2.5"><span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${l.status === "Approved" ? "bg-emerald-50 text-emerald-600" : l.status === "Pending" ? "bg-amber-50 text-amber-600" : "bg-red-50 text-red-500"}`}>{l.status || "Pending"}</span></td>
+                            <td className="px-4 py-2.5 text-gray-500 text-xs max-w-xs truncate" title={l.note}>{l.note || "—"}</td>
+                            <td className="px-4 py-2.5 text-right">
+                              <button onClick={(ev) => { ev.stopPropagation(); setEditing(l); }} className="text-gray-400 hover:text-teal-500 p-1">{I.edit}</button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <Pagination page={page} total={filteredRecords.length} perPage={PAGE_SIZE} onPage={setPage} />
+              </div>
+            </>
+          ) : (
+            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50/60">
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wide">Employee</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wide">Dept</th>
+                      {LEAVE_TYPES.map(t => (
+                        <th key={t.code} className="text-center px-3 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wide">{t.name_en}<br/><span className="text-[10px] normal-case text-gray-400 font-normal">used / quota</span></th>
+                      ))}
+                      <th className="px-4 py-2.5"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeEmps.length === 0 ? (
+                      <tr><td colSpan={8} className="text-center py-12 text-gray-400 text-sm">No active employees.</td></tr>
+                    ) : activeEmps.map(e => {
+                      const q = leaveQuota.find(x => x.employee_id === e.employee_id && String(x.year) === String(year)) || { year: String(year), employee_id: e.employee_id, sick: "0", annual: "0", personal: "0", special: "0", unpaid: "0" };
+                      const u = usage[e.employee_id] || {};
+                      return (
+                        <tr key={e.employee_id} className="border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer" onClick={() => setEditingQ(q)}>
+                          <td className="px-4 py-2.5 text-gray-700">{fullName(e)} <span className="text-gray-400 text-xs ml-1">({e.nickname})</span></td>
+                          <td className="px-4 py-2.5"><DeptBadge dept={e.department} /></td>
+                          {LEAVE_TYPES.map(t => {
+                            const used  = (u[t.code] || 0);
+                            const quota = parseFloat(q[t.code]) || 0;
+                            const over  = quota > 0 && used > quota;
+                            return (
+                              <td key={t.code} className="px-3 py-2.5 text-center">
+                                <span className={`text-xs font-medium ${over ? "text-red-500" : used > 0 ? "text-gray-700" : "text-gray-400"}`}>{used} / {quota || "—"}</span>
+                              </td>
+                            );
+                          })}
+                          <td className="px-4 py-2.5 text-right">
+                            <button onClick={(ev) => { ev.stopPropagation(); setEditingQ(q); }} className="text-gray-400 hover:text-teal-500 p-1">{I.edit}</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {editing && (
+            <LeaveFormModal
+              record={editing === "new" ? blankLeave(leaveRecords, user) : editing}
+              isNew={editing === "new"}
+              employees={employees}
+              onSave={saveRec}
+              onDelete={deleteRec}
+              onClose={() => setEditing(null)}
+            />
+          )}
+
+          {editingQ && (
+            <QuotaFormModal
+              quota={editingQ}
+              employee={empMap[editingQ.employee_id]}
+              onSave={saveQuota}
+              onClose={() => setEditingQ(null)}
+            />
+          )}
+        </div>
+      );
+    }
+
+    function blankLeave(records, user) {
+      return {
+        id: genId("L", records, "id"),
+        employee_id: "",
+        leave_type: "sick",
+        start_date: TODAY, end_date: TODAY,
+        days: "1", status: "Approved", note: "",
+        recorded_by: user?.name || "Admin",
+        recorded_at: TODAY,
+      };
+    }
+
+    function LeaveFormModal({ record, isNew, employees, onSave, onDelete, onClose }) {
+      const [form, setForm] = useState({ ...record });
+      const update = (k, v) => setForm(f => {
+        const next = { ...f, [k]: v };
+        if (k === "start_date" || k === "end_date") {
+          const s = k === "start_date" ? v : f.start_date;
+          let e = k === "end_date" ? v : f.end_date;
+          if (k === "start_date" && (!f.end_date || f.end_date < s)) { e = s; next.end_date = s; }
+          next.days = String(diffDaysInclusive(s, e));
+        }
+        return next;
+      });
+
+      return (
+        <Modal title={isNew ? "New Leave Record" : "Edit Leave Record"} onClose={onClose} wide>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <Field label="Employee" required>
+                <select value={form.employee_id} onChange={e => update("employee_id", e.target.value)} className={inputCls}>
+                  <option value="">— Select —</option>
+                  {employees.filter(e => !["Resigned","Terminated"].includes(e.hiring_status)).map(e => (
+                    <option key={e.employee_id} value={e.employee_id}>{fullName(e)} ({e.nickname || e.employee_id}) · {e.position}</option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            <Field label="Leave Type" required>
+              <select value={form.leave_type} onChange={e => update("leave_type", e.target.value)} className={inputCls}>
+                {LEAVE_TYPES.map(t => <option key={t.code} value={t.code}>{t.name_en} ({t.name_th})</option>)}
+              </select>
+            </Field>
+            <Field label="Status">
+              <select value={form.status} onChange={e => update("status", e.target.value)} className={inputCls}>
+                {["Approved","Pending","Rejected"].map(s => <option key={s}>{s}</option>)}
+              </select>
+            </Field>
+            <Field label="Start Date" required><input type="date" value={form.start_date} onChange={e => update("start_date", e.target.value)} className={inputCls} /></Field>
+            <Field label="End Date" required><input type="date" value={form.end_date} onChange={e => update("end_date", e.target.value)} className={inputCls} /></Field>
+            <Field label="Days"><input type="number" value={form.days} onChange={e => update("days", e.target.value)} step="0.5" className={inputCls} /></Field>
+            <Field label="Recorded By"><input value={form.recorded_by} onChange={e => update("recorded_by", e.target.value)} className={inputCls} /></Field>
+            <div className="col-span-2">
+              <Field label="Note / Reason"><textarea value={form.note} onChange={e => update("note", e.target.value)} rows={3} className={inputCls} placeholder="From the paper leave form…" /></Field>
+            </div>
+          </div>
+          <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-100">
+            {!isNew
+              ? <button onClick={() => onDelete(form)} className="text-xs text-red-400 hover:text-red-600 flex items-center gap-1">{I.trash} Delete</button>
+              : <span />}
+            <div className="flex items-center gap-2">
+              <button onClick={onClose} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+              <button onClick={() => onSave(form)} className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-medium">Save</button>
+            </div>
+          </div>
+        </Modal>
+      );
+    }
+
+    function QuotaFormModal({ quota, employee, onSave, onClose }) {
+      const [form, setForm] = useState({ ...quota });
+      const update = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+      return (
+        <Modal title={`Quota · ${fullName(employee)} · ${quota.year}`} onClose={onClose}>
+          <div className="grid grid-cols-2 gap-4">
+            {LEAVE_TYPES.map(t => (
+              <Field key={t.code} label={`${t.name_en} (days)`}>
+                <input type="number" value={form[t.code] || ""} onChange={e => update(t.code, e.target.value)} className={inputCls} />
+              </Field>
+            ))}
+            <div className="col-span-2">
+              <Field label="Pro-rate Eligible Date" hint="Date when employee becomes eligible for full annual leave (typically 1 year after start date).">
+                <input type="date" value={form.prorate_eligible_date || ""} onChange={e => update("prorate_eligible_date", e.target.value)} className={inputCls} />
+              </Field>
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-gray-100">
+            <button onClick={onClose} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+            <button onClick={() => onSave(form)} className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-medium">Save</button>
+          </div>
+        </Modal>
+      );
+    }
+
+    // ─── COMPENSATION & BENEFITS PAGE ────────────────────────────────────────
+    function CompensationPage({ compensation, setCompensation, settings, user }) {
+      const [editing, setEditing] = useState(null);
+      const [search,  setSearch]  = useState("");
+      const filtered = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        if (!q) return compensation;
+        return compensation.filter(c => [c.item_th, c.item_en, c.category, c.remark].join(" ").toLowerCase().includes(q));
+      }, [compensation, search]);
+
+      const grouped = useMemo(() => {
+        const groups = {};
+        filtered.forEach(c => {
+          const cat = c.category || "Other";
+          if (!groups[cat]) groups[cat] = [];
+          groups[cat].push(c);
+        });
+        return groups;
+      }, [filtered]);
+
+      function saveItem(item) {
+        if (!item.item_th && !item.item_en) { alert("Please enter the benefit name."); return; }
+        if (editing === "new") {
+          const i = { ...item, id: item.id || genId("C", compensation, "id") };
+          setCompensation([...compensation, i]);
+        } else {
+          setCompensation(compensation.map(x => x.id === item.id ? item : x));
+        }
+        setEditing(null);
+      }
+      function deleteItem(item) {
+        if (!confirm("Delete this benefit row?")) return;
+        setCompensation(compensation.filter(x => x.id !== item.id));
+        setEditing(null);
+      }
+
+      const opHrs = (k) => settings.find(s => s.key === k)?.value;
+
+      return (
+        <div className="p-6 overflow-y-auto h-full">
+          <PageHeader
+            title="Compensation & Benefits"
+            subtitle="Benefits matrix by department · click any row to edit"
+            action={
+              <button onClick={() => setEditing("new")}
+                className="flex items-center gap-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-medium transition-colors">
+                {I.add} Add Benefit
+              </button>
+            }
+          />
+
+          {/* Operating hours quick reference */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+            <InfoBlock title="Restaurant Hours" lines={[opHrs("operating_hours_weekday") || "—", opHrs("operating_hours_weekend") || "—"]} color="teal" />
+            <InfoBlock title="Brewery Hours" lines={[opHrs("brewery_hours") || "—", `Off days: ${opHrs("monthly_off_days") || "—"}/month`]} color="amber" />
+            <InfoBlock title="OT Rates" lines={[`${opHrs("ot_rate_hour") || "—"} THB/hr`, `Brewery weekend: ${opHrs("ot_rate_brewery_weekend") || "—"}`]} color="rose" />
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-100 p-3 mb-4">
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">{I.search}</span>
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search benefit, category, remark…"
+                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-400 bg-white" />
+            </div>
+          </div>
+
+          {Object.keys(grouped).length === 0 ? (
+            <EmptyState icon="💰" title="No benefits yet" hint="Click 'Add Benefit' to start." />
+          ) : Object.entries(grouped).map(([cat, items]) => (
+            <div key={cat} className="bg-white rounded-2xl border border-gray-100 mb-4 overflow-hidden">
+              <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/40">
+                <p className="text-sm font-semibold text-gray-700">{cat === "Basic" ? "Basic Compensation" : cat === "Welfare" ? "Welfare Benefits" : cat === "Zone" ? "Zone-specific Compensation" : cat === "Extra" ? "Additional Benefits" : cat}</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b border-gray-100 bg-white">
+                    {["Benefit","Brewery","Bar / Restaurant","Kitchen","Office","Remark",""].map(h=>(
+                      <th key={h} className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wide">{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {items.map(c => (
+                      <tr key={c.id} className="border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer" onClick={() => setEditing(c)}>
+                        <td className="px-4 py-3">
+                          <p className="text-sm font-medium text-gray-700">{c.item_en || c.item_th}</p>
+                          {c.item_th && c.item_en && <p className="text-xs text-gray-400">{c.item_th}</p>}
+                        </td>
+                        {["brewery","bar_restaurant","kitchen","office"].map(k => (
+                          <td key={k} className="px-4 py-3 text-center">
+                            {c[k] === "✅" || c[k] === "yes" || c[k] === "Yes"
+                              ? <span className="text-emerald-500">✓</span>
+                              : c[k] === "—" || !c[k] ? <span className="text-gray-300">—</span>
+                              : <span className="text-xs text-gray-600">{c[k]}</span>}
+                          </td>
+                        ))}
+                        <td className="px-4 py-3 text-xs text-gray-500 max-w-md whitespace-pre-line">{c.remark || ""}</td>
+                        <td className="px-4 py-3 text-right">
+                          <button onClick={(ev) => { ev.stopPropagation(); setEditing(c); }} className="text-gray-400 hover:text-teal-500 p-1">{I.edit}</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+
+          {editing && (
+            <CompensationFormModal
+              item={editing === "new" ? { id: genId("C", compensation, "id"), item_th:"", item_en:"", category:"Welfare", brewery:"", bar_restaurant:"", kitchen:"", office:"", remark:"" } : editing}
+              isNew={editing === "new"}
+              onSave={saveItem}
+              onDelete={deleteItem}
+              onClose={() => setEditing(null)}
+            />
+          )}
+        </div>
+      );
+    }
+
+    function InfoBlock({ title, lines, color }) {
+      const map = { teal: "bg-teal-50 border-teal-100", amber: "bg-amber-50 border-amber-100", rose: "bg-rose-50 border-rose-100" };
+      return (
+        <div className={`rounded-2xl border p-4 ${map[color] || "bg-gray-50 border-gray-100"}`}>
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{title}</p>
+          {lines.map((l, i) => <p key={i} className="text-sm text-gray-700 mt-1">{l}</p>)}
+        </div>
+      );
+    }
+
+    function CompensationFormModal({ item, isNew, onSave, onDelete, onClose }) {
+      const [form, setForm] = useState({ ...item });
+      const update = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+      return (
+        <Modal title={isNew ? "Add Benefit" : "Edit Benefit"} onClose={onClose} wide>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="English Name"><input value={form.item_en} onChange={e => update("item_en", e.target.value)} className={inputCls} /></Field>
+            <Field label="Thai Name"><input value={form.item_th} onChange={e => update("item_th", e.target.value)} className={inputCls} /></Field>
+            <Field label="Category">
+              <select value={form.category} onChange={e => update("category", e.target.value)} className={inputCls}>
+                {["Basic","Zone","Welfare","Extra"].map(c => <option key={c}>{c}</option>)}
+              </select>
+            </Field>
+            <div />
+            {[
+              ["brewery","Brewery"],
+              ["bar_restaurant","Bar / Restaurant"],
+              ["kitchen","Kitchen"],
+              ["office","Office"],
+            ].map(([k, label]) => (
+              <Field key={k} label={`${label} value`}>
+                <input value={form[k] || ""} onChange={e => update(k, e.target.value)} className={inputCls} placeholder='✅, custom value, or leave blank' />
+              </Field>
+            ))}
+            <div className="col-span-2">
+              <Field label="Remark"><textarea value={form.remark} onChange={e => update("remark", e.target.value)} rows={3} className={inputCls} /></Field>
+            </div>
+          </div>
+          <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-100">
+            {!isNew
+              ? <button onClick={() => onDelete(form)} className="text-xs text-red-400 hover:text-red-600 flex items-center gap-1">{I.trash} Delete</button>
+              : <span />}
+            <div className="flex items-center gap-2">
+              <button onClick={onClose} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+              <button onClick={() => onSave(form)} className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-medium">Save</button>
+            </div>
+          </div>
+        </Modal>
+      );
+    }
+
+    // ─── JOB DESCRIPTIONS PAGE ───────────────────────────────────────────────
+    function JDPage({ positions, setPositions, jds, setJds, user }) {
+      const [search, setSearch] = useState("");
+      const [selected, setSelected] = useState(null);
+      const [editingPos, setEditingPos] = useState(null);
+      const [editingJD, setEditingJD] = useState(false);
+
+      const filtered = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        if (!q) return positions;
+        return positions.filter(p => [p.name_th, p.name_en, p.department].join(" ").toLowerCase().includes(q));
+      }, [positions, search]);
+
+      const grouped = useMemo(() => {
+        const m = {};
+        filtered.forEach(p => { (m[p.department] = m[p.department] || []).push(p); });
+        return m;
+      }, [filtered]);
+
+      const currentJD = selected ? (jds.find(j => j.position_id === selected.id) || { position_id: selected.id, qualifications:"", responsibilities:"", benefits_summary:"", updated_by:"", updated_at:"" }) : null;
+
+      function savePosition(p) {
+        if (!p.name_en && !p.name_th) { alert("Please enter at least one name."); return; }
+        if (editingPos === "new") {
+          const np = { ...p, id: p.id || genId("P", positions, "id") };
+          setPositions([...positions, np]);
+          setSelected(np);
+        } else {
+          setPositions(positions.map(x => x.id === p.id ? p : x));
+          if (selected?.id === p.id) setSelected(p);
+        }
+        setEditingPos(null);
+      }
+      function deletePosition(p) {
+        if (!confirm(`Delete position ${p.name_en || p.name_th}? This will also remove its job description.`)) return;
+        setPositions(positions.filter(x => x.id !== p.id));
+        setJds(jds.filter(j => j.position_id !== p.id));
+        if (selected?.id === p.id) setSelected(null);
+        setEditingPos(null);
+      }
+      function saveJD(jd) {
+        const out = { ...jd, updated_by: user?.name || "Admin", updated_at: TODAY };
+        const exists = jds.find(j => j.position_id === out.position_id);
+        if (exists) {
+          setJds(jds.map(j => j.position_id === out.position_id ? out : j));
+        } else {
+          setJds([...jds, out]);
+        }
+        setEditingJD(false);
+      }
+
+      return (
+        <div className="p-6 overflow-y-auto h-full">
+          <PageHeader
+            title="Job Descriptions"
+            subtitle={`${positions.length} positions across ${DEPARTMENTS.length} departments`}
+            action={
+              <button onClick={() => setEditingPos("new")}
+                className="flex items-center gap-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-medium transition-colors">
+                {I.add} Add Position
+              </button>
+            }
+          />
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Left: position list */}
+            <div className="lg:col-span-1 space-y-3">
+              <div className="bg-white rounded-2xl border border-gray-100 p-3">
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">{I.search}</span>
+                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search positions…"
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-400 bg-white" />
+                </div>
+              </div>
+
+              {DEPARTMENTS.map(d => {
+                const list = grouped[d.id] || [];
+                if (!list.length) return null;
+                return (
+                  <div key={d.id} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                    <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50/40 flex items-center justify-between">
+                      <DeptBadge dept={d.id} />
+                      <span className="text-xs text-gray-400">{list.length}</span>
+                    </div>
+                    <div className="divide-y divide-gray-50">
+                      {list.map(p => (
+                        <button key={p.id} onClick={() => setSelected(p)}
+                          className={`w-full px-4 py-2.5 text-left flex items-center justify-between hover:bg-gray-50 transition-colors ${selected?.id === p.id ? "bg-teal-50/50" : ""}`}>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-gray-700 truncate">{p.name_en}</p>
+                            <p className="text-xs text-gray-400 truncate">{p.name_th}</p>
+                          </div>
+                          {jds.find(j => j.position_id === p.id)
+                            ? <span className="text-xs text-emerald-500 shrink-0 ml-2">●</span>
+                            : <span className="text-xs text-gray-300 shrink-0 ml-2">○</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {Object.keys(grouped).length === 0 && (
+                <EmptyState icon="💼" title="No positions" hint="Click 'Add Position' to start." />
+              )}
+            </div>
+
+            {/* Right: JD detail */}
+            <div className="lg:col-span-2">
+              {!selected ? (
+                <EmptyState icon="📋" title="Select a position" hint="Pick a position on the left to view or edit its job description." />
+              ) : (
+                <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                  <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Job Description</p>
+                      <h2 className="text-lg font-bold text-gray-800 mt-0.5">{selected.name_en}</h2>
+                      <p className="text-sm text-gray-400">{selected.name_th}</p>
+                      <div className="flex items-center gap-2 mt-2">
+                        <DeptBadge dept={selected.department} />
+                        <span className="text-xs text-gray-400">{selected.default_employment_type}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setEditingPos(selected)}
+                        className="px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50 rounded-lg flex items-center gap-1">{I.edit} Position</button>
+                      <button onClick={() => setEditingJD(true)}
+                        className="px-3 py-1.5 text-xs bg-teal-50 text-teal-600 hover:bg-teal-100 rounded-lg flex items-center gap-1">{I.edit} JD</button>
+                    </div>
+                  </div>
+                  <div className="p-6 space-y-6">
+                    <JDSection title="Qualifications" content={currentJD.qualifications} />
+                    <JDSection title="Responsibilities" content={currentJD.responsibilities} />
+                    <JDSection title="Benefits Summary" content={currentJD.benefits_summary} />
+                    {currentJD.updated_at && (
+                      <p className="text-xs text-gray-400 pt-3 border-t border-gray-100">Last updated {fmtDate(currentJD.updated_at)} by {currentJD.updated_by || "—"}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {editingPos && (
+            <PositionFormModal
+              position={editingPos === "new" ? { id: genId("P", positions, "id"), name_th:"", name_en:"", department:"restaurant", default_employment_type:"Full Time" } : editingPos}
+              isNew={editingPos === "new"}
+              onSave={savePosition}
+              onDelete={deletePosition}
+              onClose={() => setEditingPos(null)}
+            />
+          )}
+
+          {editingJD && selected && (
+            <JDFormModal
+              jd={currentJD}
+              position={selected}
+              onSave={saveJD}
+              onClose={() => setEditingJD(false)}
+            />
+          )}
+        </div>
+      );
+    }
+
+    function JDSection({ title, content }) {
+      return (
+        <div>
+          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{title}</p>
+          {content
+            ? <p className="text-sm text-gray-700 whitespace-pre-line leading-relaxed">{content}</p>
+            : <p className="text-sm text-gray-300 italic">Not specified</p>}
+        </div>
+      );
+    }
+
+    function PositionFormModal({ position, isNew, onSave, onDelete, onClose }) {
+      const [form, setForm] = useState({ ...position });
+      const update = (k, v) => setForm(f => ({ ...f, [k]: v }));
+      return (
+        <Modal title={isNew ? "Add Position" : "Edit Position"} onClose={onClose}>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="English Name" required><input value={form.name_en} onChange={e => update("name_en", e.target.value)} className={inputCls} /></Field>
+            <Field label="Thai Name"><input value={form.name_th} onChange={e => update("name_th", e.target.value)} className={inputCls} /></Field>
+            <Field label="Department" required>
+              <select value={form.department} onChange={e => update("department", e.target.value)} className={inputCls}>
+                {DEPARTMENTS.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Default Employment Type">
+              <select value={form.default_employment_type} onChange={e => update("default_employment_type", e.target.value)} className={inputCls}>
+                {["Full Time","Part Time","Contract"].map(s => <option key={s}>{s}</option>)}
+              </select>
+            </Field>
+          </div>
+          <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-100">
+            {!isNew
+              ? <button onClick={() => onDelete(form)} className="text-xs text-red-400 hover:text-red-600 flex items-center gap-1">{I.trash} Delete</button>
+              : <span />}
+            <div className="flex items-center gap-2">
+              <button onClick={onClose} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+              <button onClick={() => onSave(form)} className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-medium">Save</button>
+            </div>
+          </div>
+        </Modal>
+      );
+    }
+
+    function JDFormModal({ jd, position, onSave, onClose }) {
+      const [form, setForm] = useState({ ...jd });
+      const update = (k, v) => setForm(f => ({ ...f, [k]: v }));
+      return (
+        <Modal title={`Edit JD · ${position.name_en}`} onClose={onClose} xwide>
+          <div className="space-y-4">
+            <Field label="Qualifications" hint="One per line — e.g. age, education, experience"><textarea value={form.qualifications} onChange={e => update("qualifications", e.target.value)} rows={6} className={inputCls + " font-mono text-xs leading-relaxed"} /></Field>
+            <Field label="Responsibilities" hint="Numbered or bulleted list of duties"><textarea value={form.responsibilities} onChange={e => update("responsibilities", e.target.value)} rows={8} className={inputCls + " font-mono text-xs leading-relaxed"} /></Field>
+            <Field label="Benefits Summary" hint="Quick summary of benefits for this position"><textarea value={form.benefits_summary} onChange={e => update("benefits_summary", e.target.value)} rows={4} className={inputCls + " font-mono text-xs leading-relaxed"} /></Field>
+          </div>
+          <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-gray-100">
+            <button onClick={onClose} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+            <button onClick={() => onSave(form)} className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-medium">Save</button>
+          </div>
+        </Modal>
+      );
+    }
+
+    // ─── BUSINESS CALENDAR PAGE ──────────────────────────────────────────────
+    function CalendarPage({ calendar, setCalendar, user }) {
+      const [year,    setYear]    = useState(THIS_YEAR);
+      const [editing, setEditing] = useState(null);
+      const [deptFilter, setDeptFilter] = useState("All");
+
+      const filtered = useMemo(() => {
+        return calendar
+          .filter(h => String(h.year) === String(year))
+          .filter(h => deptFilter === "All" ? true : h["applies_" + deptFilter] === "yes")
+          .sort((a, b) => (a.date_start || "").localeCompare(b.date_start || ""));
+      }, [calendar, year, deptFilter]);
+
+      function saveItem(item) {
+        if (!item.date_start) { alert("Please enter a start date."); return; }
+        if (!item.name_th && !item.name_en) { alert("Please enter the holiday name."); return; }
+        if (!item.date_end) item.date_end = item.date_start;
+        if (!item.year) item.year = String(item.date_start.slice(0, 4));
+        if (!item.days_off) item.days_off = String(diffDaysInclusive(item.date_start, item.date_end));
+        if (editing === "new") {
+          const i = { ...item, id: item.id || genId("H", calendar, "id") };
+          setCalendar([...calendar, i]);
+        } else {
+          setCalendar(calendar.map(x => x.id === item.id ? item : x));
+        }
+        setEditing(null);
+      }
+      function deleteItem(item) {
+        if (!confirm("Delete this calendar entry?")) return;
+        setCalendar(calendar.filter(x => x.id !== item.id));
+        setEditing(null);
+      }
+
+      const totalDaysByDept = useMemo(() => {
+        const m = { brewery: 0, restaurant: 0, kitchen: 0, office: 0 };
+        filtered.forEach(h => {
+          const d = parseFloat(h.days_off) || 0;
+          DEPARTMENTS.forEach(dep => { if (h["applies_" + dep.id] === "yes") m[dep.id] += d; });
+        });
+        return m;
+      }, [filtered]);
+
+      return (
+        <div className="p-6 overflow-y-auto h-full">
+          <PageHeader
+            title="Business Calendar"
+            subtitle="Public holidays and special days per department"
+            action={
+              <div className="flex items-center gap-2">
+                <select value={year} onChange={e => setYear(parseInt(e.target.value))}
+                  className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-400">
+                  {[THIS_YEAR - 1, THIS_YEAR, THIS_YEAR + 1, THIS_YEAR + 2].map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+                <button onClick={() => setEditing("new")}
+                  className="flex items-center gap-2 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-medium transition-colors">
+                  {I.add} Add Holiday
+                </button>
+              </div>
+            }
+          />
+
+          {/* Dept totals */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+            {DEPARTMENTS.map(d => (
+              <div key={d.id} className="bg-white rounded-2xl border border-gray-100 p-4">
+                <DeptBadge dept={d.id} />
+                <p className="text-2xl font-bold text-gray-800 mt-2">{totalDaysByDept[d.id]}</p>
+                <p className="text-xs text-gray-400">days off in {year}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Filter */}
+          <div className="flex items-center gap-1 mb-4">
+            <button onClick={() => setDeptFilter("All")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-medium ${deptFilter === "All" ? "bg-teal-50 text-teal-700" : "text-gray-500 hover:bg-gray-50"}`}>All</button>
+            {DEPARTMENTS.map(d => (
+              <button key={d.id} onClick={() => setDeptFilter(d.id)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium ${deptFilter === d.id ? "bg-teal-50 text-teal-700" : "text-gray-500 hover:bg-gray-50"}`}>{d.label}</button>
+            ))}
+          </div>
+
+          {/* Table */}
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b border-gray-100 bg-gray-50/60">
+                  {["Date","Name","Days","Brewery","Restaurant","Kitchen","Office","Note",""].map(h=>(
+                    <th key={h} className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {filtered.length === 0 ? (
+                    <tr><td colSpan={9} className="text-center py-12 text-gray-400 text-sm">No holidays in {year}.</td></tr>
+                  ) : filtered.map(h => (
+                    <tr key={h.id} className="border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer" onClick={() => setEditing(h)}>
+                      <td className="px-4 py-2.5 text-gray-600 text-xs whitespace-nowrap">
+                        {fmtDate(h.date_start)}{h.date_end !== h.date_start && <> → {fmtDate(h.date_end)}</>}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <p className="text-sm font-medium text-gray-700">{h.name_en || h.name_th}</p>
+                        {h.name_th && h.name_en && <p className="text-xs text-gray-400">{h.name_th}</p>}
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-700 font-medium">{h.days_off}</td>
+                      {DEPARTMENTS.map(d => (
+                        <td key={d.id} className="px-4 py-2.5 text-center">
+                          {h["applies_" + d.id] === "yes" ? <span className="text-emerald-500">✓</span> : <span className="text-gray-300">—</span>}
+                        </td>
+                      ))}
+                      <td className="px-4 py-2.5 text-xs text-gray-500">{h.note || ""}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        <button onClick={(ev) => { ev.stopPropagation(); setEditing(h); }} className="text-gray-400 hover:text-teal-500 p-1">{I.edit}</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {editing && (
+            <CalendarFormModal
+              item={editing === "new" ? { id: genId("H", calendar, "id"), year: String(year), date_start: TODAY, date_end: TODAY, name_th:"", name_en:"", note:"", days_off:"1", applies_brewery:"yes", applies_restaurant:"yes", applies_kitchen:"yes", applies_office:"yes" } : editing}
+              isNew={editing === "new"}
+              onSave={saveItem}
+              onDelete={deleteItem}
+              onClose={() => setEditing(null)}
+            />
+          )}
+        </div>
+      );
+    }
+
+    function CalendarFormModal({ item, isNew, onSave, onDelete, onClose }) {
+      const [form, setForm] = useState({ ...item });
+      const update = (k, v) => setForm(f => {
+        const next = { ...f, [k]: v };
+        if (k === "date_start" || k === "date_end") {
+          const s = k === "date_start" ? v : f.date_start;
+          let e = k === "date_end" ? v : f.date_end;
+          if (k === "date_start" && (!f.date_end || f.date_end < s)) { e = s; next.date_end = s; }
+          next.days_off = String(diffDaysInclusive(s, e));
+          next.year = (s || "").slice(0, 4);
+        }
+        return next;
+      });
+      const toggleDept = (id) => update("applies_" + id, form["applies_" + id] === "yes" ? "" : "yes");
+
+      return (
+        <Modal title={isNew ? "Add Holiday" : "Edit Holiday"} onClose={onClose} wide>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Start Date" required><input type="date" value={form.date_start} onChange={e => update("date_start", e.target.value)} className={inputCls} /></Field>
+            <Field label="End Date"><input type="date" value={form.date_end} onChange={e => update("date_end", e.target.value)} className={inputCls} /></Field>
+            <Field label="English Name"><input value={form.name_en} onChange={e => update("name_en", e.target.value)} className={inputCls} /></Field>
+            <Field label="Thai Name"><input value={form.name_th} onChange={e => update("name_th", e.target.value)} className={inputCls} /></Field>
+            <Field label="Days Off"><input type="number" value={form.days_off} onChange={e => update("days_off", e.target.value)} className={inputCls} /></Field>
+            <Field label="Year"><input value={form.year} onChange={e => update("year", e.target.value)} className={inputCls} /></Field>
+            <div className="col-span-2">
+              <label className={labelCls}>Applies to Departments</label>
+              <div className="flex flex-wrap gap-2">
+                {DEPARTMENTS.map(d => (
+                  <button key={d.id} type="button" onClick={() => toggleDept(d.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors border ${form["applies_" + d.id] === "yes" ? "bg-teal-50 text-teal-700 border-teal-200" : "bg-white text-gray-500 border-gray-200 hover:bg-gray-50"}`}>
+                    {form["applies_" + d.id] === "yes" ? "✓ " : ""}{d.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="col-span-2">
+              <Field label="Note"><textarea value={form.note} onChange={e => update("note", e.target.value)} rows={2} className={inputCls} placeholder="e.g. Outing, ชดเชย, tentative…" /></Field>
+            </div>
+          </div>
+          <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-100">
+            {!isNew
+              ? <button onClick={() => onDelete(form)} className="text-xs text-red-400 hover:text-red-600 flex items-center gap-1">{I.trash} Delete</button>
+              : <span />}
+            <div className="flex items-center gap-2">
+              <button onClick={onClose} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+              <button onClick={() => onSave(form)} className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-xl text-sm font-medium">Save</button>
+            </div>
+          </div>
+        </Modal>
+      );
+    }
+
+    // ─── SETTINGS PAGE ───────────────────────────────────────────────────────
+    function SettingsPage({ settings, setSettings, leaveTypes }) {
+      const KNOWN = [
+        { key: "app_title",                label: "App Title",                hint: "Header label" },
+        { key: "operating_hours_weekday",  label: "Weekday Hours (Bar)",      hint: "e.g. 16:00-00:00" },
+        { key: "operating_hours_weekend",  label: "Weekend Hours (Bar)",      hint: "e.g. 14:00-00:00" },
+        { key: "brewery_hours",            label: "Brewery Hours",            hint: "Mon-Fri schedule" },
+        { key: "ot_rate_hour",             label: "OT Rate (THB/hour)",       hint: "Hourly OT rate" },
+        { key: "ot_rate_brewery_weekend",  label: "Brewery Weekend OT",       hint: "Saturday optional rate" },
+        { key: "monthly_off_days",         label: "Monthly Off Days",         hint: "e.g. 6 (4+2 weekly)" },
+      ];
+
+      function saveSetting(key, value) {
+        const exists = settings.find(s => s.key === key);
+        if (exists) {
+          setSettings(settings.map(s => s.key === key ? { key, value } : s));
+        } else {
+          setSettings([...settings, { key, value }]);
+        }
+      }
+      function getValue(k) { return settings.find(s => s.key === k)?.value || ""; }
+
+      return (
+        <div className="p-6 overflow-y-auto h-full">
+          <PageHeader title="Settings" subtitle="App configuration and reference data" />
+
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden mb-4">
+            <div className="px-5 py-3 border-b border-gray-100">
+              <p className="text-sm font-semibold text-gray-700">Operating Settings</p>
+            </div>
+            <div className="divide-y divide-gray-50">
+              {KNOWN.map(s => (
+                <div key={s.key} className="px-5 py-3 flex items-center justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-700">{s.label}</p>
+                    <p className="text-xs text-gray-400">{s.hint}</p>
+                  </div>
+                  <input value={getValue(s.key)} onChange={e => saveSetting(s.key, e.target.value)}
+                    className="w-72 border border-gray-200 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400" />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden mb-4">
+            <div className="px-5 py-3 border-b border-gray-100">
+              <p className="text-sm font-semibold text-gray-700">Leave Types</p>
+              <p className="text-xs text-gray-400">Reference list — used in the Leave page dropdown</p>
+            </div>
+            <table className="w-full text-sm">
+              <thead><tr className="border-b border-gray-100 bg-gray-50/60">
+                {["Code","English","Thai","Paid"].map(h=>(
+                  <th key={h} className="text-left px-4 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wide">{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {leaveTypes.map(t => (
+                  <tr key={t.code} className="border-b border-gray-50">
+                    <td className="px-4 py-2.5 text-xs font-mono text-gray-500">{t.code}</td>
+                    <td className="px-4 py-2.5 text-gray-700">{t.name_en}</td>
+                    <td className="px-4 py-2.5 text-gray-600">{t.name_th}</td>
+                    <td className="px-4 py-2.5">{t.paid === "Yes" || t.paid === "yes" ? <span className="text-emerald-500">✓</span> : <span className="text-gray-300">—</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="text-xs text-gray-400 px-5 py-3 border-t border-gray-100">Edit leave types directly in the Google Sheet → <code className="bg-gray-50 px-1 rounded">LeaveTypes</code> tab.</p>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-100 p-5">
+            <p className="text-sm font-semibold text-gray-700 mb-2">Sheet ID</p>
+            <p className="text-xs text-gray-500 font-mono break-all">{SHEET_ID}</p>
+            <a href={`https://docs.google.com/spreadsheets/d/${SHEET_ID}`} target="_blank" rel="noopener"
+              className="text-xs text-teal-600 hover:text-teal-700 mt-2 inline-block">Open in Google Sheets ↗</a>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── APP ─────────────────────────────────────────────────────────────────
+    function App() {
+      const [authState,   setAuthState]   = useState("idle"); // idle | signing-in | ready | error
+      const [user,        setUser]        = useState(null);
+      const [page,        setPage]        = useState("dashboard");
+      const [authError,   setAuthError]   = useState("");
+      const [savingState, setSavingState] = useState("");
+
+      // Data
+      const [employees,    setEmployees]    = useState(OFFLINE_MODE ? SAMPLE_EMPLOYEES : []);
+      const [positions,    setPositions]    = useState(OFFLINE_MODE ? SAMPLE_POSITIONS : []);
+      const [jds,          setJds]          = useState(OFFLINE_MODE ? SAMPLE_JDS : []);
+      const [leaveTypes,   setLeaveTypes]   = useState(LEAVE_TYPES); // also seeded
+      const [leaveRecords, setLeaveRecords] = useState(OFFLINE_MODE ? SAMPLE_LEAVE_RECORDS : []);
+      const [leaveQuota,   setLeaveQuota]   = useState(OFFLINE_MODE ? SAMPLE_LEAVE_QUOTA : []);
+      const [calendar,     setCalendar]     = useState(OFFLINE_MODE ? SAMPLE_CALENDAR : []);
+      const [compensation, setCompensation] = useState(OFFLINE_MODE ? SAMPLE_COMPENSATION : []);
+      const [settings,     setSettings]     = useState(OFFLINE_MODE ? SAMPLE_SETTINGS : []);
+      const [departments,  setDepartments]  = useState(DEPARTMENTS.flatMap(d => BRANCHES.map(b => ({ id: `${d.id}_${b.id}`, label: d.label, branch: b.id, note: "" }))));
+      const [sheetsReady,  setSheetsReady]  = useState(OFFLINE_MODE);
+
+      // Auto-save
+      useSave("Employees",        employees,    sheetsReady);
+      useSave("Positions",        positions,    sheetsReady);
+      useSave("JobDescriptions",  jds,          sheetsReady);
+      useSave("LeaveTypes",       leaveTypes,   sheetsReady);
+      useSave("LeaveRecords",     leaveRecords, sheetsReady);
+      useSave("LeaveQuota",       leaveQuota,   sheetsReady);
+      useSave("BusinessCalendar", calendar,     sheetsReady);
+      useSave("Compensation",     compensation, sheetsReady);
+      useSave("Settings",         settings,     sheetsReady);
+      useSave("Departments",      departments,  sheetsReady);
+
+      // ── Auth ──────────────────────────────────────────────────────────────
+      function handleTokenCallback(resp) {
+        if (resp.error) {
+          setAuthError(resp.error_description || resp.error || "Sign-in failed");
+          setAuthState("error");
+          return;
+        }
+        _gTok = resp.access_token;
+        fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+          headers: { Authorization: `Bearer ${_gTok}` }
+        })
+          .then(r => r.json())
+          .then(info => {
+            const u = { name: info.name, email: info.email, picture: info.picture };
+            setUser(u);
+            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(u)); } catch {}
+            setSavingState("Loading data…");
+            return ensureSheetsExist();
+          })
+          .then(() => sheetsLoadAll())
+          .then(data => {
+            // Seed each tab — only overwrite local state if sheet has rows already
+            if (data.Employees?.length)        setEmployees(data.Employees);
+            if (data.Positions?.length)        setPositions(data.Positions);        else if (!OFFLINE_MODE) setPositions(SAMPLE_POSITIONS);
+            if (data.JobDescriptions?.length)  setJds(data.JobDescriptions);
+            if (data.LeaveTypes?.length)       setLeaveTypes(data.LeaveTypes);      else if (!OFFLINE_MODE) setLeaveTypes(LEAVE_TYPES);
+            if (data.LeaveRecords?.length)     setLeaveRecords(data.LeaveRecords);
+            if (data.LeaveQuota?.length)       setLeaveQuota(data.LeaveQuota);
+            if (data.BusinessCalendar?.length) setCalendar(data.BusinessCalendar);
+            if (data.Compensation?.length)     setCompensation(data.Compensation);  else if (!OFFLINE_MODE) setCompensation(SAMPLE_COMPENSATION);
+            if (data.Settings?.length)         setSettings(data.Settings);          else if (!OFFLINE_MODE) setSettings(SAMPLE_SETTINGS);
+            if (data.Departments?.length)      setDepartments(data.Departments);
+            setSheetsReady(true);
+            setSavingState("");
+            setAuthState("ready");
+          })
+          .catch(err => {
+            console.error(err);
+            setAuthError(String(err.message || err));
+            setAuthState("error");
+            setSavingState("");
+          });
+      }
+
+      function signIn() {
+        setAuthState("signing-in");
+        setAuthError("");
+        google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile",
+          callback: handleTokenCallback,
+        }).requestAccessToken();
+      }
+
+      function signOut() {
+        try { localStorage.removeItem(STORAGE_KEY); } catch {}
+        try { google.accounts.oauth2.revoke(_gTok, () => {}); } catch {}
+        _gTok = null;
+        setUser(null); setAuthState("idle"); setSheetsReady(false);
+        setEmployees([]); setLeaveRecords([]); setLeaveQuota([]); setCalendar([]); setJds([]); setPositions([]); setCompensation([]); setSettings([]);
+      }
+
+      // Silent re-auth on load
+      useEffect(() => {
+        if (OFFLINE_MODE) return;
+        const saved = (() => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; } })();
+        if (!saved?.email) return;
+        setUser(saved);
+        setAuthState("signing-in");
+        const tryInit = () => {
+          if (!window.google?.accounts?.oauth2) { setTimeout(tryInit, 200); return; }
+          google.accounts.oauth2.initTokenClient({
+            client_id: GOOGLE_CLIENT_ID,
+            scope: "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile",
+            prompt: "",
+            login_hint: saved.email,
+            callback: handleTokenCallback,
+          }).requestAccessToken();
+        };
+        tryInit();
+      }, []);
+
+      // ── Login screen ──────────────────────────────────────────────────────
+      if (!OFFLINE_MODE && authState !== "ready") {
+        return (
+          <div className="min-h-screen bg-gradient-to-br from-teal-50 via-white to-emerald-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-sm w-full text-center space-y-6">
+              <div className="w-16 h-16 rounded-2xl bg-teal-500 flex items-center justify-center mx-auto shadow-lg shadow-teal-200">
+                <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+                </svg>
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-800">UPB HR</h1>
+                <p className="text-sm text-gray-400 mt-1">Human Resources · United Peoples Brewery</p>
+              </div>
+              {authState === "signing-in" ? (
+                <div className="flex flex-col items-center justify-center gap-2 text-gray-400">
+                  <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                  </svg>
+                  <span className="text-sm">Signing in…</span>
+                  {savingState && <p className="text-xs">{savingState}</p>}
+                </div>
+              ) : authState === "error" ? (
+                <div className="space-y-3">
+                  <p className="text-sm text-red-500">Sign in failed.</p>
+                  {authError && <p className="text-xs text-gray-400 break-all">{authError}</p>}
+                  <button onClick={signIn} className="w-full py-3 bg-teal-500 hover:bg-teal-600 text-white rounded-xl font-medium text-sm transition-colors">Try Again</button>
+                </div>
+              ) : (
+                <button onClick={signIn} className="w-full py-3 bg-teal-500 hover:bg-teal-600 text-white rounded-xl font-medium text-sm transition-colors flex items-center justify-center gap-2.5">
+                  <svg className="w-5 h-5" viewBox="0 0 24 24">
+                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="white"/>
+                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="white"/>
+                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="white"/>
+                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="white"/>
+                  </svg>
+                  Sign in with Google
+                </button>
+              )}
+              <p className="text-xs text-gray-400">Admin access only — your Google account must be on the OAuth tester list.</p>
+            </div>
+          </div>
+        );
+      }
+
+      // ── Main app ──────────────────────────────────────────────────────────
+      const sharedProps = { user };
+      return (
+        <div className="flex h-screen bg-gray-50 overflow-hidden">
+          <Sidebar page={page} setPage={setPage} user={user} onSignOut={signOut} savingState={OFFLINE_MODE ? "Demo mode — data is not saved." : savingState} />
+          <main className="flex-1 overflow-hidden relative">
+            {page === "dashboard"    && <DashboardPage employees={employees} leaveRecords={leaveRecords} calendar={calendar} positions={positions} />}
+            {page === "employees"    && <EmployeesPage employees={employees} setEmployees={setEmployees} positions={positions} {...sharedProps} />}
+            {page === "leave"        && <LeavePage employees={employees} leaveRecords={leaveRecords} setLeaveRecords={setLeaveRecords} leaveQuota={leaveQuota} setLeaveQuota={setLeaveQuota} {...sharedProps} />}
+            {page === "compensation" && <CompensationPage compensation={compensation} setCompensation={setCompensation} settings={settings} {...sharedProps} />}
+            {page === "jd"           && <JDPage positions={positions} setPositions={setPositions} jds={jds} setJds={setJds} {...sharedProps} />}
+            {page === "calendar"     && <CalendarPage calendar={calendar} setCalendar={setCalendar} {...sharedProps} />}
+            {page === "settings"     && <SettingsPage settings={settings} setSettings={setSettings} leaveTypes={leaveTypes} />}
+          </main>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
