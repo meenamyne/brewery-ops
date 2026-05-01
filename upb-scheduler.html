@@ -46,6 +46,7 @@
       Demand:       ["date","day","hq_needed","lc_needed"],
       Availability: ["emp_id","date","status"],
       Schedule:     ["id","date","branch","emp_id","recorded_by"],
+      Holidays:     ["id","date_start","date_end","name","hq_closed","lc_closed","note"],
     };
 
     // ─── GOOGLE SHEETS API ────────────────────────────────────────────────────
@@ -168,6 +169,34 @@
       { emp_id:"E005", name:"Emma Siriporn",     role:"Service", hq_eligible:"Yes", lc_eligible:"Yes", max_days_per_week:"6", active:"Yes" },
     ];
 
+    const SAMPLE_HOLIDAYS = [
+      { id:"H001", date_start:"2026-05-04", date_end:"2026-05-04", name:"Coronation Day",     hq_closed:"Yes", lc_closed:"No",  note:"" },
+      { id:"H002", date_start:"2026-05-31", date_end:"2026-05-31", name:"Visakha Bucha",      hq_closed:"No",  lc_closed:"Yes", note:"" },
+    ];
+
+    // ─── HOLIDAY HELPERS ─────────────────────────────────────────────────────
+    // Expand a holiday range into the dates it covers.
+    function expandHoliday(h) {
+      const out = [];
+      const a = new Date(h.date_start + "T00:00:00");
+      const b = new Date((h.date_end || h.date_start) + "T00:00:00");
+      for (let d = new Date(a); d <= b; d.setDate(d.getDate()+1)) {
+        out.push(d.toISOString().split("T")[0]);
+      }
+      return out;
+    }
+    // Build a map { 'YYYY-MM-DD': { name, hq_closed, lc_closed, note } } for fast lookups.
+    function buildHolidayMap(holidays) {
+      const m = {};
+      holidays.forEach(h => expandHoliday(h).forEach(d => { m[d] = h; }));
+      return m;
+    }
+    function isClosed(holidayMap, dateStr, branch) {
+      const h = holidayMap[dateStr];
+      if (!h) return false;
+      return branch === "HQ" ? h.hq_closed === "Yes" : h.lc_closed === "Yes";
+    }
+
     // ─── SHARED UI COMPONENTS ────────────────────────────────────────────────
     const inputCls = "w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent bg-white";
 
@@ -213,9 +242,11 @@
     const NAV = [
       { id:"calendar",     label:"Schedule",     icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg> },
       { id:"availability", label:"Availability", icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg> },
-      { id:"demand",       label:"Demand",       icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>, dividerAfter:true },
+      { id:"demand",       label:"Demand",       icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg> },
+      { id:"holidays",     label:"Holidays",     icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>, dividerAfter:true },
       { id:"employees",    label:"Employees",    icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg> },
       { id:"summary",      label:"Summary",      icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg> },
+      { id:"branchview",   label:"Branch View",  icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg> },
     ];
 
     // ─── SIDEBAR ──────────────────────────────────────────────────────────────
@@ -998,125 +1029,165 @@
       );
     }
 
-    // ─── DEMAND PAGE ──────────────────────────────────────────────────────────
-    // Uses a separate editValues object to avoid hooks-in-loops
-    function DemandPage({ demand, setDemand, month, year }) {
-      const [editRow,      setEditRow]      = useState(null);  // dateStr | null
-      const [editValues,   setEditValues]   = useState({ hq:"", lc:"" });
-      const [showBulkModal,setShowBulkModal]= useState(false);
-      const [bulkForm,     setBulkForm]     = useState({
-        hq_needed:"3", lc_needed:"2",
-        days:{ Mon:true, Tue:true, Wed:true, Thu:true, Fri:true, Sat:true, Sun:true }
+    // ─── DEMAND PAGE (calendar grid) ─────────────────────────────────────────
+    // 7-col Mon-Sun grid. Inline-editable HQ/LC inputs per cell. Holidays
+    // highlighted purple; branch-closed days show "Closed" instead of an input.
+    function DemandPage({ demand, setDemand, holidays, month, year, setMonth, setYear }) {
+      const [showBulkModal, setShowBulkModal] = useState(false);
+      const [bulkForm, setBulkForm] = useState({
+        hq_needed: "3", lc_needed: "2",
+        days: { Mon:true, Tue:true, Wed:true, Thu:true, Fri:true, Sat:true, Sun:true },
+        skipClosed: true,
       });
 
-      const monthDays = getMonthDays(year, month);
-      const demandMap = useMemo(() => { const m={}; demand.forEach(d=>{m[d.date]=d;}); return m; }, [demand]);
-      const monthLabel = new Date(year, month-1, 1).toLocaleString("en-US",{month:"long",year:"numeric"});
+      const monthDays   = getMonthDays(year, month);
+      const firstDow    = new Date(year, month - 1, 1).getDay();
+      const padDays     = firstDow === 0 ? 6 : firstDow - 1;
+      const monthLabel  = new Date(year, month - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
+
+      const demandMap   = useMemo(() => { const m={}; demand.forEach(d=>{m[d.date]=d;}); return m; }, [demand]);
+      const holidayMap  = useMemo(() => buildHolidayMap(holidays), [holidays]);
+      const holidaysThisMonth = monthDays.filter(d => holidayMap[d]).length;
+
+      function prevMonth() { if (month === 1) { setMonth(12); setYear(y => y - 1); } else setMonth(m => m - 1); }
+      function nextMonth() { if (month === 12) { setMonth(1); setYear(y => y + 1); } else setMonth(m => m + 1); }
 
       function upsert(date, hq, lc) {
         const day = getDayName(date);
         setDemand(prev => {
           const exists = prev.find(d => d.date === date);
-          if (exists) return prev.map(d => d.date === date ? { ...d, hq_needed:String(hq), lc_needed:String(lc) } : d);
-          return [...prev, { date, day, hq_needed:String(hq), lc_needed:String(lc) }];
+          if (exists) return prev.map(d => d.date === date ? { ...d, hq_needed:String(hq ?? ""), lc_needed:String(lc ?? "") } : d);
+          return [...prev, { date, day, hq_needed:String(hq ?? ""), lc_needed:String(lc ?? "") }];
         });
       }
 
-      function startEdit(dateStr) {
-        const d = demandMap[dateStr];
-        setEditValues({ hq: d?.hq_needed||"", lc: d?.lc_needed||"" });
-        setEditRow(dateStr);
-      }
-
-      function saveEdit(dateStr) {
-        upsert(dateStr, editValues.hq, editValues.lc);
-        setEditRow(null);
+      function setBranch(date, branch, value) {
+        const cur = demandMap[date] || {};
+        const hq  = branch === "HQ" ? value : (cur.hq_needed ?? "");
+        const lc  = branch === "LC" ? value : (cur.lc_needed ?? "");
+        upsert(date, hq, lc);
       }
 
       function applyBulk() {
         const dayMap = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 };
         monthDays.forEach(dateStr => {
+          const hqClosed = isClosed(holidayMap, dateStr, "HQ");
+          const lcClosed = isClosed(holidayMap, dateStr, "LC");
+          if (bulkForm.skipClosed && hqClosed && lcClosed) return;
           const dow = new Date(dateStr+"T00:00:00").getDay();
           const dn  = Object.keys(dayMap).find(k => dayMap[k] === dow);
-          if (bulkForm.days[dn]) upsert(dateStr, bulkForm.hq_needed, bulkForm.lc_needed);
+          if (!bulkForm.days[dn]) return;
+          const hq = hqClosed ? "" : bulkForm.hq_needed;
+          const lc = lcClosed ? "" : bulkForm.lc_needed;
+          upsert(dateStr, hq, lc);
         });
         setShowBulkModal(false);
       }
 
       return (
-        <div className="p-6 space-y-5">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="p-6 space-y-4 overflow-y-auto h-full">
+          {/* Header */}
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
               <h1 className="text-xl font-semibold text-gray-800">Demand</h1>
-              <p className="text-sm text-gray-400 mt-0.5">Required headcount per branch per day</p>
+              <p className="text-sm text-gray-400 mt-0.5">Set required headcount per branch — click any cell to edit inline</p>
             </div>
             <button onClick={() => setShowBulkModal(true)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium rounded-xl transition-colors">
+              className="flex items-center gap-2 px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium rounded-xl transition-colors shadow-sm shadow-teal-200">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
-              Bulk Set
+              Bulk Fill
             </button>
           </div>
 
-          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden table-scroll">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 bg-gray-50/60">
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Date</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Day</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">UPB HQ Needed</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Lake Club Needed</th>
-                  <th className="px-4 py-3"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {monthDays.map((dateStr, i) => {
-                  const d      = demandMap[dateStr];
-                  const isEdit = editRow === dateStr;
-                  const dayN   = getDayName(dateStr);
-                  return (
-                    <tr key={dateStr} className={`border-b border-gray-50 hover:bg-gray-50 ${i%2===0?"":"bg-gray-50/40"}`}>
-                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(dateStr)}</td>
-                      <td className="px-4 py-3 text-gray-400">{dayN}</td>
-                      <td className="px-4 py-3">
-                        {isEdit
-                          ? <input type="number" min="0" value={editValues.hq}
-                              onChange={e => setEditValues(v=>({...v, hq:e.target.value}))}
-                              className="w-20 border border-teal-300 rounded-lg px-2.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400" />
-                          : <span className={`font-medium ${d?.hq_needed ? "text-gray-700" : "text-gray-300"}`}>{d?.hq_needed || "—"}</span>
-                        }
-                      </td>
-                      <td className="px-4 py-3">
-                        {isEdit
-                          ? <input type="number" min="0" value={editValues.lc}
-                              onChange={e => setEditValues(v=>({...v, lc:e.target.value}))}
-                              className="w-20 border border-teal-300 rounded-lg px-2.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400" />
-                          : <span className={`font-medium ${d?.lc_needed ? "text-gray-700" : "text-gray-300"}`}>{d?.lc_needed || "—"}</span>
-                        }
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {isEdit ? (
-                          <div className="flex gap-2 justify-end">
-                            <button onClick={() => saveEdit(dateStr)}
-                              className="text-xs text-teal-500 hover:text-teal-700 px-2 py-1 rounded hover:bg-teal-50 font-medium transition-colors">Save</button>
-                            <button onClick={() => setEditRow(null)}
-                              className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded hover:bg-gray-100 transition-colors">Cancel</button>
-                          </div>
-                        ) : (
-                          <button onClick={() => startEdit(dateStr)}
-                            className="text-xs text-teal-500 hover:text-teal-700 px-2 py-1 rounded hover:bg-teal-50 transition-colors">Edit</button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          {/* Month nav */}
+          <div className="flex items-center gap-2">
+            <button onClick={prevMonth} className="p-2 rounded-xl hover:bg-gray-100 text-gray-500 transition-colors">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7"/></svg>
+            </button>
+            <span className="text-sm font-semibold text-gray-700 w-32 text-center">{monthLabel}</span>
+            <button onClick={nextMonth} className="p-2 rounded-xl hover:bg-gray-100 text-gray-500 transition-colors">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
+            </button>
+            <button onClick={() => { setMonth(THIS_MONTH); setYear(THIS_YEAR); }}
+              className="px-3 py-1.5 text-xs font-medium text-teal-600 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors">
+              Today
+            </button>
+          </div>
+
+          {/* Holiday banner */}
+          {holidaysThisMonth > 0 && (
+            <div className="flex items-center gap-2 px-4 py-2.5 bg-purple-50 border border-purple-100 rounded-xl text-sm text-purple-700">
+              <span className="text-base leading-none">✨</span>
+              <span><strong>{holidaysThisMonth} holiday{holidaysThisMonth>1?"s":""}</strong> this month highlighted in purple. Fully-closed days show "Closed" instead of inputs. Bulk Fill skips fully-closed days.</span>
+            </div>
+          )}
+
+          {/* Legend */}
+          <div className="flex items-center gap-4 flex-wrap text-xs text-gray-500">
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded border border-gray-200 bg-white"></span>Normal day</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded border border-purple-200 bg-purple-50"></span>Holiday</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded border border-gray-200 bg-gray-50"></span>Weekend</span>
+            <span className="text-gray-400">· Type a number and press Tab or Enter to save</span>
+          </div>
+
+          {/* Calendar grid */}
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            <div className="grid grid-cols-7 border-b border-gray-100">
+              {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d => (
+                <div key={d} className="px-2 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wide text-center">{d}</div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7">
+              {/* Padding cells */}
+              {Array(padDays).fill(null).map((_, i) => (
+                <div key={`p${i}`} className="min-h-28 border-b border-r border-gray-50 bg-gray-50/40" />
+              ))}
+              {/* Day cells */}
+              {monthDays.map((dateStr, idx) => {
+                const colIdx  = (padDays + idx) % 7;
+                const isWE    = colIdx >= 5;
+                const isToday = dateStr === TODAY;
+                const dayNum  = parseInt(dateStr.split("-")[2]);
+                const d       = demandMap[dateStr];
+                const h       = holidayMap[dateStr];
+                const hqClosed = h?.hq_closed === "Yes";
+                const lcClosed = h?.lc_closed === "Yes";
+
+                let bg = "bg-white";
+                if (h)            bg = "bg-purple-50";
+                else if (isWE)    bg = "bg-gray-50/50";
+
+                return (
+                  <div key={dateStr}
+                    className={`min-h-28 border-b border-r border-gray-100 p-2 transition-colors relative ${bg}`}
+                    title={h?.name || ""}>
+                    {/* Day number + holiday icon */}
+                    <div className="flex items-start justify-between mb-1">
+                      <span className={`text-sm font-semibold leading-none
+                        ${isToday ? "w-6 h-6 rounded-full bg-teal-500 text-white flex items-center justify-center text-xs" : (h ? "text-purple-700" : "text-gray-700")}`}>
+                        {dayNum}
+                      </span>
+                      {h && <span className="text-xs leading-none" title={h.name}>✨</span>}
+                    </div>
+                    {h && (
+                      <div className="text-[10px] text-purple-600 truncate mb-1 leading-tight" title={h.name}>{h.name}</div>
+                    )}
+                    {/* HQ row */}
+                    <DemandCellInput label="HQ" closed={hqClosed} value={d?.hq_needed}
+                      onCommit={v => setBranch(dateStr, "HQ", v)} />
+                    {/* LC row */}
+                    <DemandCellInput label="LC" closed={lcClosed} value={d?.lc_needed}
+                      onCommit={v => setBranch(dateStr, "LC", v)} />
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {showBulkModal && (
-            <Modal title="Bulk Set Demand" onClose={() => setShowBulkModal(false)}>
+            <Modal title="Bulk Fill Demand" onClose={() => setShowBulkModal(false)}>
               <div className="space-y-4">
-                <p className="text-xs text-gray-500">Apply headcount to selected weekdays for <strong>{monthLabel}</strong></p>
+                <p className="text-xs text-gray-500">Apply headcount to selected weekdays for <strong>{monthLabel}</strong>. Branch-closed days are skipped per branch.</p>
                 <div className="grid grid-cols-2 gap-4">
                   <Field label="UPB HQ Needed">
                     <input type="number" min="0" value={bulkForm.hq_needed} onChange={e=>setBulkForm(f=>({...f,hq_needed:e.target.value}))} className={inputCls} />
@@ -1136,6 +1207,11 @@
                     ))}
                   </div>
                 </Field>
+                <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+                  <input type="checkbox" checked={bulkForm.skipClosed} onChange={e=>setBulkForm(f=>({...f, skipClosed:e.target.checked}))}
+                    className="rounded border-gray-300 text-teal-500 focus:ring-teal-400" />
+                  Skip days where both branches are closed
+                </label>
                 <div className="flex gap-3 pt-2">
                   <button onClick={() => setShowBulkModal(false)} className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
                   <button onClick={applyBulk} className="flex-1 px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium rounded-xl transition-colors">Apply</button>
@@ -1143,6 +1219,320 @@
               </div>
             </Modal>
           )}
+        </div>
+      );
+    }
+
+    // Inline-editable cell input. Local state during edit, commits on blur or
+    // when Enter/Tab is pressed. If `closed` is true, renders a "Closed" label
+    // instead of an input.
+    function DemandCellInput({ label, value, closed, onCommit }) {
+      const [local, setLocal] = useState(value ?? "");
+      useEffect(() => { setLocal(value ?? ""); }, [value]);
+      function commit() { if ((local ?? "") !== (value ?? "")) onCommit(local); }
+      return (
+        <div className="flex items-center gap-1.5 mb-1 last:mb-0">
+          <span className="text-[10px] font-semibold text-gray-400 w-5 shrink-0">{label}</span>
+          {closed ? (
+            <span className="flex-1 text-[11px] text-red-400 italic px-1 py-0.5">Closed</span>
+          ) : (
+            <input
+              type="number" min="0" inputMode="numeric"
+              value={local}
+              placeholder="—"
+              onChange={e => setLocal(e.target.value)}
+              onBlur={commit}
+              onKeyDown={e => {
+                if (e.key === "Enter" || e.key === "Tab") { commit(); if (e.key === "Enter") e.currentTarget.blur(); }
+                else if (e.key === "Escape") { setLocal(value ?? ""); e.currentTarget.blur(); }
+              }}
+              className="flex-1 min-w-0 w-full text-xs px-1.5 py-0.5 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-teal-400 focus:border-teal-300 text-gray-700 bg-white"
+            />
+          )}
+        </div>
+      );
+    }
+
+    // ─── HOLIDAYS PAGE ───────────────────────────────────────────────────────
+    function HolidaysPage({ holidays, setHolidays }) {
+      const [showModal, setShowModal] = useState(false);
+      const [editTarget, setEditTarget] = useState(null);
+      const emptyForm = { id:"", date_start:TODAY, date_end:TODAY, name:"", hq_closed:"Yes", lc_closed:"Yes", note:"" };
+      const [form, setForm] = useState(emptyForm);
+      const [filterYear, setFilterYear] = useState(THIS_YEAR);
+
+      const sorted = useMemo(() =>
+        [...holidays].sort((a,b) => (a.date_start||"").localeCompare(b.date_start||"")),
+      [holidays]);
+      const filtered = sorted.filter(h => (h.date_start||"").startsWith(String(filterYear)));
+      const years = Array.from(new Set(holidays.map(h => (h.date_start||"").slice(0,4)).filter(Boolean))).sort();
+      if (!years.includes(String(THIS_YEAR))) years.push(String(THIS_YEAR));
+      years.sort();
+
+      function openAdd() {
+        const nextNum = holidays.length
+          ? String(Math.max(...holidays.map(h => parseInt((h.id||"H0").replace(/\D/g,"")) || 0)) + 1).padStart(3,"0")
+          : "001";
+        setForm({ ...emptyForm, id: "H" + nextNum });
+        setEditTarget(null);
+        setShowModal(true);
+      }
+      function openEdit(h) { setForm({ ...h }); setEditTarget(h); setShowModal(true); }
+
+      function handleSubmit(ev) {
+        ev.preventDefault();
+        const f = { ...form, date_end: form.date_end || form.date_start };
+        if (editTarget) setHolidays(prev => prev.map(h => h.id === editTarget.id ? f : h));
+        else            setHolidays(prev => [...prev, f]);
+        setShowModal(false);
+      }
+      function remove(h) {
+        if (!confirm(`Delete "${h.name}"?`)) return;
+        setHolidays(prev => prev.filter(x => x.id !== h.id));
+      }
+
+      return (
+        <div className="p-6 space-y-5 overflow-y-auto h-full">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h1 className="text-xl font-semibold text-gray-800">Holidays</h1>
+              <p className="text-sm text-gray-400 mt-0.5">Public holidays, special closures, and partial-close days</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <select value={filterYear} onChange={e=>setFilterYear(parseInt(e.target.value))}
+                className="text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-400 bg-white">
+                {years.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+              <button onClick={openAdd}
+                className="flex items-center gap-2 px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium rounded-xl transition-colors shadow-sm shadow-teal-200">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+                Add Holiday
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            {filtered.length === 0 ? (
+              <div className="p-10 text-center text-sm text-gray-400">No holidays for {filterYear}.</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50/60">
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Date</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Name</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">HQ</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">LC</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide">Note</th>
+                    <th className="px-4 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((h, i) => (
+                    <tr key={h.id} className={`border-b border-gray-50 hover:bg-gray-50 ${i%2===0?"":"bg-gray-50/40"}`}>
+                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                        {fmtShort(h.date_start)}{h.date_end && h.date_end !== h.date_start ? ` – ${fmtShort(h.date_end)}` : ""}
+                      </td>
+                      <td className="px-4 py-3 text-gray-700 font-medium">
+                        <span className="inline-flex items-center gap-1.5"><span>✨</span>{h.name}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${h.hq_closed === "Yes" ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-600"}`}>
+                          {h.hq_closed === "Yes" ? "Closed" : "Open"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${h.lc_closed === "Yes" ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-600"}`}>
+                          {h.lc_closed === "Yes" ? "Closed" : "Open"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-400 text-xs">{h.note || "—"}</td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        <button onClick={() => openEdit(h)} className="text-xs text-teal-500 hover:text-teal-700 px-2 py-1 rounded hover:bg-teal-50 transition-colors">Edit</button>
+                        <button onClick={() => remove(h)}    className="text-xs text-red-400 hover:text-red-600 px-2 py-1 rounded hover:bg-red-50 transition-colors ml-1">Delete</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {showModal && (
+            <Modal title={editTarget ? "Edit Holiday" : "Add Holiday"} onClose={() => setShowModal(false)} wide>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <Field label="Holiday Name">
+                  <input required value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}
+                    placeholder="e.g. Songkran" className={inputCls} />
+                </Field>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Start Date">
+                    <input required type="date" value={form.date_start}
+                      onChange={e=>setForm(f=>({...f,date_start:e.target.value}))} className={inputCls} />
+                  </Field>
+                  <Field label="End Date (optional)">
+                    <input type="date" value={form.date_end}
+                      onChange={e=>setForm(f=>({...f,date_end:e.target.value}))} className={inputCls} />
+                  </Field>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="UPB HQ">
+                    <select value={form.hq_closed} onChange={e=>setForm(f=>({...f,hq_closed:e.target.value}))} className={inputCls}>
+                      <option value="Yes">Closed</option>
+                      <option value="No">Open</option>
+                    </select>
+                  </Field>
+                  <Field label="Lake Club">
+                    <select value={form.lc_closed} onChange={e=>setForm(f=>({...f,lc_closed:e.target.value}))} className={inputCls}>
+                      <option value="Yes">Closed</option>
+                      <option value="No">Open</option>
+                    </select>
+                  </Field>
+                </div>
+                <Field label="Note (optional)">
+                  <input value={form.note} onChange={e=>setForm(f=>({...f,note:e.target.value}))}
+                    placeholder="Internal notes" className={inputCls} />
+                </Field>
+                <div className="flex gap-3 pt-2">
+                  <button type="button" onClick={() => setShowModal(false)} className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+                  <button type="submit" className="flex-1 px-4 py-2.5 bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium rounded-xl transition-colors">{editTarget ? "Save" : "Add"}</button>
+                </div>
+              </form>
+            </Modal>
+          )}
+        </div>
+      );
+    }
+
+    // ─── BRANCH VIEW PAGE ────────────────────────────────────────────────────
+    // Filter the schedule to a single branch and show employee names per day.
+    function BranchViewPage({ employees, demand, schedule, holidays, month, year, setMonth, setYear }) {
+      const [branch, setBranch] = useState("HQ");
+
+      const empById = useMemo(() => Object.fromEntries(employees.map(e => [e.emp_id, e])), [employees]);
+      const demandMap = useMemo(() => { const m={}; demand.forEach(d=>{m[d.date]=d;}); return m; }, [demand]);
+      const holidayMap = useMemo(() => buildHolidayMap(holidays), [holidays]);
+      const scheduleMap = useMemo(() => {
+        const m = {};
+        schedule.filter(s => s.branch === branch).forEach(s => {
+          if (!m[s.date]) m[s.date] = [];
+          m[s.date].push(s);
+        });
+        return m;
+      }, [schedule, branch]);
+
+      const monthDays  = getMonthDays(year, month);
+      const firstDow   = new Date(year, month - 1, 1).getDay();
+      const padDays    = firstDow === 0 ? 6 : firstDow - 1;
+      const monthLabel = new Date(year, month - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
+
+      function prevMonth() { if (month === 1) { setMonth(12); setYear(y => y - 1); } else setMonth(m => m - 1); }
+      function nextMonth() { if (month === 12) { setMonth(1); setYear(y => y + 1); } else setMonth(m => m + 1); }
+
+      const branchLabel = branch === "HQ" ? "UPB HQ" : "UPB Lake Club";
+      const eligibleStaff = employees.filter(e => e.active === "Yes" && (branch === "HQ" ? e.hq_eligible === "Yes" : e.lc_eligible === "Yes"));
+
+      return (
+        <div className="p-6 space-y-4 overflow-y-auto h-full">
+          {/* Header */}
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h1 className="text-xl font-semibold text-gray-800">Branch View</h1>
+              <p className="text-sm text-gray-400 mt-0.5">Schedule per branch — quickly see who is on at HQ or Lake Club</p>
+            </div>
+            <div className="inline-flex bg-gray-100 rounded-xl p-1">
+              {BRANCHES.map(b => (
+                <button key={b.id} onClick={() => setBranch(b.id)}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors
+                    ${branch === b.id ? "bg-white text-teal-700 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                  {b.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Month nav */}
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-2">
+              <button onClick={prevMonth} className="p-2 rounded-xl hover:bg-gray-100 text-gray-500 transition-colors">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7"/></svg>
+              </button>
+              <span className="text-sm font-semibold text-gray-700 w-32 text-center">{monthLabel}</span>
+              <button onClick={nextMonth} className="p-2 rounded-xl hover:bg-gray-100 text-gray-500 transition-colors">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
+              </button>
+              <button onClick={() => { setMonth(THIS_MONTH); setYear(THIS_YEAR); }}
+                className="px-3 py-1.5 text-xs font-medium text-teal-600 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors">
+                Today
+              </button>
+            </div>
+            <div className="text-xs text-gray-400">
+              <span className="font-medium text-gray-600">{branchLabel}</span> · {eligibleStaff.length} eligible staff
+            </div>
+          </div>
+
+          {/* Calendar grid */}
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            <div className="grid grid-cols-7 border-b border-gray-100">
+              {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d => (
+                <div key={d} className="px-2 py-2.5 text-xs font-medium text-gray-400 uppercase tracking-wide text-center">{d}</div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7">
+              {Array(padDays).fill(null).map((_, i) => (
+                <div key={`p${i}`} className="min-h-28 border-b border-r border-gray-50 bg-gray-50/40" />
+              ))}
+              {monthDays.map((dateStr, idx) => {
+                const colIdx  = (padDays + idx) % 7;
+                const isWE    = colIdx >= 5;
+                const isToday = dateStr === TODAY;
+                const dayNum  = parseInt(dateStr.split("-")[2]);
+                const d       = demandMap[dateStr];
+                const h       = holidayMap[dateStr];
+                const closed  = isClosed(holidayMap, dateStr, branch);
+                const assigns = scheduleMap[dateStr] || [];
+                const need    = parseInt(branch === "HQ" ? d?.hq_needed : d?.lc_needed) || 0;
+                const filled  = assigns.length;
+
+                let bg = "bg-white";
+                if (h)         bg = "bg-purple-50";
+                else if (isWE) bg = "bg-gray-50/50";
+                let countCls = "text-gray-300";
+                if (need > 0) countCls = filled >= need ? "text-emerald-600" : filled === 0 ? "text-red-500" : "text-amber-600";
+
+                return (
+                  <div key={dateStr} className={`min-h-28 border-b border-r border-gray-100 p-2 ${bg}`}>
+                    <div className="flex items-start justify-between mb-1">
+                      <span className={`text-sm font-semibold leading-none
+                        ${isToday ? "w-6 h-6 rounded-full bg-teal-500 text-white flex items-center justify-center text-xs" : (h ? "text-purple-700" : "text-gray-700")}`}>
+                        {dayNum}
+                      </span>
+                      {!closed && (need > 0 || filled > 0) && (
+                        <span className={`text-[10px] font-mono font-bold ${countCls}`}>{filled}/{need}</span>
+                      )}
+                    </div>
+                    {closed ? (
+                      <div className="text-[11px] text-red-400 italic">Closed</div>
+                    ) : assigns.length === 0 ? (
+                      <div className="text-[11px] text-gray-300">{need > 0 ? "Unassigned" : ""}</div>
+                    ) : (
+                      <div className="space-y-0.5">
+                        {assigns.slice(0, 4).map(s => {
+                          const e = empById[s.emp_id];
+                          const name = e?.name?.split(" ")[0] || s.emp_id;
+                          return (
+                            <div key={s.id} className={`text-[11px] truncate px-1 py-0.5 rounded
+                              ${branch === "HQ" ? "bg-blue-50 text-blue-700" : "bg-pink-50 text-pink-700"}`}
+                              title={e?.name || s.emp_id}>{name}</div>
+                          );
+                        })}
+                        {assigns.length > 4 && <div className="text-[10px] text-gray-400 px-1">+{assigns.length - 4} more</div>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       );
     }
@@ -1356,6 +1746,7 @@
       const [demand,       setDemand]       = useState([]);
       const [availability, setAvailability] = useState([]);
       const [schedule,     setSchedule]     = useState([]);
+      const [holidays,     setHolidays]     = useState(OFFLINE_MODE ? SAMPLE_HOLIDAYS : []);
       const [sheetsReady,  setSheetsReady]  = useState(OFFLINE_MODE);
 
       // Auto-save
@@ -1363,6 +1754,7 @@
       useSave("Demand",       demand,       sheetsReady);
       useSave("Availability", availability, sheetsReady);
       useSave("Schedule",     schedule,     sheetsReady);
+      useSave("Holidays",     holidays,     sheetsReady);
 
       // ── Auth ──────────────────────────────────────────────────────────────
       function handleTokenCallback(resp) {
@@ -1384,6 +1776,7 @@
             if (data.Demand?.length)       setDemand(data.Demand);
             if (data.Availability?.length) setAvailability(data.Availability);
             if (data.Schedule?.length)     setSchedule(data.Schedule);
+            if (data.Holidays?.length)     setHolidays(data.Holidays);
             setSheetsReady(true);
             setAuthState("ready");
           })
@@ -1404,7 +1797,7 @@
         try { google.accounts.oauth2.revoke(_gTok, ()=>{}); } catch {}
         _gTok = null;
         setUser(null); setAuthState("idle"); setSheetsReady(false);
-        setEmployees([]); setDemand([]); setAvailability([]); setSchedule([]);
+        setEmployees([]); setDemand([]); setAvailability([]); setSchedule([]); setHolidays([]);
       }
 
       // Silent re-auth on load
@@ -1490,11 +1883,18 @@
                 {...sharedMonthProps}
               />
             )}
-            {page === "demand"       && <DemandPage demand={demand} setDemand={setDemand} {...sharedMonthProps} />}
+            {page === "demand"       && <DemandPage demand={demand} setDemand={setDemand} holidays={holidays} {...sharedMonthProps} />}
+            {page === "holidays"     && <HolidaysPage holidays={holidays} setHolidays={setHolidays} />}
             {page === "summary"      && (
               <SummaryPage
                 employees={employees} demand={demand} availability={availability}
                 schedule={schedule} {...sharedMonthProps}
+              />
+            )}
+            {page === "branchview"   && (
+              <BranchViewPage
+                employees={employees} demand={demand} schedule={schedule} holidays={holidays}
+                {...sharedMonthProps}
               />
             )}
           </main>
