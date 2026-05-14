@@ -123,12 +123,19 @@
 
     async function sheetsSave(name, items) {
       const cols = SHEET_COLS[name];
-      const values = [cols, ...items.map(item => cols.map(c => {
+      const dataRows = items.map(item => cols.map(c => {
         const v = item[c];
         if (v == null) return "";
         if (typeof v === "object") return JSON.stringify(v);
         return String(v);
-      }))];
+      }));
+      // Pad with blank rows beyond our data so any stale rows left from
+      // previous larger saves get overwritten with empty cells.
+      // The loader already filters out empty rows, so this is safe.
+      const emptyRow = cols.map(() => "");
+      const PAD = Math.max(500, dataRows.length + 50);
+      for (let i = dataRows.length; i < PAD; i++) dataRows.push(emptyRow);
+      const values = [cols, ...dataRows];
       await gFetch("PUT", `/values/${encodeURIComponent(name+"!A1")}?valueInputOption=RAW`, { values });
     }
 
