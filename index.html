@@ -35,7 +35,7 @@
       BrokenLog:  ["id","date","keg_id","beer_name","reason","reported_by"],
       Batches:    ["id","batch_id","brew_day","beer_name","fermenter","volume","filled_litres","fermentation_days","condition_days","release_date","status"],
       BeerList:   ["brand","name","style","abv","contract"],
-      BatchTasks:    ["id","batch_id","task","day","assigned_to"],
+      BatchTasks:    ["id","batch_id","task","day","assigned_to","start_date","end_date","status","is_ot","ot_hours","remark","fermenter"],
       Staff:         ["id","name","dept"],
       Brewsheets:    ["batch_id","data"],
       BarKegIn:      ["id","stock_out_id","keg_id","size","beer_name","sent_by","received","received_date","received_by","note","remark"],
@@ -46,15 +46,41 @@
       FillLog:       ["id","litres"],
       StockOut:      ["id"],
       BrokenLog:     ["id"],
-      BatchTasks:    ["id","day"],
+      BatchTasks:    ["id","day","ot_hours"],
       Batches:       ["id","volume","filled_litres","fermentation_days","condition_days"],
       BarKegIn:      ["id","stock_out_id"],
       SupplierKegIn: ["id"],
       TapLog:        ["id"],
     };
 
-    let _gTok = null; // OAuth access token (module-level, set on auth)
+    let _gTok = null;          // OAuth access token (module-level, set on auth)
+    let _refreshTimer = null;  // handle for the auto-refresh setTimeout
+    let _loginHint = null;     // email kept for silent token renewal
     const STORAGE_KEY = "brewery_ops_user"; // localStorage key for persisted session
+
+    // ── Silent token refresh ─────────────────────────────────────────────────
+    // Google access tokens expire after 1 hour. This schedules a silent renewal
+    // 5 minutes before expiry so the session extends automatically while the
+    // tab is open. No popup — the user never sees it.
+    function scheduleTokenRefresh() {
+      clearTimeout(_refreshTimer);
+      _refreshTimer = setTimeout(() => {
+        if (!_loginHint) return;
+        try {
+          google.accounts.oauth2.initTokenClient({
+            client_id: GOOGLE_CLIENT_ID,
+            scope: "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email",
+            prompt: "",          // silent — no popup
+            login_hint: _loginHint,
+            callback: (resp) => {
+              if (resp.error) return; // will surface as 401 on next API call
+              _gTok = resp.access_token;
+              scheduleTokenRefresh(); // chain the next refresh
+            },
+          }).requestAccessToken();
+        } catch(e) { /* ignore — next API call will catch the 401 */ }
+      }, 55 * 60 * 1000); // 55 minutes
+    }
 
     async function gFetch(method, path, body) {
       const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}${path}`, {
@@ -3963,7 +3989,8 @@
         const dupSig = `${taskForm.is_batch ? taskForm.batch_id : ""}|${taskForm.task}|${taskForm.start_date}|${taskForm.fermenter || ""}`;
         const isDup = batchTasks.some(t => `${t.batch_id}|${t.task}|${t.start_date || t.day}|${t.fermenter || ""}` === dupSig);
         if (isDup) { alert("A task with the same batch, name, and start date already exists."); return; }
-        const newId = batchTasks.length > 0 ? Math.max(...batchTasks.map(t => t.id)) + 1 : 1;
+        const ids = batchTasks.map(t => Number(t.id)).filter(n => !isNaN(n) && n > 0);
+        const newId = ids.length > 0 ? Math.max(...ids) + 1 : 1;
         setBatchTasks(prev => [...prev, {
           id: newId,
           batch_id: taskForm.is_batch ? taskForm.batch_id : "",
@@ -3983,7 +4010,8 @@
       }
 
       function handleDeleteTask(id) {
-        setBatchTasks(prev => prev.filter(t => t.id !== id));
+        if (!window.confirm("Delete this task?")) return;
+        setBatchTasks(prev => prev.filter(t => Number(t.id) !== Number(id)));
       }
 
       function handleUpdateTask(id, updates) {
@@ -6300,6 +6328,9 @@
           setCurrentUser(userObj);
           // Persist session so the next page load auto-signs in silently
           try { localStorage.setItem(STORAGE_KEY, JSON.stringify(userObj)); } catch {}
+          // Start the silent auto-refresh chain (keeps session alive while tab is open)
+          _loginHint = user.email;
+          scheduleTokenRefresh();
           // Ensure all sheet tabs exist (creates any missing ones automatically)
           await ensureSheetsExist();
           const data = await sheetsLoadAll();
@@ -6341,7 +6372,8 @@
       }
 
       function handleSignOut() {
-        _gTok = null; dataReadyRef.current = false;
+        _gTok = null; _loginHint = null; clearTimeout(_refreshTimer);
+        dataReadyRef.current = false;
         try { localStorage.removeItem(STORAGE_KEY); } catch {}
         // Revoke the Google token so it truly signs out
         try { google.accounts.oauth2.revoke(_gTok, () => {}); } catch {}
