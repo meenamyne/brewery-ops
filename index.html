@@ -6369,7 +6369,7 @@
               await Promise.all(emptySheets.map(([name, items]) => sheetsSave(name, items)));
               setSyncStatus("saved");
               setTimeout(() => setSyncStatus(s => s === "saved" ? null : s), 2500);
-            } catch(e) { setSyncStatus("error"); }
+            } catch(e) { console.error("Brewsheets seed save failed:", e); setSyncStatus("error:" + e.message); }
           }
           setTimeout(() => { dataReadyRef.current = true; }, 500);
         } catch(e) {
@@ -6398,7 +6398,8 @@
               setSyncStatus("saved");
               setTimeout(() => setSyncStatus(s => s === "saved" ? null : s), 2500);
             } catch(e) {
-              setSyncStatus("error"); // errors stay visible until next save
+              console.error("Auto-save failed:", sheetName, e);
+              setSyncStatus("error:" + e.message); // errors stay visible until next save
               if (e.code === 401) handleSignOut();
             }
           }, 1200);
@@ -6430,7 +6431,7 @@
             await sheetsSave("Brewsheets", items);
             setSyncStatus("saved");
             setTimeout(() => setSyncStatus(s => s === "saved" ? null : s), 2500);
-          } catch(e) { setSyncStatus("error"); if (e.code === 401) handleSignOut(); }
+          } catch(e) { console.error("Brewsheet save failed:", e); setSyncStatus("error:" + e.message); if (e.code === 401) handleSignOut(); }
         }, 1200);
         return () => clearTimeout(t);
       }, [brewsheets]);
@@ -6441,14 +6442,14 @@
 
       // ── Sync badge ───────────────────────────────────────────────────────────
       const syncBadge = syncStatus && (
-        <div className={`fixed bottom-5 right-5 z-50 px-3.5 py-2 rounded-xl text-xs font-medium shadow-lg flex items-center gap-2 cursor-pointer ${
+        <div className={`fixed bottom-5 right-5 z-50 px-3.5 py-2 rounded-xl text-xs font-medium shadow-lg flex items-center gap-2 cursor-pointer max-w-xs ${
           syncStatus==="saving" ? "bg-amber-500 text-white" :
           syncStatus==="saved"  ? "bg-emerald-500 text-white" : "bg-red-600 text-white"
         }`} onClick={() => syncStatus !== "saving" && setSyncStatus(null)}>
-          {syncStatus==="saving" && <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>}
+          {syncStatus==="saving" && <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin shrink-0"></div>}
           {syncStatus==="saving" ? "Saving to Sheets…" :
            syncStatus==="saved"  ? "✓ Saved to Sheets" :
-           "⚠ Save failed — check Sheets API & permissions"}
+           `⚠ Save failed: ${syncStatus.startsWith("error:") ? syncStatus.slice(6) : "check Sheets API & permissions"}`}
         </div>
       );
 
