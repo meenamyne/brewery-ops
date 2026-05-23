@@ -68,16 +68,33 @@
         const name = names[i];
         const cols = SHEET_COLS[name];
         const [, ...rows] = vr.values || [[]];
-        out[name] = rows
+        let records = rows
+          .filter(r => r.some(Boolean))  // skip blank/padding rows
           .map(r => { const o={}; cols.forEach((c,ci)=>{ o[c]=r[ci]??""; }); return o; })
           .filter(o => o[cols[0]]);
+        // Deduplicate Schedule rows by (date, branch, emp_id) — keep last occurrence
+        if (name === "Schedule") {
+          const seen = new Map();
+          records.forEach(r => { seen.set(`${r.date}|${r.branch}|${r.emp_id}`, r); });
+          records = [...seen.values()];
+        }
+        out[name] = records;
       });
       return out;
     }
 
     async function sheetsSave(name, items) {
       const cols = SHEET_COLS[name];
-      const values = [cols, ...items.map(item => cols.map(c => { const v=item[c]; if(v==null)return""; return String(v); }))];
+      const dataRows = items.map(item => cols.map(c => {
+        const v = item[c];
+        if (v == null) return "";
+        return String(v);
+      }));
+      // Pad with empty rows to overwrite any stale rows left from previous larger saves
+      const emptyRow = cols.map(() => "");
+      const PAD = Math.max(500, dataRows.length + 50);
+      for (let i = dataRows.length; i < PAD; i++) dataRows.push(emptyRow);
+      const values = [cols, ...dataRows];
       await gFetch("PUT", `/values/${encodeURIComponent(name+"!A1")}?valueInputOption=RAW`, {
         range: name+"!A1", majorDimension:"ROWS", values,
       });
@@ -338,10 +355,19 @@
           .filter(emp=>emp&&canAssign(emp,branch).ok);
         if(!toAssign.length) return;
         const now=Date.now();
-        setSchedule(prev=>[...prev,...toAssign.map((emp,i)=>({
-          id:String(now+i), date:dateStr, branch,
-          emp_id:emp.emp_id, recorded_by:user?.name||"Manager",
-        }))]);
+        setSchedule(prev=>{
+          // Guard against duplicates: skip any emp already in schedule for this date+branch
+          const existingKeys = new Set(
+            prev.filter(x=>x.date===dateStr&&x.branch===branch).map(x=>x.emp_id)
+          );
+          const newEntries = toAssign
+            .filter(emp=>!existingKeys.has(emp.emp_id))
+            .map((emp,i)=>({
+              id:String(now+i), date:dateStr, branch,
+              emp_id:emp.emp_id, recorded_by:user?.name||"Manager",
+            }));
+          return [...prev, ...newEntries];
+        });
         setAddingBranch(null); setEmpSearch(""); setSelected(new Set());
       }
 
