@@ -432,7 +432,12 @@ async function sheetsApiRead(token, spreadsheetId, tabName){
 
 // ─── GOOGLE SHEETS API WRITE ────────────────────────────────────────────────
 async function sheetsApiWrite(token, spreadsheetId, tabName, headers, rows){
-  const body = [headers, ...rows.map(r=>headers.map(h=>r[h]??""  ))];
+  const dataRows = rows.map(r=>headers.map(h=>{ const v=r[h]; if(v==null)return""; return String(v); }));
+  // Pad with empty rows to overwrite any stale rows left from previous larger saves
+  const emptyRow = headers.map(()=>"");
+  const PAD = Math.max(500, dataRows.length + 50);
+  for(let i=dataRows.length; i<PAD; i++) dataRows.push(emptyRow);
+  const body = [headers, ...dataRows];
   const range = `${tabName}!A1`;
   await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, {
     method:"PUT", headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json"},
@@ -494,7 +499,14 @@ function useSave(tabName, headers, initial){
     if(SPREADSHEET_ID==="YOUR_SPREADSHEET_ID_HERE") return;
     sheetsApiRead(t, SPREADSHEET_ID, tabName).then(rows=>{
       if(rows && rows.length>0){
-        setData(rows);   // ← sync latest Sheets data into local state
+        let cleaned = rows;
+        // Queue: deduplicate by id (stale rows can survive a shorter save) and normalize type
+        if(tabName==="Queue"){
+          const seen = new Map();
+          rows.forEach(r=>{ if(r.id) seen.set(r.id, r); });
+          cleaned = [...seen.values()].map(r=>({...r, type: r.type||"Contract"}));
+        }
+        setData(cleaned);   // ← sync latest Sheets data into local state
       } else {
         setDirty(true);  // ← sheet empty: push seed/current data up
       }
@@ -2159,6 +2171,7 @@ const QUEUE_STATUS_COLORS = {
 function QueuePage({queue,setQueue,orders,setOrders,customers,cbeers}){
   const [showModal,setShowModal] = useState(false);
   const [editId,setEditId]       = useState(null);
+  const [suppressedOrderIds,setSuppressedOrderIds] = useState(new Set()); // order IDs whose auto-entries were explicitly removed
   const [editingAutoId,setEditingAutoId] = useState(null); // for auto entry editing
   const [filter,setFilter]       = useState("All");
   const [queueSearch,setQueueSearch] = useState("");
@@ -2247,9 +2260,9 @@ function QueuePage({queue,setQueue,orders,setOrders,customers,cbeers}){
   // Merge: manual + auto from scheduled orders
   const scheduledOrders = orders.filter(o=>["Scheduled","Brewing","Tasting","Packaging"].includes(o.status));
   const combined = useMemo(()=>{
-    const manual = queue.map(q=>({...q, _src:"manual"}));
+    const manual = queue.map(q=>({...q, _src:"manual", type:q.type||"Contract"}));
     const autoEntries = scheduledOrders
-      .filter(o=>!queue.some(q=>q.order_id===o.id))
+      .filter(o=>!queue.some(q=>q.order_id===o.id) && !suppressedOrderIds.has(o.id))
       .map(o=>{
         // Resolve customer_id from order, or fall back to name match
         const custId = o.customer_id
@@ -2510,7 +2523,13 @@ function QueuePage({queue,setQueue,orders,setOrders,customers,cbeers}){
         </div>
       </form>
     </Modal>
-    <ConfirmModal open={!!delId} danger title="Remove from Queue" message="Remove this entry from the queue?" onConfirm={()=>{ setQueue(p=>p.filter(q=>q.id!==delId)); setDelId(null); }} onCancel={()=>setDelId(null)}/>
+    <ConfirmModal open={!!delId} danger title="Remove from Queue" message="Remove this entry from the queue?" onConfirm={()=>{
+      // If the deleted entry was linked to an order, suppress the auto-entry so it doesn't reappear
+      const deleted = queue.find(q=>q.id===delId);
+      if(deleted?.order_id) setSuppressedOrderIds(prev=>new Set([...prev, deleted.order_id]));
+      setQueue(p=>p.filter(q=>q.id!==delId));
+      setDelId(null);
+    }} onCancel={()=>setDelId(null)}/>
   </div>;
 }
 
