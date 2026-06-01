@@ -2891,7 +2891,7 @@
       return d.toISOString().split("T")[0];
     }
 
-    function BatchesPage({ batches, setBatches, beerList, setBeerList, fillLog, batchTasks, setBatchTasks, onOpenBrewsheet }) {
+    function BatchesPage({ batches, setBatches, beerList, setBeerList, fillLog, batchTasks, setBatchTasks, onOpenBrewsheet, onRenameBeer }) {
       const [tab, setTab]               = useState("batches");
       const [batchListTab, setBatchListTab] = useState("active"); // "active" | "done"
       const [search, setSearch]         = useState("");
@@ -3045,6 +3045,11 @@
         if (!beerForm.name.trim()) return;
         const updated = { brand: beerForm.brand.trim(), name: beerForm.name.trim(), style: beerForm.style.trim(), abv: beerForm.abv.trim(), contract: beerForm.contract ? "true" : "" };
         if (editBeerIdx !== null) {
+          const oldBeer = beerList[editBeerIdx];
+          // If the name changed, propagate the rename to all other tables
+          if (oldBeer && oldBeer.name !== updated.name && onRenameBeer) {
+            onRenameBeer(oldBeer.name, updated.name);
+          }
           setBeerList(prev => prev.map((b, i) => i === editBeerIdx ? updated : b));
         } else {
           setBeerList(prev => [...prev, updated]);
@@ -6440,6 +6445,22 @@
       function openBrewsheet(batchId) { setSelectedBatchId(batchId); setPage("brewsheet"); }
       function saveBrewsheet(batchId, data) { setBrewsheets(prev => ({...prev, [batchId]: data})); }
 
+      // ── Rename beer: propagate name change across ALL tables ─────────────────
+      function renameBeer(oldName, newName) {
+        if (!oldName || !newName || oldName === newName) return;
+        const renameField = arr => arr.map(r =>
+          r.beer_name === oldName ? { ...r, beer_name: newName } : r
+        );
+        setKegStatus(prev  => renameField(prev));
+        setFillLog(prev    => renameField(prev));
+        setStockOut(prev   => renameField(prev));
+        setBrokenLog(prev  => renameField(prev));
+        setBatches(prev    => renameField(prev));
+        setBarKegIn(prev   => renameField(prev));
+        setSupplierKegIn(prev => renameField(prev));
+        setTapLog(prev     => renameField(prev));
+      }
+
       // ── Sync badge ───────────────────────────────────────────────────────────
       const syncBadge = syncStatus && (
         <div className={`fixed bottom-5 right-5 z-50 px-3.5 py-2 rounded-xl text-xs font-medium shadow-lg flex items-center gap-2 cursor-pointer max-w-xs ${
@@ -6475,7 +6496,7 @@
               {page === "stock-out-summary" && <StockOutSummaryPage  stockOut={stockOut} />}
               {page === "keg-cleaning"  && <KegCleaningPage  kegStatus={kegStatus} setKegStatus={setKegStatus} brokenLog={brokenLog} setBrokenLog={setBrokenLog} stockOut={stockOut} />}
               {page === "broken-log"    && <BrokenLogPage    brokenLog={brokenLog} setBrokenLog={setBrokenLog} kegStatus={kegStatus} setKegStatus={setKegStatus} />}
-              {page === "batches"     && <BatchesPage    batches={batches} setBatches={setBatches} beerList={beerList} setBeerList={setBeerList} fillLog={fillLog} batchTasks={batchTasks} setBatchTasks={setBatchTasks} onOpenBrewsheet={openBrewsheet} />}
+              {page === "batches"     && <BatchesPage    batches={batches} setBatches={setBatches} beerList={beerList} setBeerList={setBeerList} fillLog={fillLog} batchTasks={batchTasks} setBatchTasks={setBatchTasks} onOpenBrewsheet={openBrewsheet} onRenameBeer={renameBeer} />}
               {page === "fermenters"  && <FermenterDashboard batches={batches} setBatches={setBatches} fillLog={fillLog} batchTasks={batchTasks} setBatchTasks={setBatchTasks} />}
               {page === "team"        && <StaffPage staff={staff} setStaff={setStaff} />}
               {page === "brewsheet"   && (() => { const b = batches.find(x=>x.batch_id===selectedBatchId); return b ? <BrewsheetPage batch={b} brewsheet={brewsheets[b.batch_id]} onSave={saveBrewsheet} onBack={()=>setPage("batches")}/> : null; })()}
