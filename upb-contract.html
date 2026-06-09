@@ -486,57 +486,90 @@ function useAuth(){
 }
 
 // ─── useSave HOOK ────────────────────────────────────────────────────────────
+// Helper: deduplicate rows by primary key (first header column)
+function dedupeRows(rows, pkField){
+  const seen = new Map();
+  rows.forEach(r=>{ if(r[pkField]!==undefined && r[pkField]!=="") seen.set(r[pkField], r); });
+  return [...seen.values()];
+}
+
 function useSave(tabName, headers, initial){
   const [data,   setData]   = useState(initial);
   const [synced, setSynced] = useState(false);
-  const [dirty,  setDirty]  = useState(false);
-  const tokenRef = useRef(null);
+  const tokenRef     = useRef(null);
+  // dirtyRef: tracks pending changes without triggering re-renders on clear
+  // Using a ref avoids the race where setDirty(false) re-runs the effect and
+  // cancels a timer that was started for a change made during an in-flight save.
+  const dirtyRef     = useRef(false);
+  // saveVersionRef: bumped to trigger the save effect even when data hasn't changed (forcePush)
+  const [saveVersion, setSaveVersion] = useState(0);
+  // authLoadedRef: once an authenticated read completes, block any late gviz reads
+  // from overwriting state (fixes: "new item disappears after delete" race condition)
+  const authLoadedRef = useRef(false);
 
-  // On login: authenticated read from Sheets to get the latest data,
-  // then push seed data if the tab is empty.
+  // On login: authenticated read from Sheets
   const setToken = useCallback((t)=>{
     tokenRef.current = t;
     if(SPREADSHEET_ID==="YOUR_SPREADSHEET_ID_HERE") return;
     sheetsApiRead(t, SPREADSHEET_ID, tabName).then(rows=>{
+      authLoadedRef.current = true;  // block late gviz reads from overwriting
       if(rows && rows.length>0){
-        let cleaned = rows;
-        // Queue: deduplicate by id (stale rows can survive a shorter save) and normalize type
-        if(tabName==="Queue"){
-          const seen = new Map();
-          rows.forEach(r=>{ if(r.id) seen.set(r.id, r); });
-          cleaned = [...seen.values()].map(r=>({...r, type: r.type||"Contract"}));
-        }
-        setData(cleaned);   // ← sync latest Sheets data into local state
+        // Deduplicate by primary key for all tabs (fixes stale-row duplicates)
+        let cleaned = dedupeRows(rows, headers[0]);
+        // Queue: also normalize empty type field
+        if(tabName==="Queue") cleaned = cleaned.map(r=>({...r, type:r.type||"Contract"}));
+        setData(cleaned);
       } else {
-        setDirty(true);  // ← sheet empty: push seed/current data up
+        // Sheet tab is empty → push current/seed data up
+        dirtyRef.current = true;
+        setSaveVersion(v=>v+1);
       }
     });
-  },[tabName]);
+  },[tabName, headers]);
 
-  // On mount: unauthenticated read (works for public sheets / gviz)
+  // On mount: unauthenticated gviz read (works for public sheets before login)
+  // IMPORTANT: skip if authenticated read already completed to avoid overwriting user edits
   useEffect(()=>{
     if(SPREADSHEET_ID==="YOUR_SPREADSHEET_ID_HERE") return;
     sheetsRead(SPREADSHEET_ID, tabName).then(rows=>{
-      if(rows && rows.length>0) setData(rows);
+      // Only apply if auth hasn't loaded yet AND token isn't set
+      if(rows && rows.length>0 && !authLoadedRef.current && !tokenRef.current){
+        setData(dedupeRows(rows, headers[0]));
+      }
       setSynced(true);
     }).catch(()=>setSynced(true));
-  },[tabName]);
+  },[tabName, headers]);
 
-  // Write to Sheets whenever dirty and token is available
+  // Auto-save: fires when data changes or saveVersion bumps (forcePush)
+  // Uses dirtyRef (not dirty state) so clearing it doesn't re-run this effect
+  // and cancel timers for changes made during an in-flight save.
   useEffect(()=>{
-    if(!dirty||!tokenRef.current||SPREADSHEET_ID==="YOUR_SPREADSHEET_ID_HERE") return;
+    if(!dirtyRef.current || !tokenRef.current || SPREADSHEET_ID==="YOUR_SPREADSHEET_ID_HERE") return;
     const t = setTimeout(async ()=>{
-      await sheetsEnsure(tokenRef.current, SPREADSHEET_ID, tabName, headers);
-      await sheetsApiWrite(tokenRef.current, SPREADSHEET_ID, tabName, headers, data);
-      setDirty(false);
+      if(!dirtyRef.current) return; // guard: another effect may have cleared it
+      try {
+        await sheetsEnsure(tokenRef.current, SPREADSHEET_ID, tabName, headers);
+        await sheetsApiWrite(tokenRef.current, SPREADSHEET_ID, tabName, headers, data);
+        dirtyRef.current = false; // use ref — no re-render, no timer cancellation
+      } catch(e) {
+        console.error("[useSave] write failed:", tabName, e);
+        // Leave dirtyRef=true so next data change retries
+      }
     },1200);
     return ()=>clearTimeout(t);
-  },[data, dirty, tabName, headers]);
+  },[data, saveVersion, tabName, headers]);
 
   // Force push (called by Sync button)
-  const forcePush = useCallback(()=>{ if(tokenRef.current) setDirty(true); },[]);
+  const forcePush = useCallback(()=>{
+    if(tokenRef.current){ dirtyRef.current = true; setSaveVersion(v=>v+1); }
+  },[]);
 
-  const update = useCallback((fn)=>{ setData(fn); setDirty(true); },[]);
+  const update = useCallback((fn)=>{
+    setData(fn);
+    dirtyRef.current = true;  // mark dirty via ref, not state
+    setSaveVersion(v=>v+1);   // bump version to trigger save effect
+  },[]);
+
   return [data, update, synced, setToken, forcePush];
 }
 
@@ -1869,7 +1902,10 @@ function OrdersPage({orders,setOrders,customers,cbeers,recipes,setPage}){
     if(editId){
       setOrders(p=>p.map(o=>o.id===editId?{...o,...data}:o));
     } else {
-      const nextNo = "ORD-"+(String(orders.length+1).padStart(4,"0"));
+      // Use max existing order number + 1 (safe even after deletes)
+      const nums = orders.map(o=>parseInt((o.order_no||"").replace(/\D/g,""))).filter(n=>!isNaN(n)&&n>0);
+      const nextNum = nums.length>0 ? Math.max(...nums)+1 : 1;
+      const nextNo = "ORD-"+String(nextNum).padStart(4,"0");
       setOrders(p=>[...p,{id:uid(),order_no:form.order_no||nextNo,...data}]);
     }
     setShowModal(false);
