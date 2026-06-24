@@ -460,6 +460,9 @@ async function sheetsEnsure(token, spreadsheetId, tabName, headers){
 }
 
 // ─── AUTH STATE ─────────────────────────────────────────────────────────────
+const _CONTRACT_USER_KEY = "upb_contract_login_hint";
+let _refreshTimer = null;
+
 function useAuth(){
   const [token,setToken] = useState(null);
   const [gisReady,setGisReady] = useState(false);
@@ -470,13 +473,35 @@ function useAuth(){
     s.onload=()=>setGisReady(true); document.head.appendChild(s);
   },[]);
 
+  // Schedule silent token refresh 55 min after login (token expires at 60 min)
+  const scheduleRefresh = useCallback(()=>{
+    if(_refreshTimer) clearTimeout(_refreshTimer);
+    _refreshTimer = setTimeout(()=>{
+      if(!clientRef.current) return;
+      const hint = localStorage.getItem(_CONTRACT_USER_KEY)||"";
+      clientRef.current.requestAccessToken({prompt:"", login_hint:hint});
+    }, 55*60*1000);
+  },[]);
+
   const initClient = useCallback(()=>{
     if(!gisReady||clientRef.current) return;
     clientRef.current = google.accounts.oauth2.initTokenClient({
       client_id: GOOGLE_CLIENT_ID, scope: SCOPES,
-      callback:(resp)=>{ if(resp.access_token){ setToken(resp.access_token); } }
+      callback:(resp)=>{
+        if(resp.access_token){
+          setToken(resp.access_token);
+          scheduleRefresh();
+          // Try to save login hint for silent refresh
+          if(resp.expires_in) {
+            try{
+              const profile = JSON.parse(atob(resp.access_token.split(".")[1]||"e30="));
+              if(profile.email) localStorage.setItem(_CONTRACT_USER_KEY, profile.email);
+            }catch(e){}
+          }
+        }
+      }
     });
-  },[gisReady]);
+  },[gisReady, scheduleRefresh]);
 
   useEffect(()=>{ initClient(); },[initClient]);
 
@@ -496,6 +521,7 @@ function dedupeRows(rows, pkField){
 function useSave(tabName, headers, initial){
   const [data,   setData]   = useState(initial);
   const [synced, setSynced] = useState(false);
+  const [saveError, setSaveError] = useState(false); // true if last save failed
   const tokenRef     = useRef(null);
   // dirtyRef: tracks pending changes without triggering re-renders on clear
   // Using a ref avoids the race where setDirty(false) re-runs the effect and
@@ -518,7 +544,12 @@ function useSave(tabName, headers, initial){
         let cleaned = dedupeRows(rows, headers[0]);
         // Queue: also normalize empty type field
         if(tabName==="Queue") cleaned = cleaned.map(r=>({...r, type:r.type||"Contract"}));
-        setData(cleaned);
+        // CRITICAL: if the user made changes while this read was in flight (dirtyRef=true),
+        // do NOT overwrite their pending edits with stale Sheet data.
+        // The save timer will shortly write their version to Sheets instead.
+        if(!dirtyRef.current){
+          setData(cleaned);
+        }
       } else {
         // Sheet tab is empty → push current/seed data up
         dirtyRef.current = true;
@@ -551,8 +582,10 @@ function useSave(tabName, headers, initial){
         await sheetsEnsure(tokenRef.current, SPREADSHEET_ID, tabName, headers);
         await sheetsApiWrite(tokenRef.current, SPREADSHEET_ID, tabName, headers, data);
         dirtyRef.current = false; // use ref — no re-render, no timer cancellation
+        setSaveError(false);
       } catch(e) {
         console.error("[useSave] write failed:", tabName, e);
+        setSaveError(true); // visible warning in UI
         // Leave dirtyRef=true so next data change retries
       }
     },1200);
@@ -570,7 +603,7 @@ function useSave(tabName, headers, initial){
     setSaveVersion(v=>v+1);   // bump version to trigger save effect
   },[]);
 
-  return [data, update, synced, setToken, forcePush];
+  return [data, update, synced, setToken, forcePush, saveError];
 }
 
 
@@ -3216,7 +3249,7 @@ const NAV_ITEMS = [
   {id:"barpricing", label:"Bar Pricing",  icon:"🏪"},
 ];
 
-function Sidebar({page,setPage,token,onLogin,onSync,syncing}){
+function Sidebar({page,setPage,token,onLogin,onSync,syncing,saveError}){
   return <div className="w-56 flex-shrink-0 bg-white border-r border-gray-100 h-screen flex flex-col">
     {/* Logo */}
     <div className="px-5 py-5 border-b border-gray-100">
@@ -3240,12 +3273,15 @@ function Sidebar({page,setPage,token,onLogin,onSync,syncing}){
       {token
         ? <>
             <div style={{display:"flex",alignItems:"center",gap:7,fontSize:12,
-              color:syncing?"#0d9488":"#059669"}}>
+              color:saveError?"#dc2626":syncing?"#0d9488":"#059669"}}>
               <span style={{width:8,height:8,borderRadius:9999,flexShrink:0,display:"inline-block",
-                background:syncing?"#2dd4bf":"#10b981",
+                background:saveError?"#ef4444":syncing?"#2dd4bf":"#10b981",
                 animation:syncing?"pulse 1s infinite":undefined}}/>
-              {syncing ? "Syncing data…" : "Sheets connected"}
+              {saveError ? "⚠ Save failed — re-sync!" : syncing ? "Syncing data…" : "Sheets connected"}
             </div>
+            {saveError && <div style={{fontSize:11,color:"#dc2626",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"5px 8px",lineHeight:1.4}}>
+              Data may not be saved. Check connection or re-login, then click Force Sync.
+            </div>}
             <button onClick={onSync} disabled={syncing}
               style={{width:"100%",padding:"7px 10px",borderRadius:10,border:"1.5px solid #e5e7eb",
                 background:syncing?"#f0fdfa":"#fff",cursor:syncing?"default":"pointer",
@@ -3305,17 +3341,20 @@ function App(){
   const {token,login,gisReady} = useAuth();
   const [page,setPage] = useState("dashboard");
 
-  const [customers,    setCustomers,    ,setTkC,  fpC]  = useSave("Customers",         SHEETS.Customers,         INITIAL_CUSTOMERS);
-  const [cbeers,       setCbeers,       ,setTkCB, fpCB] = useSave("CustomerBeers",     SHEETS.CustomerBeers,     INITIAL_CBEERS);
-  const [ingredients,  setIngredients,  ,setTkI,  fpI]  = useSave("Ingredients",       SHEETS.Ingredients,       INITIAL_INGREDIENTS);
-  const [recipes,      setRecipes,      ,setTkR,  fpR]  = useSave("Recipes",           SHEETS.Recipes,           INITIAL_RECIPES);
-  const [ringredients, setRingredients, ,setTkRI, fpRI] = useSave("RecipeIngredients", SHEETS.RecipeIngredients, INITIAL_RINGSREDIENTS);
-  const [orders,       setOrders,       ,setTkO,  fpO]  = useSave("Orders",            SHEETS.Orders,            INITIAL_ORDERS);
-  const [queue,        setQueue,        ,setTkQ,  fpQ]   = useSave("Queue",                      SHEETS.Queue,                      INITIAL_QUEUE);
-  const [savedCalcs,   setSavedCalcs,   ,setTkSC, fpSC]  = useSave("SavedCalcs",                 SHEETS.SavedCalcs,                 INITIAL_SAVEDCALCS);
-  const [rtemplates,   setRtemplates,   ,setTkRT, fpRT]  = useSave("RecipeTemplates",            SHEETS.RecipeTemplates,            INITIAL_RTEMPLATES);
-  const [rtingredients,setRtingredients,,setTkRTI,fpRTI] = useSave("RecipeTemplateIngredients",  SHEETS.RecipeTemplateIngredients,  INITIAL_RTINGREDIENTS);
-  const [barPricing,   setBarPricing,   ,setTkBP, fpBP]  = useSave("BarPricing",                 SHEETS.BarPricing,                 INITIAL_BARPRICING);
+  const [customers,    setCustomers,    ,setTkC,  fpC,  seC]  = useSave("Customers",         SHEETS.Customers,         INITIAL_CUSTOMERS);
+  const [cbeers,       setCbeers,       ,setTkCB, fpCB, seCB] = useSave("CustomerBeers",     SHEETS.CustomerBeers,     INITIAL_CBEERS);
+  const [ingredients,  setIngredients,  ,setTkI,  fpI,  seI]  = useSave("Ingredients",       SHEETS.Ingredients,       INITIAL_INGREDIENTS);
+  const [recipes,      setRecipes,      ,setTkR,  fpR,  seR]  = useSave("Recipes",           SHEETS.Recipes,           INITIAL_RECIPES);
+  const [ringredients, setRingredients, ,setTkRI, fpRI, seRI] = useSave("RecipeIngredients", SHEETS.RecipeIngredients, INITIAL_RINGSREDIENTS);
+  const [orders,       setOrders,       ,setTkO,  fpO,  seO]  = useSave("Orders",            SHEETS.Orders,            INITIAL_ORDERS);
+  const [queue,        setQueue,        ,setTkQ,  fpQ,  seQ]  = useSave("Queue",                      SHEETS.Queue,                      INITIAL_QUEUE);
+  const [savedCalcs,   setSavedCalcs,   ,setTkSC, fpSC, seSC] = useSave("SavedCalcs",                 SHEETS.SavedCalcs,                 INITIAL_SAVEDCALCS);
+  const [rtemplates,   setRtemplates,   ,setTkRT, fpRT, seRT] = useSave("RecipeTemplates",            SHEETS.RecipeTemplates,            INITIAL_RTEMPLATES);
+  const [rtingredients,setRtingredients,,setTkRTI,fpRTI,seRTI]= useSave("RecipeTemplateIngredients",  SHEETS.RecipeTemplateIngredients,  INITIAL_RTINGREDIENTS);
+  const [barPricing,   setBarPricing,   ,setTkBP, fpBP, seBP] = useSave("BarPricing",                 SHEETS.BarPricing,                 INITIAL_BARPRICING);
+
+  // Aggregate save error — true if ANY tab failed its last save
+  const anySaveError = seC||seCB||seI||seR||seRI||seO||seQ||seSC||seRT||seRTI||seBP;
 
   const [syncing, setSyncing] = useState(false);
 
@@ -3351,7 +3390,7 @@ function App(){
   return (
     <AuthGate token={token} login={login} gisReady={gisReady}>
       <div style={{display:"flex",height:"100vh",overflow:"hidden"}}>
-        <Sidebar page={page} setPage={setPage} token={token} onLogin={login} onSync={syncAll} syncing={syncing}/>
+        <Sidebar page={page} setPage={setPage} token={token} onLogin={login} onSync={syncAll} syncing={syncing} saveError={anySaveError}/>
         <main style={{flex:1,overflowY:"auto",padding:24,background:"#f1f5f9"}}>
           {renderPage()}
         </main>
