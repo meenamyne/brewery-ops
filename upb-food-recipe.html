@@ -1,0 +1,1217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>UPB Food Recipe</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<script>
+tailwind.config = {
+  theme: { extend: {
+    colors: {
+      brand:  "#166534",
+      accent: "#d97706",
+      foam:   "#f8f9fa",
+    },
+    fontFamily: { sans: ["Inter","sans-serif"] }
+  }}
+};
+</script>
+<style>
+*,*::before,*::after{box-sizing:border-box;}
+body{font-family:'Inter',sans-serif;background:#f1f5f9;margin:0;color:#111827;}
+.sidebar-link{display:flex;align-items:center;gap:10px;padding:9px 14px;border-radius:12px;
+  font-size:14px;font-weight:500;transition:all .15s;width:100%;text-align:left;
+  border:none;cursor:pointer;background:transparent;}
+.sidebar-link.active{background:#166534;color:#fff;}
+.sidebar-link:not(.active){color:#64748b;}
+.sidebar-link:not(.active):hover{background:#e2e8f0;color:#1e293b;}
+.card{background:#fff;border-radius:16px;border:1px solid #f3f4f6;
+  box-shadow:0 1px 4px rgba(0,0,0,.06);}
+.input-cls{width:100%;border:1.5px solid #e5e7eb;border-radius:8px;
+  padding:9px 12px;font-size:14px;background:#fff;font-family:'Inter',sans-serif;
+  outline:none;color:#111827;transition:border-color .15s,box-shadow .15s;}
+.input-cls:focus{border-color:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,.15);}
+.btn-primary{padding:9px 18px;background:#166534;color:#fff;font-size:14px;font-weight:600;
+  border-radius:12px;transition:background .15s;display:inline-flex;align-items:center;
+  gap:7px;border:none;cursor:pointer;font-family:'Inter',sans-serif;line-height:1.4;}
+.btn-primary:hover{background:#14532d;}
+.btn-accent{padding:9px 18px;background:#d97706;color:#fff;font-size:14px;font-weight:600;
+  border-radius:12px;transition:background .15s;display:inline-flex;align-items:center;
+  gap:7px;border:none;cursor:pointer;font-family:'Inter',sans-serif;line-height:1.4;}
+.btn-accent:hover{background:#b45309;}
+.btn-ghost{padding:9px 18px;border:1.5px solid #e5e7eb;color:#374151;font-size:14px;
+  font-weight:500;border-radius:12px;transition:all .15s;background:#fff;cursor:pointer;
+  font-family:'Inter',sans-serif;line-height:1.4;}
+.btn-ghost:hover{background:#f9fafb;border-color:#d1d5db;}
+.btn-danger{padding:9px 18px;background:#dc2626;color:#fff;font-size:14px;font-weight:600;
+  border-radius:12px;border:none;cursor:pointer;font-family:'Inter',sans-serif;}
+.badge{display:inline-flex;align-items:center;padding:3px 10px;
+  border-radius:9999px;font-size:12px;font-weight:600;gap:5px;}
+.form-label{display:block;font-size:12px;font-weight:600;color:#6b7280;
+  margin-bottom:5px;letter-spacing:.02em;text-transform:uppercase;}
+::-webkit-scrollbar{width:6px;height:6px;}
+::-webkit-scrollbar-track{background:#f1f5f9;}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px;}
+.modal-overlay{position:fixed;inset:0;z-index:50;display:flex;align-items:center;
+  justify-content:center;padding:16px;background:rgba(15,23,42,.55);backdrop-filter:blur(2px);}
+.modal-box{background:#fff;border-radius:20px;padding:28px;width:100%;
+  max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.18);}
+.cat-pill{padding:6px 14px;border-radius:9999px;font-size:13px;font-weight:600;
+  cursor:pointer;border:1.5px solid transparent;transition:all .15s;}
+.cat-pill.active{background:#166534;color:#fff;border-color:#166534;}
+.cat-pill:not(.active){background:#f1f5f9;color:#64748b;border-color:#e2e8f0;}
+.cat-pill:not(.active):hover{background:#e2e8f0;color:#374151;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- ─── SEED DATA: Pre-populated from UPB Food Recipe 2025 Excel ─────────── -->
+<script>
+const INITIAL_MENUS = [
+  {id:"AP_01",menu_id:"AP_01",category:"Appetizer",name_th:"มันบด",name_en:"Mashed Potatoes",store_price:80,cost_per_serve:24.28,suggested_price:75,food_cost_pct:0.30,serves_per_recipe:1,checked:true},
+  {id:"AP_02",menu_id:"AP_02",category:"Appetizer",name_th:"ครีบปลากระเบน",name_en:"Aburi Eihire (Grilled Stingray Fin)",store_price:140,cost_per_serve:50.83,suggested_price:165,food_cost_pct:0.36,serves_per_recipe:1,checked:true},
+  {id:"AP_03",menu_id:"AP_03",category:"Appetizer",name_th:"ฟิชสติ๊ก",name_en:"Fried Fish Stick",store_price:180,cost_per_serve:299.98,suggested_price:925,food_cost_pct:1.67,serves_per_recipe:1,checked:true},
+  {id:"AP_04",menu_id:"AP_04",category:"Appetizer",name_th:"หมึกแดดคลองเปรม",name_en:"Fried Dried Squid",store_price:180,cost_per_serve:439.90,suggested_price:1350,food_cost_pct:2.44,serves_per_recipe:1,checked:true},
+  {id:"AP_05",menu_id:"AP_05",category:"Appetizer",name_th:"ปีกไก่ทอด",name_en:"Fried Chicken Wings (5 pcs.)",store_price:140,cost_per_serve:244.90,suggested_price:750,food_cost_pct:1.75,serves_per_recipe:1,checked:true},
+  {id:"AP_06",menu_id:"AP_06",category:"Appetizer",name_th:"ปีกไก่ทอด XL (10 ชิ้น)",name_en:"Fried Chicken Wings (10 pcs.)",store_price:250,cost_per_serve:284.55,suggested_price:875,food_cost_pct:1.14,serves_per_recipe:1,checked:true},
+  {id:"AP_07",menu_id:"AP_07",category:"Appetizer",name_th:"ปีกไก่ทอดซอสเผ็ด",name_en:"Fried Chicken Wings with Spicy Sauce (5 pcs.)",store_price:160,cost_per_serve:247.59,suggested_price:760,food_cost_pct:1.55,serves_per_recipe:1,checked:true},
+  {id:"AP_08",menu_id:"AP_08",category:"Appetizer",name_th:"อีสานครันชี่",name_en:"Isaan Crunchy",store_price:120,cost_per_serve:230.30,suggested_price:710,food_cost_pct:1.92,serves_per_recipe:1,checked:true},
+  {id:"AP_09",menu_id:"AP_09",category:"Appetizer",name_th:"คาลามารี",name_en:"Calamari",store_price:200,cost_per_serve:281.30,suggested_price:865,food_cost_pct:1.41,serves_per_recipe:1,checked:true},
+  {id:"AP_10",menu_id:"AP_10",category:"Appetizer",name_th:"แฮชบราวน์",name_en:"Hash Browns",store_price:120,cost_per_serve:228.48,suggested_price:705,food_cost_pct:1.90,serves_per_recipe:1,checked:true},
+  {id:"AP_11",menu_id:"AP_11",category:"Appetizer",name_th:"รวมมิตรมันทอด United Fried",name_en:"Mixed Fried Potatoes",store_price:140,cost_per_serve:230.53,suggested_price:710,food_cost_pct:1.65,serves_per_recipe:1,checked:true},
+  {id:"AP_12",menu_id:"AP_12",category:"Appetizer",name_th:"เฟรนช์ฟรายด์",name_en:"French Fries",store_price:100,cost_per_serve:229.96,suggested_price:710,food_cost_pct:2.30,serves_per_recipe:1,checked:true},
+  {id:"AP_13",menu_id:"AP_13",category:"Appetizer",name_th:"เฟรนช์ฟรายด์ทรัฟเฟิล",name_en:"French Fries with Truffle Sauce",store_price:160,cost_per_serve:230.40,suggested_price:710,food_cost_pct:1.44,serves_per_recipe:1,checked:true},
+  {id:"AP_14",menu_id:"AP_14",category:"Appetizer",name_th:"เปาะเปี๊ยะทอด",name_en:"Fried Spring Rolls",store_price:120,cost_per_serve:256.92,suggested_price:790,food_cost_pct:2.14,serves_per_recipe:1,checked:true},
+  {id:"AP_15",menu_id:"AP_15",category:"Appetizer",name_th:"เบค่อนไส้กรอกอีสาน",name_en:"Bacon Isaan Sausage Rolls",store_price:180,cost_per_serve:266.47,suggested_price:820,food_cost_pct:1.48,serves_per_recipe:1,checked:true},
+  {id:"AP_16",menu_id:"AP_16",category:"Appetizer",name_th:"สามชั้นพ่นไฟ",name_en:"Fried Pork Belly with Spicy Sauce",store_price:180,cost_per_serve:86.34,suggested_price:270,food_cost_pct:0.48,serves_per_recipe:1,checked:true},
+  {id:"AP_17",menu_id:"AP_17",category:"Appetizer",name_th:"สามชั้นทอดน้ำปลา",name_en:"Fried Pork Belly with Fish Sauce",store_price:160,cost_per_serve:83.92,suggested_price:260,food_cost_pct:0.52,serves_per_recipe:1,checked:true},
+  {id:"AP_18",menu_id:"AP_18",category:"Appetizer",name_th:"เนื้อหนอกแดดเดียว",name_en:"Fried Sun-Dried Beef",store_price:180,cost_per_serve:263.06,suggested_price:810,food_cost_pct:1.46,serves_per_recipe:1,checked:true},
+  {id:"AP_19",menu_id:"AP_19",category:"Appetizer",name_th:"ลาบทอดกรอบ",name_en:"Fried Spicy Pork Ball",store_price:160,cost_per_serve:35.21,suggested_price:115,food_cost_pct:0.22,serves_per_recipe:1,checked:true},
+  {id:"AP_20",menu_id:"AP_20",category:"Appetizer",name_th:"ข้อไก่ทอด",name_en:"Fried Chicken Tendons",store_price:120,cost_per_serve:256.32,suggested_price:790,food_cost_pct:2.14,serves_per_recipe:1,checked:true},
+  {id:"AP_21",menu_id:"AP_21",category:"Appetizer",name_th:"ถั่วพิตาชิโอ",name_en:"Pistachios",store_price:90,cost_per_serve:43.56,suggested_price:135,food_cost_pct:0.48,serves_per_recipe:1,checked:true},
+  {id:"AP_22",menu_id:"AP_22",category:"Appetizer",name_th:"เม็ดมะม่วงทอด",name_en:"Fried Cashew Nuts",store_price:120,cost_per_serve:241.55,suggested_price:745,food_cost_pct:2.01,serves_per_recipe:1,checked:true},
+  {id:"AP_23",menu_id:"AP_23",category:"Appetizer",name_th:"เม็ดมะม่วงยำ",name_en:"Fried Cashew Nuts with Herb and Chilli",store_price:140,cost_per_serve:247.01,suggested_price:760,food_cost_pct:1.76,serves_per_recipe:1,checked:true},
+  {id:"AP_24",menu_id:"AP_24",category:"Appetizer",name_th:"ถั่วแระญี่ปุ่น",name_en:"Edamame",store_price:60,cost_per_serve:8.38,suggested_price:30,food_cost_pct:0.14,serves_per_recipe:1,checked:true},
+  {id:"AP_25",menu_id:"AP_25",category:"Appetizer",name_th:"คางกุ้งทอดกรอบ",name_en:"Crispy Fried Shrimp Heads",store_price:80,cost_per_serve:264.33,suggested_price:815,food_cost_pct:3.30,serves_per_recipe:1,checked:true},
+  {id:"AP_26",menu_id:"AP_26",category:"Appetizer",name_th:"แหนมแกล้มเบียร์",name_en:"Sour Pork Mix",store_price:120,cost_per_serve:39.56,suggested_price:125,food_cost_pct:0.33,serves_per_recipe:1,checked:true},
+  {id:"AP_27",menu_id:"AP_27",category:"Appetizer",name_th:"หมึกแดดเทมปุระ",name_en:"Sun-Dried Squid Tempura",store_price:180,cost_per_serve:254.85,suggested_price:785,food_cost_pct:1.42,serves_per_recipe:1,checked:true},
+  {id:"AP_28",menu_id:"AP_28",category:"Appetizer",name_th:"แหนมซี่โครงข้าวกรอบ",name_en:"Sour Pork Ribs & Crunchy Rice",store_price:180,cost_per_serve:51.55,suggested_price:165,food_cost_pct:0.29,serves_per_recipe:1,checked:true},
+  {id:"AP_29",menu_id:"AP_29",category:"Appetizer",name_th:"แมลงทอด (ดักแด้)",name_en:"Fried Insects (Silkworms)",store_price:90,cost_per_serve:214.24,suggested_price:660,food_cost_pct:2.38,serves_per_recipe:1,checked:true},
+  {id:"AP_30",menu_id:"AP_30",category:"Appetizer",name_th:"แมลงทอดรวม (ดักแด้ + จิ้งหรีด)",name_en:"Mixed Fried Insects",store_price:90,cost_per_serve:215.56,suggested_price:665,food_cost_pct:2.40,serves_per_recipe:1,checked:true},
+  {id:"MD_01",menu_id:"MD_01",category:"Main Dish",name_th:"ข้าวกะเพราซุ้มเสือยอด หมูชิ้น",name_en:"Stir-Fried Sliced Pork with Holy Basil on Rice",store_price:90,cost_per_serve:26.89,suggested_price:90,food_cost_pct:0.30,serves_per_recipe:1,checked:true},
+  {id:"MD_02",menu_id:"MD_02",category:"Main Dish",name_th:"ข้าวกะเพราซุ้มเสือยอด หมูสับ",name_en:"Stir-Fried Minced Pork with Holy Basil on Rice",store_price:90,cost_per_serve:24.95,suggested_price:85,food_cost_pct:0.28,serves_per_recipe:1,checked:true},
+  {id:"MD_03",menu_id:"MD_03",category:"Main Dish",name_th:"ข้าวกะเพราซุ้มเสือยอด เนื้อสับ",name_en:"Stir-Fried Minced Beef with Holy Basil on Rice",store_price:120,cost_per_serve:37.71,suggested_price:120,food_cost_pct:0.31,serves_per_recipe:1,checked:true},
+  {id:"MD_04",menu_id:"MD_04",category:"Main Dish",name_th:"ข้าวไข่เจียว",name_en:"Omelette on Rice",store_price:60,cost_per_serve:18.90,suggested_price:60,food_cost_pct:0.31,serves_per_recipe:1,checked:true},
+  {id:"MD_05",menu_id:"MD_05",category:"Main Dish",name_th:"ข้าวไข่เจียวหมูสับ",name_en:"Omelette with Minced Pork on Rice",store_price:90,cost_per_serve:22.34,suggested_price:70,food_cost_pct:0.25,serves_per_recipe:1,checked:true},
+  {id:"MD_06",menu_id:"MD_06",category:"Main Dish",name_th:"ข้าวคลุกเนื้อสับโรงเบียร์",name_en:"Fried Rice with Minced Beef and Holy Basil",store_price:120,cost_per_serve:39.73,suggested_price:125,food_cost_pct:0.33,serves_per_recipe:1,checked:true},
+  {id:"MD_07",menu_id:"MD_07",category:"Main Dish",name_th:"หมูทอดกระเทียมราดข้าว",name_en:"Stir-Fried Garlic Pork on Rice",store_price:90,cost_per_serve:31.94,suggested_price:90,food_cost_pct:0.35,serves_per_recipe:1,checked:true},
+  {id:"MD_08",menu_id:"MD_08",category:"Main Dish",name_th:"ข้าวกะเพราซุ้มเสือยอด เนื้อชิ้น",name_en:"Stir-Fried Sliced Beef with Holy Basil on Rice",store_price:145,cost_per_serve:42.99,suggested_price:135,food_cost_pct:0.30,serves_per_recipe:1,checked:true},
+  {id:"MD_09",menu_id:"MD_09",category:"Main Dish",name_th:"เนื้อทอดกระเทียมราดข้าว",name_en:"Stir-Fried Garlic Beef on Rice",store_price:145,cost_per_serve:42.73,suggested_price:135,food_cost_pct:0.29,serves_per_recipe:1,checked:true},
+  {id:"MD_10",menu_id:"MD_10",category:"Main Dish",name_th:"ซุปเปอร์ปีกกลาง",name_en:"Spicy Chicken Wings Soup",store_price:160,cost_per_serve:60.01,suggested_price:190,food_cost_pct:0.38,serves_per_recipe:1,checked:true},
+  {id:"MD_11",menu_id:"MD_11",category:"Main Dish",name_th:"ข้าวกะเพราทะเล",name_en:"Stir-Fried Seafood with Holy Basil on Rice",store_price:250,cost_per_serve:64.05,suggested_price:200,food_cost_pct:0.26,serves_per_recipe:1,checked:true},
+  {id:"MD_12",menu_id:"MD_12",category:"Main Dish",name_th:"ข้าวกระเพรากุ้ง",name_en:"Stir-Fried Shrimp with Holy Basil on Rice",store_price:180,cost_per_serve:73.64,suggested_price:235,food_cost_pct:0.41,serves_per_recipe:1,checked:true},
+  {id:"MD_13",menu_id:"MD_13",category:"Main Dish",name_th:"กุ้งทอดกระเทียมราดข้าว",name_en:"Stir-Fried Garlic Shrimp on Rice",store_price:180,cost_per_serve:74.75,suggested_price:235,food_cost_pct:0.42,serves_per_recipe:1,checked:true},
+  {id:"MD_14",menu_id:"MD_14",category:"Main Dish",name_th:"ข้าวผัดทะเล",name_en:"Fried Rice with Seafood",store_price:250,cost_per_serve:64.61,suggested_price:200,food_cost_pct:0.26,serves_per_recipe:1,checked:true},
+  {id:"MD_15",menu_id:"MD_15",category:"Main Dish",name_th:"ข้าวผัดมันเนื้อหน้าเนื้อย่างไข่ดอง",name_en:"Beef Fat Fried Rice with Grilled Beef & Cured Egg Yolk",store_price:320,cost_per_serve:130.21,suggested_price:405,food_cost_pct:0.41,serves_per_recipe:1,checked:true},
+  {id:"MD_16",menu_id:"MD_16",category:"Main Dish",name_th:"พาสต้าเบค่อนพริกแห้ง",name_en:"Stir-Fried Pasta with Dried Chili and Crispy Bacon",store_price:180,cost_per_serve:57.48,suggested_price:180,food_cost_pct:0.32,serves_per_recipe:1,checked:true},
+  {id:"MD_17",menu_id:"MD_17",category:"Main Dish",name_th:"พาสต้าไส้กรอกอีสาน",name_en:"Stir-Fried Pasta with Isaan Sausage",store_price:180,cost_per_serve:41.82,suggested_price:130,food_cost_pct:0.23,serves_per_recipe:1,checked:true},
+  {id:"MD_18",menu_id:"MD_18",category:"Main Dish",name_th:"พาสต้าคาโบนาร่าไข่ออนเซ็น",name_en:"Creamy Carbonara with Soft-Boiled Egg",store_price:220,cost_per_serve:77.69,suggested_price:245,food_cost_pct:0.35,serves_per_recipe:1,checked:true},
+  {id:"MD_19",menu_id:"MD_19",category:"Main Dish",name_th:"พาสต้าครีมกุ้งและไข่ปลาบิน",name_en:"Creamy Pasta with Ebiko and Shrimp",store_price:null,cost_per_serve:92.78,suggested_price:290,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"MD_20",menu_id:"MD_20",category:"Main Dish",name_th:"ซุปแก้มวัวตุ๋นเตาถ่าน",name_en:"Spicy Braised Beef Cheek Soup",store_price:220,cost_per_serve:95.21,suggested_price:295,food_cost_pct:0.43,serves_per_recipe:1,checked:true},
+  {id:"MD_21",menu_id:"MD_21",category:"Main Dish",name_th:"เนื้อย่างออกรส",name_en:"Grilled Beef with Sautéed Mushrooms and Mashed Potatoes",store_price:380,cost_per_serve:134.78,suggested_price:420,food_cost_pct:0.35,serves_per_recipe:1,checked:true},
+  {id:"MD_22",menu_id:"MD_22",category:"Main Dish",name_th:"ซี่โครงหมูบาร์บีคิวโฮมเมด",name_en:"Homemade BBQ Pork Ribs",store_price:420,cost_per_serve:241.07,suggested_price:740,food_cost_pct:0.57,serves_per_recipe:1,checked:true},
+  {id:"MD_23",menu_id:"MD_23",category:"Main Dish",name_th:"ปลากระพงชุบเบียร์ทอด",name_en:"Beer-Battered Seabass & Chips",store_price:280,cost_per_serve:294.12,suggested_price:905,food_cost_pct:1.05,serves_per_recipe:1,checked:true},
+  {id:"MD_24",menu_id:"MD_24",category:"Main Dish",name_th:"ไข่ไก่ดาว",name_en:"Fried Chicken Egg",store_price:20,cost_per_serve:6.73,suggested_price:25,food_cost_pct:0.34,serves_per_recipe:1,checked:true},
+  {id:"MD_25",menu_id:"MD_25",category:"Main Dish",name_th:"ไข่เป็ดดาว",name_en:"Fried Duck Egg",store_price:25,cost_per_serve:7.61,suggested_price:30,food_cost_pct:0.30,serves_per_recipe:1,checked:true},
+  {id:"MD_26",menu_id:"MD_26",category:"Main Dish",name_th:"ข้าวเปล่า",name_en:"Cooked Jasmine Rice",store_price:20,cost_per_serve:3.95,suggested_price:20,food_cost_pct:0.20,serves_per_recipe:1,checked:true},
+  {id:"MD_27",menu_id:"MD_27",category:"Main Dish",name_th:"ข้าวผัดกัปตันโอ๊ก",name_en:"Fried Rice with Shrimp & Signature Sauce",store_price:160,cost_per_serve:64.46,suggested_price:200,food_cost_pct:0.40,serves_per_recipe:1,checked:true},
+  {id:"MD_28",menu_id:"MD_28",category:"Main Dish",name_th:"ข้าวกะเพราแก้มวัวตุ๋น",name_en:"Stir-Fried Braised Beef Cheek with Holy Basil on Rice",store_price:180,cost_per_serve:61.28,suggested_price:195,food_cost_pct:0.34,serves_per_recipe:1,checked:true},
+  {id:"MD_29",menu_id:"MD_29",category:"Main Dish",name_th:"ข้าวผัดแหนม",name_en:"Fried Rice with Fermented Pork",store_price:120,cost_per_serve:36.95,suggested_price:120,food_cost_pct:0.31,serves_per_recipe:1,checked:true},
+  {id:"MD_30",menu_id:"MD_30",category:"Main Dish",name_th:"ข้าวผัดหนำเลี๊ยบ",name_en:"Fried Rice with Chinese Sausage",store_price:220,cost_per_serve:29.84,suggested_price:100,food_cost_pct:0.14,serves_per_recipe:1,checked:true},
+  {id:"MD_31",menu_id:"MD_31",category:"Main Dish",name_th:"ต้มแซ่บซี่โครงอ่อนใบกะเพรา",name_en:"Spicy Pork Rib Soup with Holy Basil",store_price:180,cost_per_serve:64.09,suggested_price:200,food_cost_pct:0.36,serves_per_recipe:1,checked:true},
+  {id:"MD_32",menu_id:"MD_32",category:"Main Dish",name_th:"ซุปผู้กอง (ซุปกระดูกหมูผักกาดดอง)",name_en:"Captain's Soup (Pork Bone Soup with Pickled Cabbage)",store_price:180,cost_per_serve:90.08,suggested_price:280,food_cost_pct:0.50,serves_per_recipe:1,checked:true},
+  {id:"MD_33",menu_id:"MD_33",category:"Main Dish",name_th:"เนื้อแจ่วอ่ำหล่ำ",name_en:"Grilled Thai-French Beef with Isaan Spicy Sauce",store_price:250,cost_per_serve:119.39,suggested_price:370,food_cost_pct:0.48,serves_per_recipe:1,checked:true},
+  {id:"MD_34",menu_id:"MD_34",category:"Main Dish",name_th:"พาสต้าทะเล",name_en:"Stir-Fried Pasta with Seafood",store_price:280,cost_per_serve:81.82,suggested_price:255,food_cost_pct:0.29,serves_per_recipe:1,checked:true},
+  {id:"MD_35",menu_id:"MD_35",category:"Main Dish",name_th:"ไส้กรอก Oktober",name_en:"Oktober Sausage Platter",store_price:380,cost_per_serve:157.87,suggested_price:490,food_cost_pct:0.42,serves_per_recipe:1,checked:true},
+  {id:"MD_36",menu_id:"MD_36",category:"Main Dish",name_th:"บะหมี่มาเฟียซอสเผ็ด",name_en:"Mafia Noodles with Spicy Sauce",store_price:280,cost_per_serve:94.09,suggested_price:270,food_cost_pct:0.34,serves_per_recipe:1,checked:true},
+  {id:"MD_37",menu_id:"MD_37",category:"Main Dish",name_th:"บะหมี่มาเฟียซอสคาโบนาร่า",name_en:"Mafia Noodles Carbonara",store_price:280,cost_per_serve:94.09,suggested_price:270,food_cost_pct:0.34,serves_per_recipe:1,checked:true},
+  {id:"MD_38",menu_id:"MD_38",category:"Main Dish",name_th:"ข้าวผัดโบราณ",name_en:"Old-Style Fried Rice",store_price:120,cost_per_serve:43.51,suggested_price:125,food_cost_pct:0.36,serves_per_recipe:1,checked:true},
+  {id:"MD_39",menu_id:"MD_39",category:"Main Dish",name_th:"ต้มยำทะเลน้ำข้น",name_en:"Creamy Tom Yum Seafood",store_price:250,cost_per_serve:59.05,suggested_price:170,food_cost_pct:0.24,serves_per_recipe:1,checked:true},
+  {id:"MD_40",menu_id:"MD_40",category:"Main Dish",name_th:"ชีสบอร์ด",name_en:"Cheese Board",store_price:null,cost_per_serve:101.84,suggested_price:295,food_cost_pct:null,serves_per_recipe:1,checked:false},
+  {id:"MD_41",menu_id:"MD_41",category:"Main Dish",name_th:"คอหมูย่างชิมิชูริ",name_en:"Grilled Pork Neck with Chimichurri",store_price:null,cost_per_serve:990.35,suggested_price:2830,food_cost_pct:null,serves_per_recipe:1,checked:false},
+  {id:"MD_42",menu_id:"MD_42",category:"Main Dish",name_th:"ต้มขมเนื้อ",name_en:"Bitter Beef Soup",store_price:null,cost_per_serve:60.11,suggested_price:175,food_cost_pct:null,serves_per_recipe:1,checked:false},
+  {id:"MD_43",menu_id:"MD_43",category:"Main Dish",name_th:"แกงเห็ด",name_en:"Mushroom Curry",store_price:null,cost_per_serve:54.53,suggested_price:160,food_cost_pct:null,serves_per_recipe:1,checked:false},
+  {id:"SL_01",menu_id:"SL_01",category:"Salad & Yum",name_th:"ทาโกะวาซาบิ",name_en:"Tako Wasabi",store_price:90,cost_per_serve:35.85,suggested_price:115,food_cost_pct:0.40,serves_per_recipe:1,checked:true},
+  {id:"SL_02",menu_id:"SL_02",category:"Salad & Yum",name_th:"ผักแจ่ว",name_en:"Pickled Vegetable with Spicy Jaew Sauce",store_price:60,cost_per_serve:11.70,suggested_price:40,food_cost_pct:0.19,serves_per_recipe:1,checked:true},
+  {id:"SL_03",menu_id:"SL_03",category:"Salad & Yum",name_th:"ซีซาร์สลัด",name_en:"Caesar Salad",store_price:220,cost_per_serve:98.70,suggested_price:305,food_cost_pct:0.45,serves_per_recipe:1,checked:true},
+  {id:"SL_04",menu_id:"SL_04",category:"Salad & Yum",name_th:"กุ้งเด็กดอยดองซีอิ๊วเกาหลี 8 ตัว",name_en:"Korean Soy-Marinated Shrimp",store_price:250,cost_per_serve:158.61,suggested_price:490,food_cost_pct:0.63,serves_per_recipe:1,checked:true},
+  {id:"SL_05",menu_id:"SL_05",category:"Salad & Yum",name_th:"ก้อยขม",name_en:"Spicy Thai Raw Beef Salad (Bitter)",store_price:160,cost_per_serve:33.48,suggested_price:110,food_cost_pct:0.21,serves_per_recipe:1,checked:true},
+  {id:"SL_06",menu_id:"SL_06",category:"Salad & Yum",name_th:"ก้อยมะนาว",name_en:"Spicy Thai Raw Beef Salad with Lime",store_price:160,cost_per_serve:36.84,suggested_price:120,food_cost_pct:0.23,serves_per_recipe:1,checked:true},
+  {id:"SL_07",menu_id:"SL_07",category:"Salad & Yum",name_th:"กุ้งแช่เบียร์",name_en:"Beer-Soaked Shrimp",store_price:160,cost_per_serve:54.48,suggested_price:175,food_cost_pct:0.34,serves_per_recipe:1,checked:true},
+  {id:"SL_08",menu_id:"SL_08",category:"Salad & Yum",name_th:"หมูแซ่บโรงเบียร์",name_en:"Spicy Pork Salad",store_price:150,cost_per_serve:21.46,suggested_price:70,food_cost_pct:0.14,serves_per_recipe:1,checked:true},
+  {id:"SL_09",menu_id:"SL_09",category:"Salad & Yum",name_th:"ยำกุ้งสะดุ้งตะไคร้",name_en:"Shrimp with Lemongrass Spicy Salad",store_price:180,cost_per_serve:56.40,suggested_price:180,food_cost_pct:0.31,serves_per_recipe:1,checked:true},
+  {id:"SL_10",menu_id:"SL_10",category:"Salad & Yum",name_th:"ยำวุ้นเส้นกุ้งย่าง",name_en:"Vermicelli Spicy Salad with Grilled Shrimp",store_price:180,cost_per_serve:69.04,suggested_price:215,food_cost_pct:0.38,serves_per_recipe:1,checked:true},
+  {id:"SL_11",menu_id:"SL_11",category:"Salad & Yum",name_th:"ยำแซลม่อนแซ่บ",name_en:"Salmon Spicy Salad",store_price:250,cost_per_serve:117.22,suggested_price:360,food_cost_pct:0.47,serves_per_recipe:1,checked:true},
+  {id:"SL_12",menu_id:"SL_12",category:"Salad & Yum",name_th:"ยำวุ้นเส้นหมูสับ",name_en:"Vermicelli Spicy Salad with Minced Pork",store_price:120,cost_per_serve:41.33,suggested_price:130,food_cost_pct:0.34,serves_per_recipe:1,checked:true},
+  {id:"SL_13",menu_id:"SL_13",category:"Salad & Yum",name_th:"ยำแหนมสดข้าวกรอบ",name_en:"Sour Pork with Crispy Rice Spicy Salad",store_price:160,cost_per_serve:53.53,suggested_price:170,food_cost_pct:0.33,serves_per_recipe:1,checked:true},
+  {id:"SL_14",menu_id:"SL_14",category:"Salad & Yum",name_th:"ซอยจุ๊โรงเบียร์",name_en:"Raw Beef with Spicy Sauce",store_price:160,cost_per_serve:36.75,suggested_price:120,food_cost_pct:0.23,serves_per_recipe:1,checked:true},
+  {id:"SL_15",menu_id:"SL_15",category:"Salad & Yum",name_th:"สลัดรวมโชยุแซลมอน",name_en:"Salmon Soy Sauce Mixed Salad",store_price:null,cost_per_serve:78.41,suggested_price:245,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"SL_16",menu_id:"SL_16",category:"Salad & Yum",name_th:"สลัดรวมโชยุเบคอน",name_en:"Mixed Salad with Shoyu and Bacon",store_price:null,cost_per_serve:40.27,suggested_price:130,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"SL_17",menu_id:"SL_17",category:"Salad & Yum",name_th:"สลัดยำทูน่า",name_en:"Spicy Tuna Salad",store_price:220,cost_per_serve:70.90,suggested_price:220,food_cost_pct:0.32,serves_per_recipe:1,checked:true},
+  {id:"SL_18",menu_id:"SL_18",category:"Salad & Yum",name_th:"ยำผักหวาน",name_en:"Spicy Opilia Salad with Minced Pork",store_price:160,cost_per_serve:40.38,suggested_price:130,food_cost_pct:0.25,serves_per_recipe:1,checked:true},
+  {id:"SL_19",menu_id:"SL_19",category:"Salad & Yum",name_th:"สลัดแตงกวา",name_en:"Cucumber Salad",store_price:80,cost_per_serve:15.18,suggested_price:50,food_cost_pct:null,serves_per_recipe:1,checked:false},
+  {id:"AS_01",menu_id:"AS_01",category:"Sauces & Prep",name_th:"น้ำยำ",name_en:"Spicy Sauce for Yum",store_price:null,cost_per_serve:33.08,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_02",menu_id:"AS_02",category:"Sauces & Prep",name_th:"ซอสกะเพรา",name_en:"Holy Basil Sauce",store_price:null,cost_per_serve:2.19,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_03",menu_id:"AS_03",category:"Sauces & Prep",name_th:"ซอสข้าวผัดแดง",name_en:"Red Fried Rice Sauce",store_price:null,cost_per_serve:2.77,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_04",menu_id:"AS_04",category:"Sauces & Prep",name_th:"ซอสผัดอเนกประสงค์",name_en:"All-Purpose Stir-Fry Sauce",store_price:null,cost_per_serve:2.22,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_05",menu_id:"AS_05",category:"Sauces & Prep",name_th:"น้ำจิ้มซีฟู้ดเขียว",name_en:"Green Seafood Dipping Sauce",store_price:null,cost_per_serve:4.73,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_06",menu_id:"AS_06",category:"Sauces & Prep",name_th:"พริกน้ำปลา",name_en:"Fish Sauce with Chili",store_price:null,cost_per_serve:2.15,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_07",menu_id:"AS_07",category:"Sauces & Prep",name_th:"ไข่ดอง",name_en:"Cured Egg",store_price:null,cost_per_serve:5.19,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_08",menu_id:"AS_08",category:"Sauces & Prep",name_th:"น้ำจิ้มแจ่ว",name_en:"Jaew Dipping Sauce",store_price:null,cost_per_serve:1.46,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_09",menu_id:"AS_09",category:"Sauces & Prep",name_th:"แก้มวัวตุ๋น",name_en:"Braised Beef Cheek",store_price:null,cost_per_serve:44.32,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_10",menu_id:"AS_10",category:"Sauces & Prep",name_th:"เส้นพาสต้า",name_en:"Cooked Pasta",store_price:null,cost_per_serve:15.12,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_11",menu_id:"AS_11",category:"Sauces & Prep",name_th:"น้ำมะขามเปียก",name_en:"Tamarind Water",store_price:null,cost_per_serve:158.95,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_12",menu_id:"AS_12",category:"Sauces & Prep",name_th:"พริกผัด",name_en:"Stir-Fried Chili Paste",store_price:null,cost_per_serve:0.79,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_13",menu_id:"AS_13",category:"Sauces & Prep",name_th:"ไข่ออนเซ็น",name_en:"Onsen Egg",store_price:null,cost_per_serve:5.98,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_14",menu_id:"AS_14",category:"Sauces & Prep",name_th:"ต้มซุปปีกกลาง (เบส)",name_en:"Chicken Wings Soup Base",store_price:null,cost_per_serve:40.41,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_15",menu_id:"AS_15",category:"Sauces & Prep",name_th:"ผงโรยเนื้อ",name_en:"Beef Seasoning Powder",store_price:null,cost_per_serve:1.29,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_16",menu_id:"AS_16",category:"Sauces & Prep",name_th:"มันบด (เบส)",name_en:"Mashed Potato Base",store_price:null,cost_per_serve:0.14,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_17",menu_id:"AS_17",category:"Sauces & Prep",name_th:"บราวน์ซอส",name_en:"Brown Sauce",store_price:null,cost_per_serve:4.22,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_18",menu_id:"AS_18",category:"Sauces & Prep",name_th:"เห็ดผัด",name_en:"Sautéed Mushrooms",store_price:null,cost_per_serve:6.68,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_19",menu_id:"AS_19",category:"Sauces & Prep",name_th:"สูตร ซอสหนำเลี๊ยบ",name_en:"Chinese Sausage Sauce",store_price:null,cost_per_serve:3.50,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_20",menu_id:"AS_20",category:"Sauces & Prep",name_th:"เบส น้ำซุปต้มกระดูกอ่อนใบพาย",name_en:"Pork Cartilage Bone Broth Base",store_price:null,cost_per_serve:47.48,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_21",menu_id:"AS_21",category:"Sauces & Prep",name_th:"แหนมซี่โครง (หมัก)",name_en:"Fermented Pork Ribs (Marinated)",store_price:null,cost_per_serve:35.02,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_22",menu_id:"AS_22",category:"Sauces & Prep",name_th:"เซาเคาร์",name_en:"Sauerkraut",store_price:null,cost_per_serve:2.24,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_23",menu_id:"AS_23",category:"Sauces & Prep",name_th:"น้ำจิ้มชิมิชูริ",name_en:"Chimichurri Sauce",store_price:null,cost_per_serve:7.62,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_24",menu_id:"AS_24",category:"Sauces & Prep",name_th:"คอหมู หมัก",name_en:"Marinated Pork Neck",store_price:null,cost_per_serve:892.29,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:true},
+  {id:"AS_25",menu_id:"AS_25",category:"Sauces & Prep",name_th:"เนื้อ ตุ๋น",name_en:"Braised Beef",store_price:null,cost_per_serve:48.15,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:false},
+  {id:"AS_26",menu_id:"AS_26",category:"Sauces & Prep",name_th:"พริกยำ",name_en:"Chili for Yum",store_price:null,cost_per_serve:4.11,suggested_price:null,food_cost_pct:null,serves_per_recipe:1,checked:false},
+];
+const INITIAL_RECIPE_INGREDIENTS = [];
+const INITIAL_COOKING_STEPS = [];
+</script>
+
+<!-- ─── CONFIG + UTILITIES + HOOKS ──────────────────────────────────────────── -->
+<script>
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+// ── CONFIG ────────────────────────────────────────────────────────────────────
+// ⚠️  Replace with your own Google Sheet ID for food recipes.
+// Create a new Google Sheet, share it so you have edit access, then paste the ID here.
+const SPREADSHEET_ID   = "1qfXTf3h1CWFbvgr2mlLvedWUxjH8PVwX7L7ndXq8V3o";
+const GOOGLE_CLIENT_ID = "787778307584-v1bfnkpnfgu9j1ueni9mi97chlpdu2ec.apps.googleusercontent.com";
+const SCOPES           = "https://www.googleapis.com/auth/spreadsheets";
+
+// ── SHEET SCHEMAS ─────────────────────────────────────────────────────────────
+const SHEETS = {
+  Menus:              ["id","menu_id","category","name_th","name_en","store_price","cost_per_serve","suggested_price","food_cost_pct","serves_per_recipe","checked"],
+  RecipeIngredients:  ["id","menu_id","ingredient_name","purchase_qty","purchase_unit","cost_per_unit","yield_pct","actual_cost","usage_qty","usage_unit","ingredient_cost"],
+  CookingSteps:       ["id","menu_id","step_no","instruction"],
+};
+
+const CATEGORIES = ["All","Appetizer","Main Dish","Salad & Yum","Sauces & Prep"];
+const CAT_ICONS  = {"All":"🍽️","Appetizer":"🍟","Main Dish":"🍛","Salad & Yum":"🥗","Sauces & Prep":"🫙"};
+const CAT_COLORS = {
+  "Appetizer":   {bg:"bg-amber-100",  text:"text-amber-800"},
+  "Main Dish":   {bg:"bg-green-100",  text:"text-green-800"},
+  "Salad & Yum": {bg:"bg-teal-100",   text:"text-teal-800"},
+  "Sauces & Prep":{bg:"bg-purple-100",text:"text-purple-800"},
+};
+
+// ── UTILITIES ─────────────────────────────────────────────────────────────────
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function fmtThb(n){ const v=+n; if(!v&&v!==0)return"—"; return"฿"+v.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtPct(n){ const v=+n; if(!n&&n!==0)return"—"; return(v*100).toFixed(1)+"%"; }
+function costColor(pct){
+  if(!pct)return"text-gray-400";
+  const v=+pct;
+  if(v<=0.35)return"text-green-700";
+  if(v<=0.50)return"text-amber-600";
+  return"text-red-600";
+}
+
+// ── GOOGLE SHEETS READ (gviz — public, no auth needed) ────────────────────────
+function gvizFetch(spreadsheetId, sheetName){
+  return new Promise((resolve,reject)=>{
+    const cbName="_gviz_cb_"+uid();
+    const url=`https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&tq=select+*&sheet=${encodeURIComponent(sheetName)}&cb=${cbName}`;
+    window[cbName]=(data)=>{ delete window[cbName]; document.head.removeChild(s); resolve(data); };
+    const s=document.createElement("script"); s.src=url;
+    s.onerror=()=>{ delete window[cbName]; reject(new Error("gviz fetch failed")); };
+    document.head.appendChild(s);
+    setTimeout(()=>{ if(window[cbName]){ delete window[cbName]; reject(new Error("timeout")); } },10000);
+  });
+}
+async function sheetsRead(spreadsheetId, sheetName){
+  try{
+    const raw=await gvizFetch(spreadsheetId, sheetName);
+    const cols=(raw.table?.cols||[]).map(c=>c.label||c.id||"");
+    const rows=(raw.table?.rows||[]).map(r=>{
+      const obj={}; (r.c||[]).forEach((cell,i)=>{ obj[cols[i]]=cell?.v??cell?.f??""; }); return obj;
+    });
+    return rows.filter(r=>Object.values(r).some(v=>v!==null&&v!==""));
+  }catch(e){ return null; }
+}
+
+// ── GOOGLE SHEETS API (authenticated) ─────────────────────────────────────────
+async function sheetsApiRead(token, spreadsheetId, tabName){
+  try{
+    const res=await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(tabName)}`,
+      {headers:{"Authorization":"Bearer "+token}}
+    );
+    if(!res.ok)return null;
+    const json=await res.json();
+    const values=json.values||[];
+    if(values.length<2)return null;
+    const hdrs=values[0];
+    return values.slice(1)
+      .map(row=>{ const o={}; hdrs.forEach((h,i)=>{ o[h]=row[i]??""; }); return o; })
+      .filter(r=>Object.values(r).some(v=>v!==""));
+  }catch(e){ return null; }
+}
+async function sheetsApiWrite(token, spreadsheetId, tabName, headers, rows){
+  const dataRows=rows.map(r=>headers.map(h=>{ const v=r[h]; if(v==null)return""; return String(v); }));
+  const emptyRow=headers.map(()=>"");
+  const PAD=Math.max(500, dataRows.length+50);
+  for(let i=dataRows.length;i<PAD;i++) dataRows.push(emptyRow);
+  const body=[headers,...dataRows];
+  const range=`${tabName}!A1`;
+  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`,{
+    method:"PUT", headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json"},
+    body:JSON.stringify({range,majorDimension:"ROWS",values:body})
+  });
+}
+async function sheetsEnsure(token, spreadsheetId, tabName, headers){
+  const meta=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties.title`,
+    {headers:{"Authorization":"Bearer "+token}}).then(r=>r.json());
+  const exists=(meta.sheets||[]).some(s=>s.properties.title===tabName);
+  if(!exists){
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,{
+      method:"POST", headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json"},
+      body:JSON.stringify({requests:[{addSheet:{properties:{title:tabName}}}]})
+    });
+    await sheetsApiWrite(token, spreadsheetId, tabName, headers, []);
+  }
+}
+
+// ── AUTH HOOK ─────────────────────────────────────────────────────────────────
+const _FOOD_USER_KEY="upb_food_login_hint";
+let _refreshTimer=null;
+
+function useAuth(){
+  const [token,setToken]=useState(null);
+  const [gisReady,setGisReady]=useState(false);
+  const clientRef=useRef(null);
+
+  useEffect(()=>{
+    const s=document.createElement("script"); s.src="https://accounts.google.com/gsi/client"; s.async=true;
+    s.onload=()=>setGisReady(true); document.head.appendChild(s);
+  },[]);
+
+  const scheduleRefresh=useCallback(()=>{
+    if(_refreshTimer) clearTimeout(_refreshTimer);
+    _refreshTimer=setTimeout(()=>{
+      if(!clientRef.current)return;
+      const hint=localStorage.getItem(_FOOD_USER_KEY)||"";
+      clientRef.current.requestAccessToken({prompt:"", login_hint:hint});
+    }, 55*60*1000);
+  },[]);
+
+  const initClient=useCallback(()=>{
+    if(!gisReady||clientRef.current)return;
+    clientRef.current=google.accounts.oauth2.initTokenClient({
+      client_id:GOOGLE_CLIENT_ID, scope:SCOPES,
+      callback:(resp)=>{
+        if(resp.access_token){
+          setToken(resp.access_token);
+          scheduleRefresh();
+          try{
+            const profile=JSON.parse(atob(resp.access_token.split(".")[1]||"e30="));
+            if(profile.email) localStorage.setItem(_FOOD_USER_KEY, profile.email);
+          }catch(e){}
+        }
+      }
+    });
+  },[gisReady, scheduleRefresh]);
+
+  useEffect(()=>{ initClient(); },[initClient]);
+  const login=useCallback(()=>{ if(clientRef.current) clientRef.current.requestAccessToken(); },[]);
+  return { token, login, gisReady };
+}
+
+// ── useSave HOOK ──────────────────────────────────────────────────────────────
+function dedupeRows(rows, pkField){
+  const seen=new Map();
+  rows.forEach(r=>{ if(r[pkField]!==undefined&&r[pkField]!=="") seen.set(r[pkField],r); });
+  return [...seen.values()];
+}
+
+function useSave(tabName, headers, initial){
+  const [data,setData]=useState(initial);
+  const [synced,setSynced]=useState(false);
+  const [saveError,setSaveError]=useState(false);
+  const tokenRef=useRef(null);
+  const dirtyRef=useRef(false);
+  const [saveVersion,setSaveVersion]=useState(0);
+  const authLoadedRef=useRef(false);
+
+  const setToken=useCallback((t)=>{
+    tokenRef.current=t;
+    if(SPREADSHEET_ID==="1qfXTf3h1CWFbvgr2mlLvedWUxjH8PVwX7L7ndXq8V3o")return;
+    sheetsApiRead(t, SPREADSHEET_ID, tabName).then(rows=>{
+      authLoadedRef.current=true;
+      if(rows&&rows.length>0){
+        let cleaned=dedupeRows(rows, headers[0]);
+        if(!dirtyRef.current){ setData(cleaned); }
+      } else {
+        dirtyRef.current=true;
+        setSaveVersion(v=>v+1);
+      }
+    });
+  },[tabName, headers]);
+
+  useEffect(()=>{
+    if(SPREADSHEET_ID==="1qfXTf3h1CWFbvgr2mlLvedWUxjH8PVwX7L7ndXq8V3o")return;
+    sheetsRead(SPREADSHEET_ID, tabName).then(rows=>{
+      if(rows&&rows.length>0&&!authLoadedRef.current&&!tokenRef.current){
+        setData(dedupeRows(rows, headers[0]));
+      }
+      setSynced(true);
+    }).catch(()=>setSynced(true));
+  },[tabName, headers]);
+
+  useEffect(()=>{
+    if(!dirtyRef.current||!tokenRef.current||SPREADSHEET_ID==="1qfXTf3h1CWFbvgr2mlLvedWUxjH8PVwX7L7ndXq8V3o")return;
+    const t=setTimeout(async()=>{
+      if(!dirtyRef.current)return;
+      try{
+        await sheetsEnsure(tokenRef.current, SPREADSHEET_ID, tabName, headers);
+        await sheetsApiWrite(tokenRef.current, SPREADSHEET_ID, tabName, headers, data);
+        dirtyRef.current=false;
+        setSaveError(false);
+      }catch(e){
+        console.error("[useSave] write failed:", tabName, e);
+        setSaveError(true);
+      }
+    },1200);
+    return()=>clearTimeout(t);
+  },[data, saveVersion, tabName, headers]);
+
+  const forcePush=useCallback(()=>{
+    if(tokenRef.current){ dirtyRef.current=true; setSaveVersion(v=>v+1); }
+  },[]);
+
+  const update=useCallback((fn)=>{
+    setData(fn);
+    dirtyRef.current=true;
+    setSaveVersion(v=>v+1);
+  },[]);
+
+  return [data, update, synced, setToken, forcePush, saveError];
+}
+</script>
+
+<!-- ─── REACT APP ──────────────────────────────────────────────────────────── -->
+<script type="text/babel">
+
+// ── SHARED COMPONENTS ─────────────────────────────────────────────────────────
+function Modal({open,onClose,title,children,wide}){
+  if(!open)return null;
+  return <div className="modal-overlay" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+    <div className="modal-box" style={{maxWidth:wide?800:540}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:22}}>
+        <h3 style={{fontSize:18,fontWeight:700,color:"#111827",margin:0}}>{title}</h3>
+        <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",
+          fontSize:22,color:"#9ca3af",lineHeight:1,padding:"2px 8px",borderRadius:6}}>×</button>
+      </div>
+      {children}
+    </div>
+  </div>;
+}
+
+function ConfirmModal({open,title,message,onConfirm,onCancel,danger}){
+  if(!open)return null;
+  return <div className="modal-overlay">
+    <div className="modal-box" style={{maxWidth:420}}>
+      <h3 style={{fontSize:17,fontWeight:700,color:"#111827",margin:"0 0 8px"}}>{title}</h3>
+      <p style={{fontSize:14,color:"#6b7280",margin:"0 0 24px",lineHeight:1.6}}>{message}</p>
+      <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+        <button onClick={onCancel} className="btn-ghost">Cancel</button>
+        <button onClick={onConfirm} style={{padding:"9px 20px",borderRadius:12,border:"none",
+          cursor:"pointer",fontSize:14,fontWeight:600,color:"#fff",
+          background:danger?"#ef4444":"#166534"}}>Confirm</button>
+      </div>
+    </div>
+  </div>;
+}
+
+function CatBadge({category}){
+  const cfg=CAT_COLORS[category]||{bg:"bg-gray-100",text:"text-gray-600"};
+  return <span className={`badge ${cfg.bg} ${cfg.text}`}>{CAT_ICONS[category]||"🍽️"} {category}</span>;
+}
+
+// ── SIDEBAR ───────────────────────────────────────────────────────────────────
+function Sidebar({page,setPage,token,onLogin,onSync,syncing,saveError}){
+  return <div style={{width:220,minHeight:"100vh",background:"#fff",
+    borderRight:"1px solid #f1f5f9",padding:"24px 12px",display:"flex",
+    flexDirection:"column",gap:4,flexShrink:0}}>
+    <div style={{display:"flex",alignItems:"center",gap:10,padding:"0 10px 20px"}}>
+      <span style={{fontSize:26}}>🍺</span>
+      <div>
+        <div style={{fontWeight:800,fontSize:15,color:"#111827",lineHeight:1.2}}>UPB Kitchen</div>
+        <div style={{fontSize:11,color:"#9ca3af"}}>Food Recipe Manager</div>
+      </div>
+    </div>
+
+    {[
+      {id:"overview", icon:"📊", label:"Overview"},
+      {id:"menus",    icon:"📋", label:"All Menus"},
+    ].map(({id,icon,label})=>
+      <button key={id} onClick={()=>setPage(id)}
+        className={"sidebar-link"+(page===id?" active":"")}>
+        <span>{icon}</span>{label}
+      </button>
+    )}
+
+    <div style={{borderTop:"1px solid #f1f5f9",margin:"8px 0"}}/>
+    <div style={{padding:"4px 10px",fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:".08em",textTransform:"uppercase"}}>By Category</div>
+    {CATEGORIES.filter(c=>c!=="All").map(cat=>
+      <button key={cat} onClick={()=>{setPage("menus");}}
+        className={"sidebar-link"+((page==="menus")?" ":"")}>
+        <span>{CAT_ICONS[cat]}</span>
+        <span style={{fontSize:13}}>{cat}</span>
+      </button>
+    )}
+
+    <div style={{flex:1}}/>
+
+    <div className="card" style={{margin:"8px 4px",padding:"12px"}}>
+      {!token ? <>
+        <div style={{fontSize:12,color:"#6b7280",marginBottom:10,lineHeight:1.5}}>
+          {SPREADSHEET_ID==="1qfXTf3h1CWFbvgr2mlLvedWUxjH8PVwX7L7ndXq8V3o"
+            ? "⚠️ Set SPREADSHEET_ID in the HTML to enable saving."
+            : "Sign in to sync with Google Sheets"}
+        </div>
+        <button onClick={onLogin} className="btn-primary" style={{width:"100%",justifyContent:"center",fontSize:13}}>
+          🔑 Sign In
+        </button>
+      </> : <>
+        <div style={{fontSize:12,color:saveError?"#dc2626":"#166534",fontWeight:600,marginBottom:4}}>
+          {saveError ? "⚠️ Save failed!" : "✓ Google Sheets synced"}
+        </div>
+        {saveError && <div style={{fontSize:11,color:"#dc2626",marginBottom:8,lineHeight:1.4}}>
+          Re-sync or re-login to retry.
+        </div>}
+        <button onClick={onSync} className="btn-ghost"
+          style={{width:"100%",justifyContent:"center",fontSize:12,padding:"7px 10px"}}>
+          {syncing?"Syncing…":"↺ Force Sync"}
+        </button>
+      </>}
+    </div>
+  </div>;
+}
+
+// ── OVERVIEW PAGE ─────────────────────────────────────────────────────────────
+function OverviewPage({menus,recipeIng,steps,setPage}){
+  const total=menus.length;
+  const byCategory=CATEGORIES.filter(c=>c!=="All").map(cat=>({
+    cat, count:menus.filter(m=>m.category===cat).length
+  }));
+  const withRecipes=menus.filter(m=>recipeIng.some(r=>r.menu_id===m.menu_id)).length;
+  const withSteps=menus.filter(m=>steps.some(s=>s.menu_id===m.menu_id)).length;
+  const checked=menus.filter(m=>m.checked==="true"||m.checked===true).length;
+
+  const avgCost=()=>{
+    const items=menus.filter(m=>m.food_cost_pct&&+m.food_cost_pct>0&&+m.food_cost_pct<2);
+    if(!items.length)return null;
+    return items.reduce((s,m)=>s+(+m.food_cost_pct),0)/items.length;
+  };
+  const avg=avgCost();
+
+  return <div style={{padding:"32px 36px",maxWidth:1000}}>
+    <h1 style={{fontSize:26,fontWeight:800,color:"#111827",margin:"0 0 6px"}}>UPB Food Recipe</h1>
+    <p style={{fontSize:14,color:"#9ca3af",marginBottom:32}}>Overview of all menus and recipe completeness</p>
+
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16,marginBottom:32}}>
+      {[
+        {label:"Total Menus",    value:total,         sub:"across all categories", color:"text-gray-900"},
+        {label:"With Recipes",   value:withRecipes,   sub:`${total-withRecipes} still empty`,  color:"text-green-700"},
+        {label:"With Steps",     value:withSteps,     sub:`${total-withSteps} still empty`,    color:"text-blue-700"},
+        {label:"Avg Food Cost",  value:avg?fmtPct(avg):"—", sub:"target ≤35%", color:avg?costColor(avg):"text-gray-400"},
+      ].map(({label,value,sub,color})=>
+        <div key={label} className="card" style={{padding:"20px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:".06em",marginBottom:4}}>{label}</div>
+          <div style={{fontSize:28,fontWeight:800,color:"#111827",margin:"4px 0 2px"}} className={color}>{value}</div>
+          <div style={{fontSize:12,color:"#9ca3af"}}>{sub}</div>
+        </div>
+      )}
+    </div>
+
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
+      <div className="card" style={{padding:"24px"}}>
+        <h3 style={{fontSize:15,fontWeight:700,color:"#111827",margin:"0 0 16px"}}>Menus by Category</h3>
+        {byCategory.map(({cat,count})=>{
+          const pct=total?Math.round(count/total*100):0;
+          const cfg=CAT_COLORS[cat]||{};
+          const withRec=menus.filter(m=>m.category===cat&&recipeIng.some(r=>r.menu_id===m.menu_id)).length;
+          return <div key={cat} style={{marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+              <span style={{fontSize:13,fontWeight:600,color:"#374151"}}>{CAT_ICONS[cat]} {cat}</span>
+              <span style={{fontSize:13,color:"#6b7280"}}>{count} menus · {withRec} recipes</span>
+            </div>
+            <div style={{background:"#f1f5f9",borderRadius:99,height:8,overflow:"hidden"}}>
+              <div style={{width:pct+"%",height:"100%",background:"#166534",borderRadius:99,transition:"width .5s"}}/>
+            </div>
+          </div>;
+        })}
+      </div>
+
+      <div className="card" style={{padding:"24px"}}>
+        <h3 style={{fontSize:15,fontWeight:700,color:"#111827",margin:"0 0 16px"}}>High Food Cost Items</h3>
+        <div style={{fontSize:12,color:"#6b7280",marginBottom:12}}>Menus with food cost &gt;50% (review pricing)</div>
+        {menus.filter(m=>m.food_cost_pct&&+m.food_cost_pct>0.5).slice(0,8).map(m=>
+          <div key={m.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+            padding:"6px 0",borderBottom:"1px solid #f9fafb"}}>
+            <div>
+              <div style={{fontSize:13,fontWeight:600,color:"#111827"}}>{m.name_th}</div>
+              <div style={{fontSize:11,color:"#9ca3af"}}>{m.menu_id}</div>
+            </div>
+            <span style={{fontSize:13,fontWeight:700}} className={costColor(m.food_cost_pct)}>
+              {fmtPct(m.food_cost_pct)}
+            </span>
+          </div>
+        )}
+        {menus.filter(m=>m.food_cost_pct&&+m.food_cost_pct>0.5).length===0 &&
+          <p style={{fontSize:13,color:"#9ca3af"}}>All food costs are within range 🎉</p>}
+      </div>
+    </div>
+  </div>;
+}
+
+// ── EDIT MENU MODAL ───────────────────────────────────────────────────────────
+function EditMenuModal({menu,onSave,onClose}){
+  const [form,setForm]=useState({
+    name_th:menu.name_th||"",
+    name_en:menu.name_en||"",
+    category:menu.category||"Appetizer",
+    store_price:menu.store_price||"",
+    cost_per_serve:menu.cost_per_serve||"",
+    suggested_price:menu.suggested_price||"",
+    food_cost_pct:menu.food_cost_pct!=null?(+menu.food_cost_pct*100).toFixed(1):"",
+    serves_per_recipe:menu.serves_per_recipe||1,
+    checked:menu.checked===true||menu.checked==="true",
+  });
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+
+  const save=()=>{
+    const saved={
+      ...menu,
+      name_th:form.name_th.trim(),
+      name_en:form.name_en.trim(),
+      category:form.category,
+      store_price:form.store_price!==""?+form.store_price:null,
+      cost_per_serve:form.cost_per_serve!==""?+form.cost_per_serve:null,
+      suggested_price:form.suggested_price!==""?+form.suggested_price:null,
+      food_cost_pct:form.food_cost_pct!==""?(+form.food_cost_pct/100):null,
+      serves_per_recipe:+form.serves_per_recipe||1,
+      checked:form.checked,
+    };
+    onSave(saved);
+  };
+
+  return <Modal open={true} onClose={onClose} title={`Edit Menu — ${menu.menu_id}`}>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+      <div style={{gridColumn:"1/-1"}}>
+        <label className="form-label">Thai Name</label>
+        <input className="input-cls" value={form.name_th} onChange={e=>set("name_th",e.target.value)} placeholder="ชื่อภาษาไทย"/>
+      </div>
+      <div style={{gridColumn:"1/-1"}}>
+        <label className="form-label">English Name</label>
+        <input className="input-cls" value={form.name_en} onChange={e=>set("name_en",e.target.value)} placeholder="English Name"/>
+      </div>
+      <div>
+        <label className="form-label">Category</label>
+        <select className="input-cls" value={form.category} onChange={e=>set("category",e.target.value)}>
+          {["Appetizer","Main Dish","Salad & Yum","Sauces & Prep"].map(c=>
+            <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
+      <div>
+        <label className="form-label">Serves per Recipe</label>
+        <input className="input-cls" type="number" min="1" value={form.serves_per_recipe} onChange={e=>set("serves_per_recipe",e.target.value)}/>
+      </div>
+      <div>
+        <label className="form-label">Store Price (฿)</label>
+        <input className="input-cls" type="number" value={form.store_price} onChange={e=>set("store_price",e.target.value)} placeholder="e.g. 90"/>
+      </div>
+      <div>
+        <label className="form-label">Cost per Serve (฿)</label>
+        <input className="input-cls" type="number" value={form.cost_per_serve} onChange={e=>set("cost_per_serve",e.target.value)} placeholder="e.g. 26.89"/>
+      </div>
+      <div>
+        <label className="form-label">Suggested Price incl. VAT (฿)</label>
+        <input className="input-cls" type="number" value={form.suggested_price} onChange={e=>set("suggested_price",e.target.value)} placeholder="e.g. 90"/>
+      </div>
+      <div>
+        <label className="form-label">Food Cost % (manual)</label>
+        <input className="input-cls" type="number" step="0.1" value={form.food_cost_pct} onChange={e=>set("food_cost_pct",e.target.value)} placeholder="e.g. 30 for 30%"/>
+      </div>
+      <div style={{gridColumn:"1/-1",display:"flex",alignItems:"center",gap:10}}>
+        <input type="checkbox" id="checked_cb" checked={form.checked} onChange={e=>set("checked",e.target.checked)} style={{width:16,height:16,accentColor:"#166534"}}/>
+        <label htmlFor="checked_cb" style={{fontSize:14,color:"#374151",cursor:"pointer"}}>Recipe checked / verified</label>
+      </div>
+    </div>
+    <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:22}}>
+      <button onClick={onClose} className="btn-ghost">Cancel</button>
+      <button onClick={save} className="btn-primary">Save Changes</button>
+    </div>
+  </Modal>;
+}
+
+// ── ADD MENU MODAL ────────────────────────────────────────────────────────────
+function AddMenuModal({menus,onSave,onClose}){
+  const catPrefixes={"Appetizer":"AP","Main Dish":"MD","Salad & Yum":"SL","Sauces & Prep":"AS"};
+  const [form,setForm]=useState({name_th:"",name_en:"",category:"Appetizer",store_price:"",
+    cost_per_serve:"",suggested_price:"",serves_per_recipe:1});
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+
+  const autoId=()=>{
+    const prefix=catPrefixes[form.category]||"XX";
+    const existing=menus.filter(m=>m.menu_id&&m.menu_id.startsWith(prefix+"_"))
+      .map(m=>+m.menu_id.split("_")[1]||0).filter(n=>!isNaN(n));
+    const next=existing.length?Math.max(...existing)+1:1;
+    return `${prefix}_${String(next).padStart(2,"0")}`;
+  };
+
+  const save=()=>{
+    if(!form.name_th.trim()){ alert("Thai name is required."); return; }
+    const newId=autoId();
+    onSave({
+      id:newId, menu_id:newId,
+      category:form.category,
+      name_th:form.name_th.trim(),
+      name_en:form.name_en.trim(),
+      store_price:form.store_price!==""?+form.store_price:null,
+      cost_per_serve:form.cost_per_serve!==""?+form.cost_per_serve:null,
+      suggested_price:form.suggested_price!==""?+form.suggested_price:null,
+      food_cost_pct:null,
+      serves_per_recipe:+form.serves_per_recipe||1,
+      checked:false,
+    });
+  };
+
+  return <Modal open={true} onClose={onClose} title="Add New Menu">
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+      <div style={{gridColumn:"1/-1"}}>
+        <label className="form-label">Thai Name *</label>
+        <input className="input-cls" value={form.name_th} onChange={e=>set("name_th",e.target.value)} placeholder="ชื่อภาษาไทย"/>
+      </div>
+      <div style={{gridColumn:"1/-1"}}>
+        <label className="form-label">English Name</label>
+        <input className="input-cls" value={form.name_en} onChange={e=>set("name_en",e.target.value)} placeholder="English Name"/>
+      </div>
+      <div>
+        <label className="form-label">Category</label>
+        <select className="input-cls" value={form.category} onChange={e=>set("category",e.target.value)}>
+          {["Appetizer","Main Dish","Salad & Yum","Sauces & Prep"].map(c=><option key={c}>{c}</option>)}
+        </select>
+      </div>
+      <div>
+        <label className="form-label">Serves per Recipe</label>
+        <input className="input-cls" type="number" min="1" value={form.serves_per_recipe} onChange={e=>set("serves_per_recipe",e.target.value)}/>
+      </div>
+      <div>
+        <label className="form-label">Store Price (฿)</label>
+        <input className="input-cls" type="number" value={form.store_price} onChange={e=>set("store_price",e.target.value)}/>
+      </div>
+      <div>
+        <label className="form-label">Cost per Serve (฿)</label>
+        <input className="input-cls" type="number" value={form.cost_per_serve} onChange={e=>set("cost_per_serve",e.target.value)}/>
+      </div>
+    </div>
+    <p style={{fontSize:12,color:"#9ca3af",marginTop:12}}>
+      Menu ID will be auto-assigned based on category (e.g. {autoId()})
+    </p>
+    <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:18}}>
+      <button onClick={onClose} className="btn-ghost">Cancel</button>
+      <button onClick={save} className="btn-primary">Add Menu</button>
+    </div>
+  </Modal>;
+}
+
+// ── EDIT RECIPE INGREDIENTS MODAL ─────────────────────────────────────────────
+function EditIngredientsModal({menu,recipeIng,onSave,onClose}){
+  const myIng=recipeIng.filter(r=>r.menu_id===menu.menu_id);
+  const [rows,setRows]=useState(myIng.length>0?myIng:[{
+    id:uid(),menu_id:menu.menu_id,ingredient_name:"",purchase_qty:"",purchase_unit:"",
+    cost_per_unit:"",yield_pct:"1",actual_cost:"",usage_qty:"",usage_unit:"",ingredient_cost:""
+  }]);
+
+  const addRow=()=>setRows(r=>[...r,{
+    id:uid(),menu_id:menu.menu_id,ingredient_name:"",purchase_qty:"",purchase_unit:"",
+    cost_per_unit:"",yield_pct:"1",actual_cost:"",usage_qty:"",usage_unit:"",ingredient_cost:""
+  }]);
+  const removeRow=(id)=>setRows(r=>r.filter(x=>x.id!==id));
+  const setField=(id,k,v)=>setRows(r=>r.map(x=>x.id===id?{...x,[k]:v}:x));
+
+  const calcCost=(row)=>{
+    const cpu=+row.cost_per_unit, yld=+row.yield_pct||1, qty=+row.usage_qty;
+    if(!cpu||!qty)return"";
+    return ((cpu/yld)*qty).toFixed(4);
+  };
+
+  const save=()=>{
+    const valid=rows.filter(r=>r.ingredient_name.trim());
+    const final=valid.map(r=>({...r,ingredient_cost:calcCost(r)||r.ingredient_cost}));
+    onSave(menu.menu_id, final);
+  };
+
+  const th={fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:".04em",
+    padding:"6px 8px",textAlign:"left",borderBottom:"1px solid #f1f5f9",whiteSpace:"nowrap"};
+  const td={padding:"6px 4px",verticalAlign:"middle"};
+
+  return <Modal open={true} onClose={onClose} title={`Recipe Ingredients — ${menu.name_th}`} wide={true}>
+    <div style={{overflowX:"auto",marginBottom:14}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+        <thead>
+          <tr>
+            {["Ingredient","Purchase Qty","Unit","Cost/Unit","Yield %","Usage Qty","Usage Unit","Cost (฿)",""].map(h=>
+              <th key={h} style={th}>{h}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(row=><tr key={row.id}>
+            {[
+              {k:"ingredient_name",ph:"วัตถุดิบ / Ingredient",w:140},
+              {k:"purchase_qty",    ph:"1000",type:"number",w:80},
+              {k:"purchase_unit",   ph:"Gram",w:70},
+              {k:"cost_per_unit",   ph:"0.05",type:"number",w:85},
+              {k:"yield_pct",       ph:"1.0", type:"number",w:70},
+              {k:"usage_qty",       ph:"120", type:"number",w:80},
+              {k:"usage_unit",      ph:"Gram",w:70},
+            ].map(({k,ph,type,w})=>
+              <td key={k} style={td}>
+                <input className="input-cls" type={type||"text"} value={row[k]}
+                  onChange={e=>setField(row.id,k,e.target.value)}
+                  placeholder={ph} style={{minWidth:w,padding:"6px 8px",fontSize:12}}/>
+              </td>
+            )}
+            <td style={{...td,color:"#374151",fontWeight:600,fontSize:12,minWidth:70}}>
+              {calcCost(row)?("฿"+(+calcCost(row)).toFixed(2)):"—"}
+            </td>
+            <td style={td}>
+              <button onClick={()=>removeRow(row.id)} style={{background:"none",border:"none",
+                cursor:"pointer",color:"#dc2626",fontSize:16,padding:"4px"}}>✕</button>
+            </td>
+          </tr>)}
+        </tbody>
+      </table>
+    </div>
+    <button onClick={addRow} className="btn-ghost" style={{fontSize:13,marginBottom:20}}>
+      + Add Ingredient
+    </button>
+    <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+      <button onClick={onClose} className="btn-ghost">Cancel</button>
+      <button onClick={save} className="btn-primary">Save Ingredients</button>
+    </div>
+  </Modal>;
+}
+
+// ── EDIT COOKING STEPS MODAL ──────────────────────────────────────────────────
+function EditStepsModal({menu,steps,onSave,onClose}){
+  const mySteps=steps.filter(s=>s.menu_id===menu.menu_id).sort((a,b)=>(+a.step_no)-(+b.step_no));
+  const [rows,setRows]=useState(mySteps.length>0?mySteps:[{id:uid(),menu_id:menu.menu_id,step_no:1,instruction:""}]);
+
+  const addRow=()=>setRows(r=>[...r,{id:uid(),menu_id:menu.menu_id,step_no:r.length+1,instruction:""}]);
+  const removeRow=(id)=>setRows(r=>r.filter(x=>x.id!==id).map((x,i)=>({...x,step_no:i+1})));
+  const setInstr=(id,v)=>setRows(r=>r.map(x=>x.id===id?{...x,instruction:v}:x));
+
+  const save=()=>{
+    const valid=rows.filter(r=>r.instruction.trim());
+    onSave(menu.menu_id, valid.map((r,i)=>({...r,step_no:i+1})));
+  };
+
+  return <Modal open={true} onClose={onClose} title={`Cooking Steps — ${menu.name_th}`} wide={true}>
+    <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
+      {rows.map((row,i)=><div key={row.id} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+        <div style={{width:28,height:28,borderRadius:"50%",background:"#166534",color:"#fff",
+          fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",
+          flexShrink:0,marginTop:6}}>{i+1}</div>
+        <textarea className="input-cls" value={row.instruction}
+          onChange={e=>setInstr(row.id,e.target.value)}
+          placeholder={`Step ${i+1} instruction...`}
+          rows={2} style={{resize:"vertical",fontSize:13,flex:1}}/>
+        <button onClick={()=>removeRow(row.id)} style={{background:"none",border:"none",
+          cursor:"pointer",color:"#dc2626",fontSize:18,padding:"6px",marginTop:2}}>✕</button>
+      </div>)}
+    </div>
+    <button onClick={addRow} className="btn-ghost" style={{fontSize:13,marginBottom:20}}>
+      + Add Step
+    </button>
+    <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+      <button onClick={onClose} className="btn-ghost">Cancel</button>
+      <button onClick={save} className="btn-primary">Save Steps</button>
+    </div>
+  </Modal>;
+}
+
+// ── RECIPE DETAIL PAGE ────────────────────────────────────────────────────────
+function RecipeDetailPage({menu,recipeIng,steps,onEdit,onEditIng,onEditSteps,onBack,token}){
+  const myIng=recipeIng.filter(r=>r.menu_id===menu.menu_id);
+  const mySteps=steps.filter(s=>s.menu_id===menu.menu_id).sort((a,b)=>(+a.step_no)-(+b.step_no));
+  const totalCost=myIng.reduce((s,r)=>s+(+r.ingredient_cost||0),0);
+  const computedFoodCost=menu.store_price&&totalCost?(totalCost/+menu.store_price):null;
+
+  return <div style={{padding:"32px 36px",maxWidth:900}}>
+    <button onClick={onBack} style={{background:"none",border:"none",cursor:"pointer",
+      color:"#6b7280",fontSize:14,display:"flex",alignItems:"center",gap:6,marginBottom:20,
+      fontFamily:"Inter,sans-serif",padding:0}}>
+      ← Back to Menus
+    </button>
+
+    <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:24}}>
+      <div>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+          <span style={{fontSize:12,fontWeight:700,color:"#9ca3af"}}>{menu.menu_id}</span>
+          <CatBadge category={menu.category}/>
+          {(menu.checked===true||menu.checked==="true") &&
+            <span className="badge bg-green-100 text-green-700">✓ Verified</span>}
+        </div>
+        <h1 style={{fontSize:24,fontWeight:800,color:"#111827",margin:"0 0 4px"}}>{menu.name_th}</h1>
+        <p style={{fontSize:15,color:"#6b7280",margin:0}}>{menu.name_en}</p>
+      </div>
+      <button onClick={onEdit} className="btn-ghost" style={{fontSize:13}}>✏️ Edit Info</button>
+    </div>
+
+    {/* Pricing summary */}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:28}}>
+      {[
+        {label:"Store Price",  value:fmtThb(menu.store_price)},
+        {label:"Cost/Serve",   value:fmtThb(menu.cost_per_serve)},
+        {label:"Suggested",    value:fmtThb(menu.suggested_price)},
+        {label:"Food Cost %",  value:computedFoodCost?fmtPct(computedFoodCost):(menu.food_cost_pct?fmtPct(menu.food_cost_pct):"—"), color:computedFoodCost?costColor(computedFoodCost):(menu.food_cost_pct?costColor(menu.food_cost_pct):"text-gray-400")},
+      ].map(({label,value,color})=>
+        <div key={label} className="card" style={{padding:"14px 18px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:".05em",marginBottom:4}}>{label}</div>
+          <div style={{fontSize:20,fontWeight:700,color:"#111827"}} className={color||""}>{value}</div>
+        </div>
+      )}
+    </div>
+
+    {/* Ingredients */}
+    <div className="card" style={{padding:"22px",marginBottom:20}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+        <h3 style={{fontSize:16,fontWeight:700,color:"#111827",margin:0}}>Recipe Ingredients</h3>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          {myIng.length>0 && <span style={{fontSize:13,color:"#6b7280"}}>
+            Total: {fmtThb(totalCost)} / serve
+          </span>}
+          {token && <button onClick={onEditIng} className="btn-accent" style={{fontSize:12,padding:"6px 14px"}}>
+            ✏️ Edit
+          </button>}
+        </div>
+      </div>
+      {myIng.length===0 ?
+        <div style={{textAlign:"center",padding:"24px 0",color:"#9ca3af"}}>
+          <div style={{fontSize:32,marginBottom:8}}>🫙</div>
+          <p style={{fontSize:13,margin:0}}>No ingredients added yet.</p>
+          {token && <button onClick={onEditIng} className="btn-primary" style={{marginTop:12,fontSize:13}}>
+            + Add Ingredients
+          </button>}
+        </div>
+      :
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+            <thead>
+              <tr>{["#","Ingredient","Purchase Qty","Unit","Cost/Unit","Yield","Usage Qty","Unit","Cost (฿)"].map(h=>
+                <th key={h} style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",
+                  letterSpacing:".04em",padding:"6px 10px",textAlign:"left",
+                  borderBottom:"2px solid #f1f5f9",whiteSpace:"nowrap"}}>{h}</th>
+              )}</tr>
+            </thead>
+            <tbody>
+              {myIng.map((row,i)=><tr key={row.id} style={{borderBottom:"1px solid #f9fafb"}}>
+                <td style={{padding:"8px 10px",color:"#9ca3af",fontSize:12}}>{i+1}</td>
+                <td style={{padding:"8px 10px",fontWeight:600,color:"#111827"}}>{row.ingredient_name}</td>
+                <td style={{padding:"8px 10px",color:"#374151"}}>{row.purchase_qty}</td>
+                <td style={{padding:"8px 10px",color:"#374151"}}>{row.purchase_unit}</td>
+                <td style={{padding:"8px 10px",color:"#374151"}}>{row.cost_per_unit?("฿"+row.cost_per_unit):"—"}</td>
+                <td style={{padding:"8px 10px",color:"#374151"}}>{row.yield_pct?(+row.yield_pct*100).toFixed(0)+"%":"—"}</td>
+                <td style={{padding:"8px 10px",color:"#374151"}}>{row.usage_qty}</td>
+                <td style={{padding:"8px 10px",color:"#374151"}}>{row.usage_unit}</td>
+                <td style={{padding:"8px 10px",fontWeight:700,color:+row.ingredient_cost>0?"#166534":"#9ca3af"}}>
+                  {row.ingredient_cost?("฿"+(+row.ingredient_cost).toFixed(2)):"—"}
+                </td>
+              </tr>)}
+              <tr>
+                <td colSpan={8} style={{padding:"10px",fontWeight:700,color:"#374151",textAlign:"right",
+                  borderTop:"2px solid #f1f5f9",fontSize:13}}>Total cost per serve:</td>
+                <td style={{padding:"10px",fontWeight:800,color:"#166534",fontSize:14,
+                  borderTop:"2px solid #f1f5f9"}}>{fmtThb(totalCost)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      }
+    </div>
+
+    {/* Cooking Steps */}
+    <div className="card" style={{padding:"22px"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+        <h3 style={{fontSize:16,fontWeight:700,color:"#111827",margin:0}}>Cooking Instructions</h3>
+        {token && <button onClick={onEditSteps} className="btn-accent" style={{fontSize:12,padding:"6px 14px"}}>
+          ✏️ Edit
+        </button>}
+      </div>
+      {mySteps.length===0 ?
+        <div style={{textAlign:"center",padding:"24px 0",color:"#9ca3af"}}>
+          <div style={{fontSize:32,marginBottom:8}}>📋</div>
+          <p style={{fontSize:13,margin:0}}>No cooking steps added yet.</p>
+          {token && <button onClick={onEditSteps} className="btn-primary" style={{marginTop:12,fontSize:13}}>
+            + Add Steps
+          </button>}
+        </div>
+      :
+        <ol style={{listStyle:"none",padding:0,margin:0}}>
+          {mySteps.map((step,i)=><li key={step.id} style={{display:"flex",gap:14,
+            marginBottom:i<mySteps.length-1?14:0}}>
+            <div style={{width:28,height:28,borderRadius:"50%",background:"#166534",color:"#fff",
+              fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",
+              flexShrink:0,marginTop:1}}>{i+1}</div>
+            <p style={{fontSize:14,color:"#374151",margin:0,lineHeight:1.7,paddingTop:4}}>{step.instruction}</p>
+          </li>)}
+        </ol>
+      }
+    </div>
+  </div>;
+}
+
+// ── MENUS PAGE ────────────────────────────────────────────────────────────────
+function MenusPage({menus,setMenus,recipeIng,steps,token,onViewRecipe}){
+  const [catFilter,setCatFilter]=useState("All");
+  const [search,setSearch]=useState("");
+  const [showAdd,setShowAdd]=useState(false);
+  const [editMenu,setEditMenu]=useState(null);
+  const [deleteConfirm,setDeleteConfirm]=useState(null);
+
+  const filtered=useMemo(()=>{
+    let list=catFilter==="All"?menus:menus.filter(m=>m.category===catFilter);
+    if(search.trim()){
+      const q=search.toLowerCase();
+      list=list.filter(m=>
+        (m.name_th||"").toLowerCase().includes(q)||
+        (m.name_en||"").toLowerCase().includes(q)||
+        (m.menu_id||"").toLowerCase().includes(q)
+      );
+    }
+    return list;
+  },[menus,catFilter,search]);
+
+  const saveEdit=(updated)=>{
+    setMenus(d=>d.map(m=>m.id===updated.id?updated:m));
+    setEditMenu(null);
+  };
+  const addMenu=(newMenu)=>{
+    setMenus(d=>[...d,newMenu]);
+    setShowAdd(false);
+  };
+  const deleteMenu=(id)=>{
+    setMenus(d=>d.filter(m=>m.id!==id));
+    setDeleteConfirm(null);
+  };
+
+  return <div style={{padding:"32px 36px"}}>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+      <div>
+        <h1 style={{fontSize:24,fontWeight:800,color:"#111827",margin:"0 0 4px"}}>All Menus</h1>
+        <p style={{fontSize:13,color:"#9ca3af",margin:0}}>{filtered.length} of {menus.length} items</p>
+      </div>
+      {token && <button onClick={()=>setShowAdd(true)} className="btn-primary">+ Add Menu</button>}
+    </div>
+
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18,flexWrap:"wrap"}}>
+      <input className="input-cls" value={search} onChange={e=>setSearch(e.target.value)}
+        placeholder="🔍 Search Thai, English, or ID..." style={{maxWidth:280}}/>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        {CATEGORIES.map(cat=>
+          <button key={cat} onClick={()=>setCatFilter(cat)}
+            className={"cat-pill"+(catFilter===cat?" active":"")}>
+            {CAT_ICONS[cat]} {cat}
+          </button>
+        )}
+      </div>
+    </div>
+
+    <div className="card" style={{overflow:"hidden"}}>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+          <thead>
+            <tr style={{background:"#f8fafc"}}>
+              {["ID","Thai Name","English Name","Category","Store Price","Cost/Serve","Food Cost","Verified",""].map(h=>
+                <th key={h} style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",
+                  letterSpacing:".04em",padding:"12px 14px",textAlign:"left",
+                  borderBottom:"1px solid #f1f5f9",whiteSpace:"nowrap"}}>{h}</th>
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length===0 && <tr><td colSpan={9} style={{padding:"32px",textAlign:"center",color:"#9ca3af",fontSize:13}}>
+              No menus found{search?" for that search":""}.
+            </td></tr>}
+            {filtered.map(menu=>{
+              const hasRecipe=recipeIng.some(r=>r.menu_id===menu.menu_id);
+              const checked=menu.checked===true||menu.checked==="true";
+              return <tr key={menu.id} style={{borderBottom:"1px solid #f9fafb",cursor:"pointer"}}
+                onClick={()=>onViewRecipe(menu)}>
+                <td style={{padding:"12px 14px",fontWeight:700,color:"#374151",whiteSpace:"nowrap"}} onClick={e=>e.stopPropagation()}>
+                  <button onClick={()=>onViewRecipe(menu)} style={{background:"none",border:"none",
+                    cursor:"pointer",color:"#166534",fontWeight:700,fontFamily:"Inter,sans-serif",
+                    fontSize:13,padding:0}}>{menu.menu_id}</button>
+                </td>
+                <td style={{padding:"12px 14px",fontWeight:600,color:"#111827",maxWidth:200}}>
+                  <div>{menu.name_th}</div>
+                  {hasRecipe && <span style={{fontSize:10,color:"#166534",fontWeight:700}}>📋 Has recipe</span>}
+                </td>
+                <td style={{padding:"12px 14px",color:"#6b7280",maxWidth:220,fontSize:12}}>{menu.name_en||"—"}</td>
+                <td style={{padding:"12px 14px"}}><CatBadge category={menu.category}/></td>
+                <td style={{padding:"12px 14px",color:"#374151",fontWeight:600}}>{fmtThb(menu.store_price)}</td>
+                <td style={{padding:"12px 14px",color:"#374151"}}>{fmtThb(menu.cost_per_serve)}</td>
+                <td style={{padding:"12px 14px",fontWeight:700}} className={costColor(menu.food_cost_pct)}>
+                  {fmtPct(menu.food_cost_pct)}
+                </td>
+                <td style={{padding:"12px 14px"}}>
+                  {checked
+                    ? <span style={{color:"#166534",fontSize:16}}>✓</span>
+                    : <span style={{color:"#e5e7eb",fontSize:16}}>○</span>}
+                </td>
+                <td style={{padding:"12px 14px"}} onClick={e=>e.stopPropagation()}>
+                  <div style={{display:"flex",gap:4}}>
+                    <button onClick={e=>{e.stopPropagation();setEditMenu(menu);}} style={{background:"none",
+                      border:"1px solid #e5e7eb",cursor:"pointer",borderRadius:8,padding:"4px 9px",
+                      fontSize:12,color:"#374151",fontFamily:"Inter,sans-serif"}}>Edit</button>
+                    <button onClick={e=>{e.stopPropagation();setDeleteConfirm(menu);}} style={{background:"none",
+                      border:"1px solid #fecaca",cursor:"pointer",borderRadius:8,padding:"4px 9px",
+                      fontSize:12,color:"#dc2626",fontFamily:"Inter,sans-serif"}}>Del</button>
+                  </div>
+                </td>
+              </tr>;
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {showAdd && <AddMenuModal menus={menus} onSave={addMenu} onClose={()=>setShowAdd(false)}/>}
+    {editMenu && <EditMenuModal menu={editMenu} onSave={saveEdit} onClose={()=>setEditMenu(null)}/>}
+    {deleteConfirm && <ConfirmModal open={true}
+      title="Delete Menu?"
+      message={`Are you sure you want to delete "${deleteConfirm.name_th}" (${deleteConfirm.menu_id})?`}
+      danger={true}
+      onConfirm={()=>deleteMenu(deleteConfirm.id)}
+      onCancel={()=>setDeleteConfirm(null)}/>}
+  </div>;
+}
+
+// ── LOGIN SCREEN ──────────────────────────────────────────────────────────────
+function LoginPrompt({onLogin,gisReady}){
+  return <div style={{position:"fixed",inset:0,display:"flex",alignItems:"center",
+    justifyContent:"center",background:"rgba(248,250,252,.85)",backdropFilter:"blur(4px)",zIndex:40}}>
+    <div className="card" style={{padding:"40px 36px",maxWidth:400,textAlign:"center"}}>
+      <div style={{fontSize:48,marginBottom:12}}>🍜</div>
+      <h2 style={{fontSize:22,fontWeight:800,color:"#111827",margin:"0 0 8px"}}>UPB Kitchen</h2>
+      <p style={{fontSize:14,color:"#6b7280",margin:"0 0 24px",lineHeight:1.6}}>
+        Sign in with Google to view and edit recipes saved to Google Sheets.
+        {SPREADSHEET_ID==="1qfXTf3h1CWFbvgr2mlLvedWUxjH8PVwX7L7ndXq8V3o" && <><br/><br/>
+        <span style={{color:"#d97706",fontWeight:600}}>⚠️ Set your Spreadsheet ID in the HTML first.</span></>}
+      </p>
+      <button onClick={onLogin} className="btn-primary"
+        style={{width:"100%",justifyContent:"center",gap:10,padding:"12px 20px",fontSize:15}}
+        disabled={!gisReady}>
+        <span>🔑</span> Sign In with Google
+      </button>
+      <p style={{fontSize:12,color:"#9ca3af",marginTop:14}}>You can also browse menus without signing in.</p>
+    </div>
+  </div>;
+}
+
+// ── APP ROOT ──────────────────────────────────────────────────────────────────
+function App(){
+  const {token, login, gisReady}=useAuth();
+  const [menus,   setMenus,  , setTkM,  fpM,  seM]  = useSave("Menus",             SHEETS.Menus,             INITIAL_MENUS);
+  const [recipeIng,setRecipeIng,,setTkRI, fpRI, seRI] = useSave("RecipeIngredients", SHEETS.RecipeIngredients, INITIAL_RECIPE_INGREDIENTS);
+  const [steps,   setSteps,  , setTkS,  fpS,  seS]  = useSave("CookingSteps",      SHEETS.CookingSteps,      INITIAL_COOKING_STEPS);
+
+  useEffect(()=>{
+    if(!token)return;
+    setTkM(token); setTkRI(token); setTkS(token);
+  },[token]);
+
+  const anySaveError=seM||seRI||seS;
+  const [syncing,setSyncing]=useState(false);
+  const handleSync=async()=>{
+    setSyncing(true);
+    fpM(); fpRI(); fpS();
+    setTimeout(()=>setSyncing(false),2500);
+  };
+
+  const [page,setPage]=useState("overview");
+  const [selectedMenu,setSelectedMenu]=useState(null);
+
+  const [editIngMenu,setEditIngMenu]=useState(null);
+  const [editStepsMenu,setEditStepsMenu]=useState(null);
+  const [showLogin,setShowLogin]=useState(false);
+
+  const viewRecipe=(menu)=>{ setSelectedMenu(menu); setPage("recipe"); };
+  const saveIng=(menuId, rows)=>{
+    setRecipeIng(d=>[...d.filter(r=>r.menu_id!==menuId), ...rows]);
+    setEditIngMenu(null);
+  };
+  const saveSteps=(menuId, rows)=>{
+    setSteps(d=>[...d.filter(s=>s.menu_id!==menuId), ...rows]);
+    setEditStepsMenu(null);
+  };
+
+  return <div style={{display:"flex",minHeight:"100vh"}}>
+    <Sidebar
+      page={page} setPage={p=>{setPage(p);setSelectedMenu(null);}}
+      token={token} onLogin={()=>{if(token)return; setShowLogin(true); login();}}
+      onSync={handleSync} syncing={syncing} saveError={anySaveError}
+    />
+    <div style={{flex:1,overflowY:"auto",minHeight:"100vh"}}>
+      {page==="overview" && <OverviewPage menus={menus} recipeIng={recipeIng} steps={steps} setPage={setPage}/>}
+      {page==="menus" && !selectedMenu &&
+        <MenusPage menus={menus} setMenus={setMenus} recipeIng={recipeIng} steps={steps}
+          token={token} onViewRecipe={viewRecipe}/>}
+      {page==="recipe" && selectedMenu &&
+        <RecipeDetailPage
+          menu={menus.find(m=>m.id===selectedMenu.id)||selectedMenu}
+          recipeIng={recipeIng} steps={steps} token={token}
+          onEdit={()=>setEditIngMenu(null)}
+          onEditIng={()=>setEditIngMenu(selectedMenu)}
+          onEditSteps={()=>setEditStepsMenu(selectedMenu)}
+          onBack={()=>{ setPage("menus"); setSelectedMenu(null); }}
+        />}
+    </div>
+
+    {!token && showLogin && <LoginPrompt onLogin={login} gisReady={gisReady}/>}
+
+    {editIngMenu && <EditIngredientsModal
+      menu={editIngMenu} recipeIng={recipeIng}
+      onSave={saveIng} onClose={()=>setEditIngMenu(null)}/>}
+    {editStepsMenu && <EditStepsModal
+      menu={editStepsMenu} steps={steps}
+      onSave={saveSteps} onClose={()=>setEditStepsMenu(null)}/>}
+  </div>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
