@@ -186,7 +186,7 @@ const SCOPES="https://www.googleapis.com/auth/spreadsheets";
 
 const SHEETS={
   Menus:       ["id","menu_id","category","name_th","name_en","serves_per_recipe","spice_pct","target_food_cost_pct","actual_price","checked"],
-  Ingredients: ["id","name","purchase_unit","cost_per_unit","yield_pct","notes"],
+  Ingredients: ["id","name","supplier","ingr_category","purchase_size","purchase_price","purchase_qty","unit","cost_per_unit","vat","yield_pct","last_price_date","notes"],
   RecipeLines: ["id","menu_id","ingredient_id","ingredient_name","usage_qty","usage_unit","ingredient_cost"],
   CookingSteps:["id","menu_id","step_no","instruction"],
   Categories:  ["id","name","icon"],
@@ -233,31 +233,40 @@ function calcLineIngCost(ingredient,usageQty){
 function downloadIngredientTemplate(){
   const wb=XLSX.utils.book_new();
   const tmpl=[
-    ["name","purchase_unit","cost_per_unit","yield_pct","notes"],
-    ["Chicken Breast","kg",85,0.9,"Fresh boneless"],
-    ["Cooking Oil","L",60,1,""],
-    ["","","","",""],["","","","",""],["","","","",""],
-    ["","","","",""],["","","","",""],["","","","",""],
+    ["name","supplier","ingr_category","purchase_size","purchase_price","purchase_qty","unit","vat","yield_pct","last_price_date","notes"],
+    ["Chicken Breast (อกไก่)","Makro","Meat (เนื้อสัตว์)","1000 gram",159,1000,"Gram",false,0.9,"","Fresh boneless"],
+    ["Tako Wasabi (ทาโกะวาซาบิ)","Food Project","Seafood (ซีฟู้ด)","500 gram",245,500,"Gram",false,1,"",""],
+    ["Cooking Oil (น้ำมัน)","Makro","Dry Food (ของแห้ง)","1 L",60,1,"L",false,1,"",""],
+    ["","","","","","","","","","",""],
+    ["","","","","","","","","","",""],
+    ["","","","","","","","","","",""],
+    ["","","","","","","","","","",""],
   ];
   const ws1=XLSX.utils.aoa_to_sheet(tmpl);
-  ws1["!cols"]=[{wch:28},{wch:14},{wch:15},{wch:12},{wch:30}];
+  ws1["!cols"]=[{wch:30},{wch:16},{wch:20},{wch:14},{wch:14},{wch:14},{wch:10},{wch:8},{wch:10},{wch:16},{wch:28}];
   XLSX.utils.book_append_sheet(wb,ws1,"Ingredient Template");
   const instr=[
     ["Field","Description","Example","Required?"],
-    ["name","Ingredient name","Chicken Breast","Yes"],
-    ["purchase_unit","Unit you buy it in (kg, g, ml, pcs, bottle…)","kg","No"],
-    ["cost_per_unit","Price per unit in Thai Baht (฿)","85","Yes"],
-    ["yield_pct","Usable ratio after prep — a number from 0.01 to 1.0","0.9 = 90% usable after trimming","No (default: 1)"],
+    ["name","Ingredient name (EN or TH)","Chicken Breast / อกไก่","Yes"],
+    ["supplier","Supplier / shop name","Makro, Food Project, เอบีซี","No"],
+    ["ingr_category","Ingredient category","Meat (เนื้อสัตว์), Seafood (ซีฟู้ด), Vegetable (ผัก), Dry Food, Sauces & Dressings, Processed","No"],
+    ["purchase_size","Size as purchased (text)","500 gram, 1000 gram, 1 L","No"],
+    ["purchase_price","Total price paid in Thai Baht (฿)","159","Yes"],
+    ["purchase_qty","Quantity in the purchase (number only)","1000","Yes"],
+    ["unit","Unit of the purchase_qty","Gram, ml, pcs, L","No"],
+    ["vat","Has VAT? (TRUE/FALSE)","FALSE","No (default: FALSE)"],
+    ["yield_pct","Usable ratio after prep (0.01–1.0)","0.9 = 90% usable after trimming","No (default: 1)"],
+    ["last_price_date","Date price was last updated (DD-Mon-YYYY)","30-Jul-2025","No"],
     ["notes","Any extra notes","Fresh, boneless skinless","No"],
     ["","","",""],
     ["Tips:","","",""],
-    ["• Leave yield_pct blank or 1 for ingredients with no waste (e.g. oil, spices)","","",""],
-    ["• cost_per_unit must be the price for ONE purchase_unit (e.g. ฿85 per kg)","","",""],
-    ["• Ingredients with a name that already exists in the system will be skipped on import","","",""],
+    ["• cost_per_unit is auto-calculated as purchase_price ÷ purchase_qty","","",""],
+    ["• Leave yield_pct blank or 1 for zero-waste ingredients (oil, spices, etc.)","","",""],
+    ["• Ingredients with the same name already in the system will be skipped (deduplication)","","",""],
     ["• The system reads the FIRST sheet in the file, so keep your data in the first tab","","",""],
   ];
   const ws2=XLSX.utils.aoa_to_sheet(instr);
-  ws2["!cols"]=[{wch:22},{wch:45},{wch:35},{wch:12}];
+  ws2["!cols"]=[{wch:22},{wch:50},{wch:40},{wch:20}];
   XLSX.utils.book_append_sheet(wb,ws2,"Instructions");
   XLSX.writeFile(wb,"UPB_Ingredient_Template.xlsx");
 }
@@ -272,19 +281,42 @@ function parseIngredientExcel(file,onParsed){
       const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
       if(!rows.length){onParsed([]);return;}
       const hdrs=rows[0].map(h=>String(h).trim().toLowerCase());
-      const ni=hdrs.indexOf("name"),ui=hdrs.indexOf("purchase_unit"),
-            ci=hdrs.indexOf("cost_per_unit"),yi=hdrs.indexOf("yield_pct"),oi=hdrs.indexOf("notes");
+      const col=(names)=>{for(const n of names){const i=hdrs.indexOf(n);if(i>=0)return i;}return -1;};
+      const ni=col(["name","ingredient","รายการ"]);
       if(ni===-1){onParsed(null);return;}
+      const supi=col(["supplier","ซัพพลายเออร์"]);
+      const cati=col(["ingr_category","category","หมวดหมู่"]);
+      const psi=col(["purchase_size","ขนาดที่ซื้อ"]);
+      const ppi=col(["purchase_price","ราคาซื้อ","price"]);
+      const pqi=col(["purchase_qty","ปริมาณซื้อ","qty","quantity"]);
+      const uni=col(["unit","หน่วย"]);
+      const vi=col(["vat"]);
+      const yi=col(["yield_pct","yield"]);
+      const di=col(["last_price_date","date","วันที่อัพเดทราคาล่าสุด"]);
+      const oi=col(["notes","note","หมายเหตุ"]);
       const parsed=rows.slice(1)
         .filter(r=>r[ni]&&String(r[ni]).trim())
-        .map(r=>({
-          id:uid(),
-          name:String(r[ni]).trim(),
-          purchase_unit:ui>=0?String(r[ui]||"").trim():"",
-          cost_per_unit:ci>=0?parseFloat(r[ci]||0)||0:0,
-          yield_pct:yi>=0?(parseFloat(r[yi]||1)||1):1,
-          notes:oi>=0?String(r[oi]||"").trim():"",
-        }));
+        .map(r=>{
+          const pp=ppi>=0?parseFloat(r[ppi]||0)||0:0;
+          const pq=pqi>=0?parseFloat(r[pqi]||1)||1:1;
+          const cpu=pq>0?pp/pq:0;
+          const vat=vi>=0?(String(r[vi]).toLowerCase()==="true"||r[vi]===true||r[vi]===1):false;
+          return{
+            id:uid(),
+            name:String(r[ni]).trim(),
+            supplier:supi>=0?String(r[supi]||"").trim():"",
+            ingr_category:cati>=0?String(r[cati]||"").trim():"",
+            purchase_size:psi>=0?String(r[psi]||"").trim():"",
+            purchase_price:pp,
+            purchase_qty:pq,
+            unit:uni>=0?String(r[uni]||"").trim():"",
+            cost_per_unit:Math.round(cpu*10000)/10000,
+            vat,
+            yield_pct:yi>=0?(parseFloat(r[yi]||1)||1):1,
+            last_price_date:di>=0?String(r[di]||"").trim():"",
+            notes:oi>=0?String(r[oi]||"").trim():"",
+          };
+        });
       onParsed(parsed);
     }catch(err){onParsed(null);}
   };
@@ -314,9 +346,9 @@ async function sheetsRead(sid,sname){
 async function sheetsApiRead(tok,sid,tab){
   try{
     const r=await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/${encodeURIComponent(tab)}`,{headers:{"Authorization":"Bearer "+tok}});
-    if(!r.ok)return null;
+    if(!r.ok)return null; // tab missing or auth error
     const j=await r.json();const vals=j.values||[];
-    if(vals.length<2)return null;
+    if(vals.length<2)return []; // tab exists but empty/header-only → don't trigger re-save loop
     const h=vals[0];
     return vals.slice(1).map(row=>{const o={};h.forEach((k,i)=>{o[k]=row[i]??"";});return o;}).filter(r=>Object.values(r).some(v=>v!==""));
   }catch(e){return null;}
@@ -383,8 +415,14 @@ function useSave(tabName,headers,initial){
     tRef.current=t;
     sheetsApiRead(t,SPREADSHEET_ID,tabName).then(rows=>{
       alRef.current=true;
-      if(rows&&rows.length>0){if(!dirtyRef.current)setData(dedup(rows,headers[0]));}
-      else{dirtyRef.current=true;setSaveVer(v=>v+1);}
+      if(rows===null){
+        // Tab doesn't exist yet — trigger a save to create it
+        dirtyRef.current=true;setSaveVer(v=>v+1);
+      } else if(rows.length>0){
+        // Tab has data — load it (don't overwrite pending local edits)
+        if(!dirtyRef.current)setData(dedup(rows,headers[0]));
+      }
+      // rows===[] means tab exists but empty — nothing to do, no loop
     });
   },[tabName,headers]);
   useEffect(()=>{
@@ -654,20 +692,59 @@ function MenusPage({menus,updateMenus,setSelectedMenu}){
   </div>;
 }
 
+const INGR_CATS=["Meat (เนื้อสัตว์)","Seafood (ซีฟู้ด)","Vegetable (ผัก)","Dry Food (ของแห้ง)","Sauces & Dressings (ซอส)","Processed (แปรรูป)","Dairy","Other"];
+
 /* ── EditIngredientModal ── */
 function EditIngredientModal({open,onClose,ingr,onSave}){
-  const blank={name:"",purchase_unit:"",cost_per_unit:"",yield_pct:1,notes:""};
+  const blank={name:"",supplier:"",ingr_category:"",purchase_size:"",purchase_price:"",purchase_qty:"",unit:"",vat:false,yield_pct:1,last_price_date:"",notes:""};
   const[f,setF]=useState(blank);
   useEffect(()=>{setF(ingr?{...ingr}:blank);},[open,ingr]);
   const ch=(k,v)=>setF(p=>({...p,[k]:v}));
-  function save(){if(!f.name)return;onSave({...f,id:f.id||uid(),cost_per_unit:+f.cost_per_unit||0,yield_pct:+f.yield_pct||1});onClose();}
-  return <Modal open={open} onClose={onClose} title={ingr?"Edit Ingredient":"Add Ingredient"}>
+  const pp=parseFloat(f.purchase_price||0)||0;
+  const pq=parseFloat(f.purchase_qty||1)||1;
+  const cpu=pq>0?Math.round(pp/pq*10000)/10000:0;
+  function save(){
+    if(!f.name)return;
+    onSave({...f,id:f.id||uid(),
+      purchase_price:pp,purchase_qty:pq,
+      cost_per_unit:cpu,
+      vat:!!f.vat,yield_pct:+f.yield_pct||1});
+    onClose();
+  }
+  return <Modal open={open} onClose={onClose} title={ingr?"Edit Ingredient":"Add Ingredient"} wide>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-      <div style={{gridColumn:"1/-1"}}><label className="fl">Ingredient Name *</label><input className="inp" value={f.name} onChange={e=>ch("name",e.target.value)}/></div>
-      <div><label className="fl">Purchase Unit</label><input className="inp" placeholder="kg, g, ml, pcs…" value={f.purchase_unit} onChange={e=>ch("purchase_unit",e.target.value)}/></div>
-      <div><label className="fl">Cost per Unit (฿)</label><input className="inp" type="number" min="0" step="0.01" value={f.cost_per_unit} onChange={e=>ch("cost_per_unit",e.target.value)}/></div>
-      <div><label className="fl">Yield % (0.01–1.0)</label><input className="inp" type="number" min="0.01" max="1" step="0.01" value={f.yield_pct} onChange={e=>ch("yield_pct",e.target.value)} placeholder="1 = no waste"/></div>
-      <div><label className="fl">Notes</label><input className="inp" value={f.notes} onChange={e=>ch("notes",e.target.value)}/></div>
+      <div style={{gridColumn:"1/-1"}}><label className="fl">Ingredient Name * (EN / TH)</label><input className="inp" value={f.name} onChange={e=>ch("name",e.target.value)} placeholder="e.g. Chicken Breast / อกไก่"/></div>
+      <div><label className="fl">Supplier</label><input className="inp" value={f.supplier} onChange={e=>ch("supplier",e.target.value)} placeholder="Makro, Food Project…"/></div>
+      <div><label className="fl">Ingredient Category</label>
+        <select className="inp" value={f.ingr_category} onChange={e=>ch("ingr_category",e.target.value)}>
+          <option value="">— select —</option>
+          {INGR_CATS.map(c=><option key={c}>{c}</option>)}
+        </select>
+      </div>
+      <div><label className="fl">Purchase Size (text)</label><input className="inp" value={f.purchase_size} onChange={e=>ch("purchase_size",e.target.value)} placeholder="e.g. 1000 gram, 1 L"/></div>
+      <div><label className="fl">Unit</label><input className="inp" value={f.unit} onChange={e=>ch("unit",e.target.value)} placeholder="Gram, ml, pcs, L…"/></div>
+      <div><label className="fl">Purchase Price (฿)</label><input className="inp" type="number" min="0" step="0.01" value={f.purchase_price} onChange={e=>ch("purchase_price",e.target.value)} placeholder="Total price paid"/></div>
+      <div><label className="fl">Purchase Qty</label><input className="inp" type="number" min="0" step="1" value={f.purchase_qty} onChange={e=>ch("purchase_qty",e.target.value)} placeholder="Qty in that purchase"/></div>
+      <div className="card" style={{padding:"12px 16px",gridColumn:"1/-1",background:"#f0fdf4",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div>
+          <div className="fl" style={{marginBottom:2}}>Cost per Unit (auto-calculated)</div>
+          <div style={{fontSize:20,fontWeight:800,color:"#166534"}}>{pp>0&&pq>0?fmtB(cpu):"—"}</div>
+          <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{pp>0&&pq>0?`฿${pp} ÷ ${pq} ${f.unit||"unit"}`:""}</div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div className="fl" style={{marginBottom:2}}>Yield %</div>
+          <div style={{display:"flex",alignItems:"center",gap:5}}>
+            <input className="inp" type="number" min="0.01" max="1" step="0.01" value={f.yield_pct} onChange={e=>ch("yield_pct",e.target.value)} style={{width:70}}/>
+            <span style={{fontSize:12,color:"#6b7280"}}>(1 = no waste)</span>
+          </div>
+        </div>
+      </div>
+      <div><label className="fl">Last Price Update</label><input className="inp" type="date" value={f.last_price_date} onChange={e=>ch("last_price_date",e.target.value)}/></div>
+      <div style={{display:"flex",alignItems:"center",gap:8,paddingTop:20}}>
+        <input type="checkbox" id="vatc" checked={!!f.vat} onChange={e=>ch("vat",e.target.checked)}/>
+        <label htmlFor="vatc" style={{fontSize:13,color:"#374151",fontWeight:500}}>Has VAT</label>
+      </div>
+      <div style={{gridColumn:"1/-1"}}><label className="fl">Notes</label><input className="inp" value={f.notes} onChange={e=>ch("notes",e.target.value)}/></div>
     </div>
     <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
       <button onClick={onClose} className="btn btn-o">Cancel</button>
@@ -714,7 +791,7 @@ function UploadIngrModal({open,onClose,existingIngredients,updateIngredients}){
     {!preview&&<div style={{fontSize:13,color:"#6b7280",lineHeight:1.7}}>
       <strong>Instructions:</strong><br/>
       1. Download the template above and fill in your ingredients.<br/>
-      2. Required column: <code>name</code>. Optional: <code>purchase_unit</code>, <code>cost_per_unit</code>, <code>yield_pct</code>, <code>notes</code>.<br/>
+      2. Required column: <code>name</code>. Optional: <code>supplier</code>, <code>ingr_category</code>, <code>purchase_price</code>, <code>purchase_qty</code>, <code>unit</code>, <code>yield_pct</code>, <code>last_price_date</code>, <code>notes</code>.<br/>
       3. Upload the completed file. Ingredients with duplicate names are skipped.
     </div>}
     {preview&&<>
@@ -724,14 +801,17 @@ function UploadIngrModal({open,onClose,existingIngredients,updateIngredients}){
       </div>
       <div style={{maxHeight:300,overflowY:"auto",marginBottom:16}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
-          <thead><tr><th className="th">Name</th><th className="th">Unit</th><th className="th">Cost/Unit</th><th className="th">Yield%</th><th className="th">Status</th></tr></thead>
+          <thead><tr><th className="th">Name</th><th className="th">Supplier</th><th className="th">Category</th><th className="th">Purchase Price</th><th className="th">Qty</th><th className="th">Unit</th><th className="th">Cost/Unit</th><th className="th">Status</th></tr></thead>
           <tbody>{preview.rows.map((r,i)=>{
             const isDup=existingIngredients.some(e=>e.name.toLowerCase()===r.name.toLowerCase());
             return <tr key={i} style={{opacity:isDup?.5:1}}>
               <td className="td" style={{fontWeight:500}}>{r.name}</td>
-              <td className="td" style={{color:"#6b7280"}}>{r.purchase_unit||"—"}</td>
-              <td className="td">{r.cost_per_unit?fmtB(r.cost_per_unit):"—"}</td>
-              <td className="td">{(+r.yield_pct*100).toFixed(0)}%</td>
+              <td className="td" style={{color:"#6b7280",fontSize:12}}>{r.supplier||"—"}</td>
+              <td className="td" style={{fontSize:12}}>{r.ingr_category||"—"}</td>
+              <td className="td">{r.purchase_price?fmtB(r.purchase_price):"—"}</td>
+              <td className="td">{r.purchase_qty||"—"}</td>
+              <td className="td" style={{color:"#6b7280"}}>{r.unit||"—"}</td>
+              <td className="td" style={{fontWeight:600}}>{r.cost_per_unit?fmtB(r.cost_per_unit):"—"}</td>
               <td className="td">{isDup?<span style={{color:"#d97706",fontSize:12}}>⚠ skip (dup)</span>:<span style={{color:"#16a34a",fontSize:12}}>✓ import</span>}</td>
             </tr>;
           })}</tbody>
@@ -775,20 +855,36 @@ function IngredientsPage({ingredients,updateIngredients}){
     </div>:
     <div className="card" style={{overflow:"hidden"}}>
       <table style={{width:"100%",borderCollapse:"collapse"}}>
-        <thead><tr><th className="th">Name</th><th className="th">Unit</th>
-          <th className="th" style={{textAlign:"right"}}>Cost/Unit (฿)</th>
-          <th className="th" style={{textAlign:"right"}}>Yield %</th>
+        <thead><tr>
+          <th className="th">Name</th>
+          <th className="th">Supplier</th>
+          <th className="th">Category</th>
+          <th className="th">Purchase Size</th>
+          <th className="th" style={{textAlign:"right"}}>Price (฿)</th>
+          <th className="th" style={{textAlign:"right"}}>Qty</th>
+          <th className="th">Unit</th>
+          <th className="th" style={{textAlign:"right"}}>Cost/Unit</th>
+          <th className="th" style={{textAlign:"right"}}>Yield</th>
           <th className="th" style={{textAlign:"right"}}>Eff. Cost/Unit</th>
-          <th className="th">Notes</th><th className="th">Actions</th></tr></thead>
+          <th className="th">VAT</th>
+          <th className="th">Last Updated</th>
+          <th className="th">Actions</th>
+        </tr></thead>
         <tbody>{filtered.map(i=>{
           const yld=parseFloat(i.yield_pct||1);const cpu=parseFloat(i.cost_per_unit||0);
           return <tr key={i.id}>
-            <td className="td" style={{fontWeight:500}}>{i.name}</td>
-            <td className="td" style={{color:"#6b7280"}}>{i.purchase_unit||"—"}</td>
-            <td className="td" style={{textAlign:"right"}}>{fmtB(cpu)}</td>
+            <td className="td"><div style={{fontWeight:500}}>{i.name}</div></td>
+            <td className="td" style={{fontSize:12,color:"#6b7280"}}>{i.supplier||"—"}</td>
+            <td className="td" style={{fontSize:11}}>{i.ingr_category?<span className="badge" style={{background:"#f3f4f6",color:"#374151"}}>{i.ingr_category}</span>:"—"}</td>
+            <td className="td" style={{fontSize:12,color:"#6b7280"}}>{i.purchase_size||"—"}</td>
+            <td className="td" style={{textAlign:"right"}}>{fmtB(i.purchase_price||0)}</td>
+            <td className="td" style={{textAlign:"right",color:"#6b7280"}}>{i.purchase_qty||"—"}</td>
+            <td className="td" style={{color:"#6b7280",fontSize:12}}>{i.unit||"—"}</td>
+            <td className="td" style={{textAlign:"right",fontWeight:600}}>{fmtB(cpu)}</td>
             <td className="td" style={{textAlign:"right"}}>{(yld*100).toFixed(0)}%</td>
-            <td className="td" style={{textAlign:"right",fontWeight:600,color:"#166534"}}>{fmtB(yld>0?cpu/yld:0)}</td>
-            <td className="td" style={{fontSize:12,color:"#9ca3af"}}>{i.notes||"—"}</td>
+            <td className="td" style={{textAlign:"right",fontWeight:700,color:"#166534"}}>{fmtB(yld>0?cpu/yld:0)}</td>
+            <td className="td" style={{textAlign:"center"}}>{i.vat===true||i.vat==="true"?"✓":"—"}</td>
+            <td className="td" style={{fontSize:11,color:"#9ca3af"}}>{i.last_price_date||"—"}</td>
             <td className="td"><div style={{display:"flex",gap:5}}>
               <button onClick={()=>setEditI(i)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px"}}>Edit</button>
               <button onClick={()=>setDelId(i.id)} className="btn" style={{fontSize:12,padding:"4px 10px",background:"#fee2e2",color:"#991b1b"}}>Del</button>
@@ -816,7 +912,7 @@ function EditRecipeModal({open,onClose,menu,recipeLines,updateRecipeLines,ingred
   const[nl,setNl]=useState({ingredient_id:"",ingredient_name:"",usage_qty:"",usage_unit:""});
   const selIngr=useMemo(()=>ingredients.find(i=>i.id===nl.ingredient_id),[ingredients,nl.ingredient_id]);
   const previewCost=useMemo(()=>calcLineIngCost(selIngr,nl.usage_qty),[selIngr,nl.usage_qty]);
-  function onSelIngr(id){const i=ingredients.find(x=>x.id===id);setNl(p=>({...p,ingredient_id:id,ingredient_name:i?.name||"",usage_unit:i?.purchase_unit||""}));}
+  function onSelIngr(id){const i=ingredients.find(x=>x.id===id);setNl(p=>({...p,ingredient_id:id,ingredient_name:i?.name||"",usage_unit:i?.unit||""}));}
   function addLine(){
     if(!nl.ingredient_id||!nl.usage_qty)return;
     updateRecipeLines(prev=>[...prev,{id:uid(),menu_id:menu.id,ingredient_id:nl.ingredient_id,ingredient_name:nl.ingredient_name,usage_qty:+nl.usage_qty,usage_unit:nl.usage_unit,ingredient_cost:previewCost}]);
@@ -848,7 +944,7 @@ function EditRecipeModal({open,onClose,menu,recipeLines,updateRecipeLines,ingred
         <div><label className="fl">Ingredient</label>
           <select className="inp" value={nl.ingredient_id} onChange={e=>onSelIngr(e.target.value)}>
             <option value="">— select —</option>
-            {ingredients.map(i=><option key={i.id} value={i.id}>{i.name} ({fmtB(i.cost_per_unit)}/{i.purchase_unit||"unit"})</option>)}
+            {ingredients.map(i=><option key={i.id} value={i.id}>{i.name} — {fmtB(i.cost_per_unit)}/{i.unit||"unit"} {i.supplier?`(${i.supplier})`:""}</option>)}
           </select>
         </div>
         <div><label className="fl">Usage Qty</label><input className="inp" type="number" min="0" step="0.001" value={nl.usage_qty} onChange={e=>setNl(p=>({...p,usage_qty:e.target.value}))}/></div>
@@ -856,7 +952,7 @@ function EditRecipeModal({open,onClose,menu,recipeLines,updateRecipeLines,ingred
         <button onClick={addLine} className="btn btn-g" disabled={!nl.ingredient_id||!nl.usage_qty}>Add</button>
       </div>}
       {selIngr&&nl.usage_qty&&<div style={{marginTop:10,fontSize:12,color:"#6b7280"}}>
-        Cost: ({fmtB(selIngr.cost_per_unit)} ÷ {(+selIngr.yield_pct*100).toFixed(0)}%) × {nl.usage_qty} = <strong style={{color:"#166534"}}>{fmtB(previewCost)}</strong>
+        Cost: ({fmtB(selIngr.cost_per_unit)}/{selIngr.unit||"unit"} ÷ yield {(+selIngr.yield_pct*100).toFixed(0)}%) × {nl.usage_qty} = <strong style={{color:"#166634"}}>{fmtB(previewCost)}</strong>
       </div>}
     </div>
     <div style={{display:"flex",justifyContent:"flex-end",marginTop:14}}>
