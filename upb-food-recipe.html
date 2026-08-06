@@ -7,18 +7,16 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
-<script>
-tailwind.config={theme:{extend:{colors:{brand:"#166534",accent:"#d97706"},fontFamily:{sans:["Inter","sans-serif"]}}}};
-</script>
+<script>tailwind.config={theme:{extend:{colors:{brand:"#166534"},fontFamily:{sans:["Inter","sans-serif"]}}}};</script>
 <style>
 *,*::before,*::after{box-sizing:border-box;}
 body{font-family:'Inter',sans-serif;background:#f1f5f9;margin:0;color:#111827;}
 .sl{display:flex;align-items:center;gap:10px;padding:9px 14px;border-radius:12px;font-size:14px;font-weight:500;transition:all .15s;width:100%;text-align:left;border:none;cursor:pointer;background:transparent;}
 .sl.active{background:#166534;color:#fff;}
-.sl:not(.active){color:#64748b;}
-.sl:not(.active):hover{background:#e2e8f0;color:#1e293b;}
+.sl:not(.active){color:#64748b;} .sl:not(.active):hover{background:#e2e8f0;color:#1e293b;}
 .card{background:#fff;border-radius:16px;border:1px solid #f3f4f6;box-shadow:0 1px 4px rgba(0,0,0,.06);}
 .inp{width:100%;border:1.5px solid #e5e7eb;border-radius:8px;padding:8px 12px;font-size:14px;background:#fff;font-family:'Inter',sans-serif;outline:none;color:#111827;transition:border-color .15s;}
 .inp:focus{border-color:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,.12);}
@@ -27,15 +25,14 @@ body{font-family:'Inter',sans-serif;background:#f1f5f9;margin:0;color:#111827;}
 .btn-a{background:#d97706;color:#fff;} .btn-a:hover{background:#b45309;}
 .btn-o{border:1.5px solid #e5e7eb;color:#374151;background:#fff;} .btn-o:hover{background:#f9fafb;}
 .btn-r{background:#dc2626;color:#fff;} .btn-r:hover{background:#b91c1c;}
+.btn-b{background:#1d4ed8;color:#fff;} .btn-b:hover{background:#1e40af;}
 .fl{display:block;font-size:11px;font-weight:700;color:#6b7280;margin-bottom:4px;letter-spacing:.04em;text-transform:uppercase;}
-::-webkit-scrollbar{width:5px;height:5px;}
-::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px;}
+::-webkit-scrollbar{width:5px;height:5px;} ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px;}
 .ov{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(15,23,42,.55);backdrop-filter:blur(2px);}
 .mb{background:#fff;border-radius:20px;padding:26px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.18);}
 .th{padding:9px 14px;font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;border-bottom:1.5px solid #f1f5f9;text-align:left;background:#f8fafc;}
 .td{padding:11px 14px;font-size:13px;color:#374151;border-bottom:1px solid #f8fafc;}
-tr:hover .td{background:#f8fafc;}
-tr:last-child .td{border-bottom:none;}
+tr:hover .td{background:#f8fafc;} tr:last-child .td{border-bottom:none;}
 .badge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:9999px;font-size:11px;font-weight:700;}
 </style>
 </head>
@@ -43,7 +40,7 @@ tr:last-child .td{border-bottom:none;}
 <div id="root"></div>
 
 <script>
-/* ── SEED: 118 menus from UPB Food Recipe 2025 Excel ── */
+/* ── SEED: 118 menus ── */
 const INITIAL_MENUS=[
   {id:"AP_01",menu_id:"AP_01",category:"Appetizer",name_th:"มันบด",name_en:"Mashed Potatoes",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:80,checked:true},
   {id:"AP_02",menu_id:"AP_02",category:"Appetizer",name_th:"ครีบปลากระเบน",name_en:"Aburi Eihire (Grilled Stingray Fin)",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:140,checked:true},
@@ -74,7 +71,7 @@ const INITIAL_MENUS=[
   {id:"AP_27",menu_id:"AP_27",category:"Appetizer",name_th:"หมึกแดดเทมปุระ",name_en:"Sun-Dried Squid Tempura",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:180,checked:true},
   {id:"AP_28",menu_id:"AP_28",category:"Appetizer",name_th:"แหนมซี่โครงข้าวกรอบ",name_en:"Sour Pork Ribs & Crunchy Rice",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:180,checked:true},
   {id:"AP_29",menu_id:"AP_29",category:"Appetizer",name_th:"แมลงทอด (ดักแด้)",name_en:"Fried Insects (Silkworms)",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:90,checked:true},
-  {id:"AP_30",menu_id:"AP_30",category:"Appetizer",name_th:"แมลงทอดรวม (ดักแด้+จิ้งหรีด)",name_en:"Mixed Fried Insects",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:90,checked:true},
+  {id:"AP_30",menu_id:"AP_30",category:"Appetizer",name_th:"แมลงทอดรวม",name_en:"Mixed Fried Insects",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:90,checked:true},
   {id:"MD_01",menu_id:"MD_01",category:"Main Dish",name_th:"ข้าวกะเพราซุ้มเสือยอด หมูชิ้น",name_en:"Stir-Fried Sliced Pork with Holy Basil on Rice",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:90,checked:true},
   {id:"MD_02",menu_id:"MD_02",category:"Main Dish",name_th:"ข้าวกะเพราซุ้มเสือยอด หมูสับ",name_en:"Stir-Fried Minced Pork with Holy Basil on Rice",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:90,checked:true},
   {id:"MD_03",menu_id:"MD_03",category:"Main Dish",name_th:"ข้าวกะเพราซุ้มเสือยอด เนื้อสับ",name_en:"Stir-Fried Minced Beef with Holy Basil on Rice",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:120,checked:true},
@@ -106,7 +103,7 @@ const INITIAL_MENUS=[
   {id:"MD_29",menu_id:"MD_29",category:"Main Dish",name_th:"ข้าวผัดแหนม",name_en:"Fried Rice with Fermented Pork",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:120,checked:true},
   {id:"MD_30",menu_id:"MD_30",category:"Main Dish",name_th:"ข้าวผัดหนำเลี๊ยบ",name_en:"Fried Rice with Chinese Sausage",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:220,checked:true},
   {id:"MD_31",menu_id:"MD_31",category:"Main Dish",name_th:"ต้มแซ่บซี่โครงอ่อนใบกะเพรา",name_en:"Spicy Pork Rib Soup with Holy Basil",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:180,checked:true},
-  {id:"MD_32",menu_id:"MD_32",category:"Main Dish",name_th:"ซุปผู้กอง (ซุปกระดูกหมูผักกาดดอง)",name_en:"Captain's Soup (Pork Bone Soup with Pickled Cabbage)",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:180,checked:true},
+  {id:"MD_32",menu_id:"MD_32",category:"Main Dish",name_th:"ซุปผู้กอง",name_en:"Captain's Soup (Pork Bone Soup with Pickled Cabbage)",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:180,checked:true},
   {id:"MD_33",menu_id:"MD_33",category:"Main Dish",name_th:"เนื้อแจ่วอ่ำหล่ำ",name_en:"Grilled Thai-French Beef with Isaan Spicy Sauce",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:250,checked:true},
   {id:"MD_34",menu_id:"MD_34",category:"Main Dish",name_th:"พาสต้าทะเล",name_en:"Stir-Fried Pasta with Seafood",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:280,checked:true},
   {id:"MD_35",menu_id:"MD_35",category:"Main Dish",name_th:"ไส้กรอก Oktober",name_en:"Oktober Sausage Platter",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:380,checked:true},
@@ -164,10 +161,24 @@ const INITIAL_MENUS=[
   {id:"AS_25",menu_id:"AS_25",category:"Sauces & Prep",name_th:"เนื้อ ตุ๋น",name_en:"Braised Beef",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:"",checked:false},
   {id:"AS_26",menu_id:"AS_26",category:"Sauces & Prep",name_th:"พริกยำ",name_en:"Chili for Yum",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:"",checked:false},
 ];
+
+const INITIAL_CATS=[
+  {id:"cat_ap",name:"Appetizer",icon:"🍟"},
+  {id:"cat_md",name:"Main Dish",icon:"🍛"},
+  {id:"cat_sl",name:"Salad & Yum",icon:"🥗"},
+  {id:"cat_as",name:"Sauces & Prep",icon:"🫙"},
+];
+
+const CAT_PRESETS=[
+  {bg:"#fef3c7",tx:"#92400e"},{bg:"#dcfce7",tx:"#166534"},
+  {bg:"#ccfbf1",tx:"#134e4a"},{bg:"#ede9fe",tx:"#5b21b6"},
+  {bg:"#dbeafe",tx:"#1e40af"},{bg:"#fce7f3",tx:"#9d174d"},
+  {bg:"#e0f2fe",tx:"#0c4a6e"},{bg:"#fef9c3",tx:"#78350f"},
+];
 </script>
 
 <script>
-const{useState,useEffect,useMemo,useCallback,useRef}=React;
+const{useState,useEffect,useMemo,useCallback,useRef,createContext,useContext}=React;
 
 const SPREADSHEET_ID="1qfXTf3h1CWFbvgr2mlLvedWUxjH8PVwX7L7ndXq8V3o";
 const GOOGLE_CLIENT_ID="787778307584-v1bfnkpnfgu9j1ueni9mi97chlpdu2ec.apps.googleusercontent.com";
@@ -178,23 +189,26 @@ const SHEETS={
   Ingredients: ["id","name","purchase_unit","cost_per_unit","yield_pct","notes"],
   RecipeLines: ["id","menu_id","ingredient_id","ingredient_name","usage_qty","usage_unit","ingredient_cost"],
   CookingSteps:["id","menu_id","step_no","instruction"],
+  Categories:  ["id","name","icon"],
+  Stores:      ["id","name"],
+  StorePrices: ["id","menu_id","store_name","price"],
 };
 
-const CATS=["All","Appetizer","Main Dish","Salad & Yum","Sauces & Prep"];
-const CICO={"Appetizer":"🍟","Main Dish":"🍛","Salad & Yum":"🥗","Sauces & Prep":"🫙"};
-const CCOL={
-  "Appetizer":  {bg:"#fef3c7",tx:"#92400e"},
-  "Main Dish":  {bg:"#dcfce7",tx:"#166534"},
-  "Salad & Yum":{bg:"#ccfbf1",tx:"#134e4a"},
-  "Sauces & Prep":{bg:"#ede9fe",tx:"#5b21b6"},
-};
+const CatsCtx=createContext([]);
+const StoresCtx=createContext([]);
 
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
 function fmtB(n){const v=+n;if(!v&&v!==0)return"—";return"฿"+v.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});}
-function fmtP(n){const v=+n;if(n===null||n===undefined||n==="")return"—";return(v*100).toFixed(1)+"%";}
+function fmtP(n){if(n===null||n===undefined||n==="")return"—";return(+n*100).toFixed(1)+"%";}
 function pctColor(p){if(p===null||p===undefined||p==="")return"#9ca3af";const v=+p;if(v<=0.35)return"#16a34a";if(v<=0.50)return"#d97706";return"#dc2626";}
 
-/* ── cost calc ─────────────────── */
+function getCatStyle(cats,catName){
+  const idx=cats.findIndex(c=>c.name===catName);
+  const p=CAT_PRESETS[Math.max(0,idx)%CAT_PRESETS.length];
+  const c=cats.find(c=>c.name===catName);
+  return{bg:p.bg,tx:p.tx,icon:c?.icon||"🍽️"};
+}
+
 function calcMenuCost(menuId,recipeLines,menu){
   const lines=recipeLines.filter(r=>String(r.menu_id)===String(menuId));
   const rawCost=lines.reduce((s,l)=>s+parseFloat(l.ingredient_cost||0),0);
@@ -215,7 +229,69 @@ function calcLineIngCost(ingredient,usageQty){
   return(cpu/yld)*qty;
 }
 
-/* ── Sheets helpers ─────────────── */
+/* ── Excel helpers ── */
+function downloadIngredientTemplate(){
+  const wb=XLSX.utils.book_new();
+  const tmpl=[
+    ["name","purchase_unit","cost_per_unit","yield_pct","notes"],
+    ["Chicken Breast","kg",85,0.9,"Fresh boneless"],
+    ["Cooking Oil","L",60,1,""],
+    ["","","","",""],["","","","",""],["","","","",""],
+    ["","","","",""],["","","","",""],["","","","",""],
+  ];
+  const ws1=XLSX.utils.aoa_to_sheet(tmpl);
+  ws1["!cols"]=[{wch:28},{wch:14},{wch:15},{wch:12},{wch:30}];
+  XLSX.utils.book_append_sheet(wb,ws1,"Ingredient Template");
+  const instr=[
+    ["Field","Description","Example","Required?"],
+    ["name","Ingredient name","Chicken Breast","Yes"],
+    ["purchase_unit","Unit you buy it in (kg, g, ml, pcs, bottle…)","kg","No"],
+    ["cost_per_unit","Price per unit in Thai Baht (฿)","85","Yes"],
+    ["yield_pct","Usable ratio after prep — a number from 0.01 to 1.0","0.9 = 90% usable after trimming","No (default: 1)"],
+    ["notes","Any extra notes","Fresh, boneless skinless","No"],
+    ["","","",""],
+    ["Tips:","","",""],
+    ["• Leave yield_pct blank or 1 for ingredients with no waste (e.g. oil, spices)","","",""],
+    ["• cost_per_unit must be the price for ONE purchase_unit (e.g. ฿85 per kg)","","",""],
+    ["• Ingredients with a name that already exists in the system will be skipped on import","","",""],
+    ["• The system reads the FIRST sheet in the file, so keep your data in the first tab","","",""],
+  ];
+  const ws2=XLSX.utils.aoa_to_sheet(instr);
+  ws2["!cols"]=[{wch:22},{wch:45},{wch:35},{wch:12}];
+  XLSX.utils.book_append_sheet(wb,ws2,"Instructions");
+  XLSX.writeFile(wb,"UPB_Ingredient_Template.xlsx");
+}
+
+function parseIngredientExcel(file,onParsed){
+  const reader=new FileReader();
+  reader.onload=(e)=>{
+    try{
+      const data=new Uint8Array(e.target.result);
+      const wb=XLSX.read(data,{type:"array"});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
+      if(!rows.length){onParsed([]);return;}
+      const hdrs=rows[0].map(h=>String(h).trim().toLowerCase());
+      const ni=hdrs.indexOf("name"),ui=hdrs.indexOf("purchase_unit"),
+            ci=hdrs.indexOf("cost_per_unit"),yi=hdrs.indexOf("yield_pct"),oi=hdrs.indexOf("notes");
+      if(ni===-1){onParsed(null);return;}
+      const parsed=rows.slice(1)
+        .filter(r=>r[ni]&&String(r[ni]).trim())
+        .map(r=>({
+          id:uid(),
+          name:String(r[ni]).trim(),
+          purchase_unit:ui>=0?String(r[ui]||"").trim():"",
+          cost_per_unit:ci>=0?parseFloat(r[ci]||0)||0:0,
+          yield_pct:yi>=0?(parseFloat(r[yi]||1)||1):1,
+          notes:oi>=0?String(r[oi]||"").trim():"",
+        }));
+      onParsed(parsed);
+    }catch(err){onParsed(null);}
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+/* ── Sheets helpers ── */
 function gvizFetch(sid,sname){
   return new Promise((res,rej)=>{
     const cb="_gv_"+uid();
@@ -269,22 +345,16 @@ async function sheetsEnsure(tok,sid,tab,headers){
   }
 }
 
-/* ── useAuth ─────────────────────── */
+/* ── useAuth ── */
 const _KEY="upb_food_hint";let _rt=null;
 function useAuth(){
   const[token,setToken]=useState(null);
   const[gisReady,setGisReady]=useState(false);
   const cRef=useRef(null);
-  useEffect(()=>{
-    const s=document.createElement("script");s.src="https://accounts.google.com/gsi/client";s.async=true;
-    s.onload=()=>setGisReady(true);document.head.appendChild(s);
-  },[]);
+  useEffect(()=>{const s=document.createElement("script");s.src="https://accounts.google.com/gsi/client";s.async=true;s.onload=()=>setGisReady(true);document.head.appendChild(s);},[]);
   const schedRefresh=useCallback(()=>{
     if(_rt)clearTimeout(_rt);
-    _rt=setTimeout(()=>{
-      if(!cRef.current)return;
-      cRef.current.requestAccessToken({prompt:"",login_hint:localStorage.getItem(_KEY)||""});
-    },55*60*1000);
+    _rt=setTimeout(()=>{if(!cRef.current)return;cRef.current.requestAccessToken({prompt:"",login_hint:localStorage.getItem(_KEY)||""});},55*60*1000);
   },[]);
   const initClient=useCallback(()=>{
     if(!gisReady||cRef.current)return;
@@ -303,30 +373,24 @@ function useAuth(){
   return{token,login,gisReady};
 }
 
-/* ── useSave ─────────────────────── */
+/* ── useSave ── */
 function dedup(rows,pk){const m=new Map();rows.forEach(r=>{if(r[pk]!==undefined&&r[pk]!=="")m.set(r[pk],r);});return[...m.values()];}
 function useSave(tabName,headers,initial){
   const[data,setData]=useState(initial);
-  const[synced,setSynced]=useState(false);
   const[saveError,setSaveError]=useState(false);
-  const tRef=useRef(null);
-  const dirtyRef=useRef(false);
-  const[saveVer,setSaveVer]=useState(0);
-  const alRef=useRef(false);
+  const tRef=useRef(null);const dirtyRef=useRef(false);const[saveVer,setSaveVer]=useState(0);const alRef=useRef(false);
   const setToken=useCallback((t)=>{
     tRef.current=t;
     sheetsApiRead(t,SPREADSHEET_ID,tabName).then(rows=>{
       alRef.current=true;
-      if(rows&&rows.length>0){
-        if(!dirtyRef.current)setData(dedup(rows,headers[0]));
-      }else{dirtyRef.current=true;setSaveVer(v=>v+1);}
+      if(rows&&rows.length>0){if(!dirtyRef.current)setData(dedup(rows,headers[0]));}
+      else{dirtyRef.current=true;setSaveVer(v=>v+1);}
     });
   },[tabName,headers]);
   useEffect(()=>{
     sheetsRead(SPREADSHEET_ID,tabName).then(rows=>{
       if(rows&&rows.length>0&&!alRef.current&&!tRef.current)setData(dedup(rows,headers[0]));
-      setSynced(true);
-    }).catch(()=>setSynced(true));
+    }).catch(()=>{});
   },[tabName,headers]);
   useEffect(()=>{
     if(!dirtyRef.current||!tRef.current)return;
@@ -336,19 +400,19 @@ function useSave(tabName,headers,initial){
         await sheetsEnsure(tRef.current,SPREADSHEET_ID,tabName,headers);
         await sheetsApiWrite(tRef.current,SPREADSHEET_ID,tabName,headers,data);
         dirtyRef.current=false;setSaveError(false);
-      }catch(e){console.error("[useSave]",tabName,e);setSaveError(true);}
+      }catch(e){setSaveError(true);}
     },1200);
     return()=>clearTimeout(t);
   },[data,saveVer,tabName,headers]);
   const update=useCallback((fn)=>{setData(fn);dirtyRef.current=true;setSaveVer(v=>v+1);},[]);
   const forcePush=useCallback(()=>{if(tRef.current){dirtyRef.current=true;setSaveVer(v=>v+1);}},[]);
-  return[data,update,synced,setToken,forcePush,saveError];
+  return[data,update,setToken,forcePush,saveError];
 }
 </script>
 
 <script type="text/babel">
 
-/* ── shared UI ─────────────────── */
+/* ── shared UI ── */
 function Modal({open,onClose,title,children,wide}){
   if(!open)return null;
   return <div className="ov" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
@@ -363,8 +427,9 @@ function Modal({open,onClose,title,children,wide}){
 }
 
 function CatBadge({cat}){
-  const c=CCOL[cat]||{bg:"#f3f4f6",tx:"#6b7280"};
-  return <span className="badge" style={{background:c.bg,color:c.tx}}>{CICO[cat]||"🍽️"} {cat}</span>;
+  const cats=useContext(CatsCtx);
+  const s=getCatStyle(cats,cat);
+  return <span className="badge" style={{background:s.bg,color:s.tx}}>{s.icon} {cat||"—"}</span>;
 }
 
 function PctBadge({pct}){
@@ -375,31 +440,115 @@ function PctBadge({pct}){
   return <span className="badge" style={{background:bg,color:tx}}>{(v*100).toFixed(1)}%</span>;
 }
 
-/* ── Sidebar ─────────────────────── */
-function Sidebar({page,setPage,token,onLogin,gisReady,saveError}){
-  return <div style={{width:210,minHeight:"100vh",background:"#fff",borderRight:"1px solid #f1f5f9",padding:"20px 10px",display:"flex",flexDirection:"column",gap:3,flexShrink:0}}>
+/* ── ManageCatsModal ── */
+function ManageCatsModal({open,onClose,cats,updateCats,menus}){
+  const[newName,setNewName]=useState("");
+  const[newIcon,setNewIcon]=useState("🍽️");
+  function addCat(){
+    const n=newName.trim();
+    if(!n||cats.some(c=>c.name===n))return;
+    updateCats(prev=>[...prev,{id:uid(),name:n,icon:newIcon||"🍽️"}]);
+    setNewName("");setNewIcon("🍽️");
+  }
+  function delCat(id){
+    const cat=cats.find(c=>c.id===id);
+    const count=menus.filter(m=>m.category===cat?.name).length;
+    if(count>0){alert(`Cannot delete — ${count} menu(s) use this category. Reassign them first.`);return;}
+    updateCats(prev=>prev.filter(c=>c.id!==id));
+  }
+  return <Modal open={open} onClose={onClose} title="Manage Categories">
+    <table style={{width:"100%",borderCollapse:"collapse",marginBottom:20}}>
+      <thead><tr><th className="th">Icon</th><th className="th">Category Name</th><th className="th">Menus</th><th className="th"/></tr></thead>
+      <tbody>{cats.map((c,i)=>{
+        const preset=CAT_PRESETS[i%CAT_PRESETS.length];
+        const count=menus.filter(m=>m.category===c.name).length;
+        return <tr key={c.id}>
+          <td className="td" style={{fontSize:20,textAlign:"center"}}>{c.icon}</td>
+          <td className="td"><span className="badge" style={{background:preset.bg,color:preset.tx}}>{c.name}</span></td>
+          <td className="td" style={{textAlign:"center",color:"#6b7280"}}>{count}</td>
+          <td className="td">
+            {count===0&&<button onClick={()=>delCat(c.id)} className="btn btn-r" style={{fontSize:11,padding:"3px 10px"}}>Delete</button>}
+          </td>
+        </tr>;
+      })}</tbody>
+    </table>
+    <div style={{display:"flex",gap:10,alignItems:"flex-end"}}>
+      <div style={{flex:"0 0 60px"}}>
+        <label className="fl">Icon</label>
+        <input className="inp" value={newIcon} onChange={e=>setNewIcon(e.target.value)} style={{textAlign:"center",fontSize:18}}/>
+      </div>
+      <div style={{flex:1}}>
+        <label className="fl">New Category Name</label>
+        <input className="inp" value={newName} onChange={e=>setNewName(e.target.value)} placeholder="e.g. Desserts"
+          onKeyDown={e=>{if(e.key==="Enter")addCat();}}/>
+      </div>
+      <button onClick={addCat} className="btn btn-g" style={{flexShrink:0}}>Add</button>
+    </div>
+  </Modal>;
+}
+
+/* ── ManageStoresModal ── */
+function ManageStoresModal({open,onClose,stores,updateStores,storePrices}){
+  const[newName,setNewName]=useState("");
+  function addStore(){
+    const n=newName.trim();
+    if(!n||stores.some(s=>s.name===n))return;
+    updateStores(prev=>[...prev,{id:uid(),name:n}]);
+    setNewName("");
+  }
+  function delStore(id){
+    const st=stores.find(s=>s.id===id);
+    const count=storePrices.filter(p=>p.store_name===st?.name).length;
+    if(count>0){alert(`Cannot delete — ${count} price record(s) use "${st.name}". Remove those prices first.`);return;}
+    updateStores(prev=>prev.filter(s=>s.id!==id));
+  }
+  return <Modal open={open} onClose={onClose} title="Manage Stores">
+    <table style={{width:"100%",borderCollapse:"collapse",marginBottom:20}}>
+      <thead><tr><th className="th">Store Name</th><th className="th">Price Records</th><th className="th"/></tr></thead>
+      <tbody>{stores.length===0?<tr><td colSpan={3} className="td" style={{textAlign:"center",color:"#9ca3af"}}>No stores yet.</td></tr>:
+        stores.map(s=>{
+          const count=storePrices.filter(p=>p.store_name===s.name).length;
+          return <tr key={s.id}>
+            <td className="td" style={{fontWeight:500}}>🏪 {s.name}</td>
+            <td className="td" style={{textAlign:"center",color:"#6b7280"}}>{count}</td>
+            <td className="td">
+              {count===0&&<button onClick={()=>delStore(s.id)} className="btn btn-r" style={{fontSize:11,padding:"3px 10px"}}>Delete</button>}
+            </td>
+          </tr>;
+        })
+      }</tbody>
+    </table>
+    <div style={{display:"flex",gap:10}}>
+      <input className="inp" value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Store name (e.g. UPB Main Branch)"
+        onKeyDown={e=>{if(e.key==="Enter")addStore();}}/>
+      <button onClick={addStore} className="btn btn-g" style={{flexShrink:0}}>Add Store</button>
+    </div>
+  </Modal>;
+}
+
+/* ── Sidebar ── */
+function Sidebar({page,setPage,token,onLogin,gisReady,saveError,onCatMgr,onStoreMgr}){
+  const cats=useContext(CatsCtx);
+  return <div style={{width:215,minHeight:"100vh",background:"#fff",borderRight:"1px solid #f1f5f9",padding:"20px 10px",display:"flex",flexDirection:"column",gap:3,flexShrink:0}}>
     <div style={{display:"flex",alignItems:"center",gap:9,padding:"0 8px 18px"}}>
       <span style={{fontSize:24}}>🍺</span>
       <div><div style={{fontWeight:800,fontSize:14,color:"#111827"}}>UPB Kitchen</div>
       <div style={{fontSize:11,color:"#9ca3af"}}>Recipe Manager</div></div>
     </div>
-    {[
-      {id:"dashboard",icon:"📊",label:"Dashboard"},
-      {id:"menus",icon:"📋",label:"All Menus"},
-      {id:"ingredients",icon:"🧂",label:"Ingredients"},
-    ].map(({id,icon,label})=>
-      <button key={id} onClick={()=>setPage(id)} className={"sl"+(page===id?" active":"")}>
-        <span>{icon}</span>{label}
-      </button>
+    {[{id:"dashboard",icon:"📊",label:"Dashboard"},{id:"menus",icon:"📋",label:"All Menus"},{id:"ingredients",icon:"🧂",label:"Ingredients"}]
+      .map(({id,icon,label})=>
+        <button key={id} onClick={()=>setPage(id)} className={"sl"+(page===id?" active":"")}><span>{icon}</span>{label}</button>
     )}
+    <div style={{borderTop:"1px solid #f1f5f9",margin:"8px 0"}}/>
+    <div style={{padding:"4px 10px",fontSize:10,fontWeight:700,color:"#94a3b8",letterSpacing:".07em",textTransform:"uppercase"}}>Settings</div>
+    <button onClick={onCatMgr} className="sl"><span>🗂</span>Categories</button>
+    <button onClick={onStoreMgr} className="sl"><span>🏪</span>Stores</button>
     <div style={{flex:1}}/>
-    {saveError&&<div style={{margin:"4px 6px",padding:"8px 10px",background:"#fee2e2",borderRadius:8,fontSize:12,color:"#991b1b"}}>⚠️ Save error</div>}
+    {saveError&&<div style={{margin:"4px 6px",padding:"8px 10px",background:"#fee2e2",borderRadius:8,fontSize:12,color:"#991b1b"}}>⚠️ Save error — check connection</div>}
     <div className="card" style={{margin:"6px 4px",padding:"12px"}}>
       {!token?<>
         <div style={{fontSize:12,color:"#6b7280",marginBottom:10,lineHeight:1.5}}>Sign in to sync with Google Sheets</div>
-        <button onClick={onLogin} disabled={!gisReady} className="btn btn-g" style={{width:"100%",justifyContent:"center",fontSize:12}}>
-          🔑 Sign In with Google
-        </button>
+        <button onClick={onLogin} disabled={!gisReady} className="btn btn-g" style={{width:"100%",justifyContent:"center",fontSize:12}}>🔑 Sign In</button>
       </>:<>
         <div style={{display:"flex",alignItems:"center",gap:6}}>
           <span style={{width:8,height:8,borderRadius:"50%",background:"#16a34a",display:"inline-block"}}/>
@@ -410,20 +559,17 @@ function Sidebar({page,setPage,token,onLogin,gisReady,saveError}){
   </div>;
 }
 
-/* ── EditMenuModal ─────────────────── */
+/* ── EditMenuModal ── */
 function EditMenuModal({open,onClose,menu,onSave}){
-  const blank={menu_id:"",category:"Appetizer",name_th:"",name_en:"",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:"",checked:false};
+  const cats=useContext(CatsCtx);
+  const blank={menu_id:"",category:cats[0]?.name||"Appetizer",name_th:"",name_en:"",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:"",checked:false};
   const[f,setF]=useState(blank);
   useEffect(()=>{setF(menu?{...menu}:blank);},[open,menu]);
   const ch=(k,v)=>setF(p=>({...p,[k]:v}));
   function save(){
     if(!f.menu_id||!f.name_en)return;
-    onSave({...f,id:f.id||f.menu_id,
-      serves_per_recipe:+f.serves_per_recipe||1,
-      spice_pct:+f.spice_pct||0.10,
-      target_food_cost_pct:+f.target_food_cost_pct||0.35,
-      actual_price:f.actual_price===""?"":+f.actual_price,
-      checked:!!f.checked});
+    onSave({...f,id:f.id||f.menu_id,serves_per_recipe:+f.serves_per_recipe||1,spice_pct:+f.spice_pct||0.10,
+      target_food_cost_pct:+f.target_food_cost_pct||0.35,actual_price:f.actual_price===""?"":+f.actual_price,checked:!!f.checked});
     onClose();
   }
   return <Modal open={open} onClose={onClose} title={menu?"Edit Menu":"Add New Menu"}>
@@ -431,121 +577,96 @@ function EditMenuModal({open,onClose,menu,onSave}){
       <div><label className="fl">Menu ID *</label><input className="inp" value={f.menu_id} onChange={e=>ch("menu_id",e.target.value)} placeholder="e.g. AP_31"/></div>
       <div><label className="fl">Category *</label>
         <select className="inp" value={f.category} onChange={e=>ch("category",e.target.value)}>
-          {CATS.filter(c=>c!=="All").map(c=><option key={c}>{c}</option>)}
+          {cats.map(c=><option key={c.id}>{c.name}</option>)}
         </select>
       </div>
       <div><label className="fl">EN Name *</label><input className="inp" value={f.name_en} onChange={e=>ch("name_en",e.target.value)}/></div>
       <div><label className="fl">Thai Name</label><input className="inp" value={f.name_th} onChange={e=>ch("name_th",e.target.value)}/></div>
       <div><label className="fl">Serves per Recipe</label><input className="inp" type="number" min="1" value={f.serves_per_recipe} onChange={e=>ch("serves_per_recipe",e.target.value)}/></div>
       <div><label className="fl">Actual Selling Price (฿)</label><input className="inp" type="number" min="0" value={f.actual_price} onChange={e=>ch("actual_price",e.target.value)}/></div>
-      <div><label className="fl">Spice Allowance %</label><input className="inp" type="number" step="0.01" min="0" max="1" value={f.spice_pct} onChange={e=>ch("spice_pct",e.target.value)} placeholder="0.10"/></div>
-      <div><label className="fl">Target Food Cost %</label><input className="inp" type="number" step="0.01" min="0" max="1" value={f.target_food_cost_pct} onChange={e=>ch("target_food_cost_pct",e.target.value)} placeholder="0.35"/></div>
+      <div><label className="fl">Spice Allowance (0–1)</label><input className="inp" type="number" step="0.01" min="0" max="1" value={f.spice_pct} onChange={e=>ch("spice_pct",e.target.value)}/></div>
+      <div><label className="fl">Target Food Cost (0–1)</label><input className="inp" type="number" step="0.01" min="0" max="1" value={f.target_food_cost_pct} onChange={e=>ch("target_food_cost_pct",e.target.value)}/></div>
     </div>
     <div style={{display:"flex",alignItems:"center",gap:8,margin:"14px 0"}}>
       <input type="checkbox" id="chk" checked={!!f.checked} onChange={e=>ch("checked",e.target.checked)}/>
       <label htmlFor="chk" style={{fontSize:13,color:"#374151"}}>Recipe verified / checked</label>
     </div>
-    <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
+    <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16}}>
       <button onClick={onClose} className="btn btn-o">Cancel</button>
       <button onClick={save} className="btn btn-g">Save Menu</button>
     </div>
   </Modal>;
 }
 
-/* ── MenusPage ─────────────────────── */
+/* ── MenusPage ── */
 function MenusPage({menus,updateMenus,setSelectedMenu}){
+  const cats=useContext(CatsCtx);
   const[cat,setCat]=useState("All");
   const[search,setSearch]=useState("");
   const[editM,setEditM]=useState(null);
   const[showAdd,setShowAdd]=useState(false);
   const[delId,setDelId]=useState(null);
-
   const filtered=useMemo(()=>menus.filter(m=>{
     if(cat!=="All"&&m.category!==cat)return false;
     if(search){const s=search.toLowerCase();return m.name_en?.toLowerCase().includes(s)||m.name_th?.includes(search)||m.menu_id?.toLowerCase().includes(s);}
     return true;
   }),[menus,cat,search]);
-
-  function saveMenu(m){
-    updateMenus(prev=>{const i=prev.findIndex(x=>x.id===m.id);if(i>=0){const n=[...prev];n[i]=m;return n;}return[...prev,m];});
-  }
+  function saveMenu(m){updateMenus(prev=>{const i=prev.findIndex(x=>x.id===m.id);if(i>=0){const n=[...prev];n[i]=m;return n;}return[...prev,m];});}
   function delMenu(id){updateMenus(prev=>prev.filter(m=>m.id!==id));setDelId(null);}
-
   return <div style={{flex:1,padding:"28px 32px",overflowY:"auto"}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
-      <div>
-        <h2 style={{fontSize:22,fontWeight:700,margin:0}}>All Menus</h2>
-        <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>{menus.length} items total</div>
-      </div>
+      <div><h2 style={{fontSize:22,fontWeight:700,margin:0}}>All Menus</h2>
+        <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>{menus.length} items total</div></div>
       <button onClick={()=>setShowAdd(true)} className="btn btn-g">+ Add Menu</button>
     </div>
-
-    <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
-      {CATS.map(c=><button key={c} onClick={()=>setCat(c)}
-        className="btn" style={{fontSize:12,padding:"5px 12px",
-          background:cat===c?"#166534":"#f1f5f9",color:cat===c?"#fff":"#374151"}}>{c}</button>)}
-      <input className="inp" placeholder="Search..." value={search} onChange={e=>setSearch(e.target.value)} style={{width:200,marginLeft:"auto"}}/>
+    <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+      {["All",...cats.map(c=>c.name)].map(c=><button key={c} onClick={()=>setCat(c)} className="btn"
+        style={{fontSize:12,padding:"5px 12px",background:cat===c?"#166534":"#f1f5f9",color:cat===c?"#fff":"#374151"}}>{c}</button>)}
+      <input className="inp" placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)} style={{width:190,marginLeft:"auto"}}/>
     </div>
-
     <div className="card" style={{overflow:"hidden"}}>
       <table style={{width:"100%",borderCollapse:"collapse"}}>
-        <thead><tr>
-          <th className="th">ID</th><th className="th">Menu Name</th><th className="th">Category</th>
-          <th className="th" style={{textAlign:"right"}}>Actual Price</th>
-          <th className="th">Status</th><th className="th">Actions</th>
-        </tr></thead>
+        <thead><tr><th className="th">ID</th><th className="th">Menu Name</th><th className="th">Category</th>
+          <th className="th" style={{textAlign:"right"}}>Actual Price</th><th className="th">Status</th><th className="th">Actions</th></tr></thead>
         <tbody>{filtered.map(m=><tr key={m.id}>
           <td className="td" style={{fontWeight:600,color:"#166534",fontSize:12}}>{m.menu_id}</td>
-          <td className="td">
-            <div style={{fontWeight:500}}>{m.name_en}</div>
-            <div style={{fontSize:11,color:"#9ca3af"}}>{m.name_th}</div>
-          </td>
+          <td className="td"><div style={{fontWeight:500}}>{m.name_en}</div><div style={{fontSize:11,color:"#9ca3af"}}>{m.name_th}</div></td>
           <td className="td"><CatBadge cat={m.category}/></td>
           <td className="td" style={{textAlign:"right",fontWeight:600}}>{m.actual_price!==""&&m.actual_price!==null?fmtB(m.actual_price):"—"}</td>
           <td className="td">{m.checked?<span className="badge" style={{background:"#dcfce7",color:"#166534"}}>✓ Done</span>:<span className="badge" style={{background:"#f3f4f6",color:"#6b7280"}}>Draft</span>}</td>
-          <td className="td">
-            <div style={{display:"flex",gap:6}}>
-              <button onClick={()=>setSelectedMenu(m.id)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px"}}>📖 Recipe</button>
-              <button onClick={()=>setEditM(m)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px"}}>Edit</button>
-              <button onClick={()=>setDelId(m.id)} className="btn" style={{fontSize:12,padding:"4px 10px",background:"#fee2e2",color:"#991b1b"}}>Del</button>
-            </div>
-          </td>
+          <td className="td"><div style={{display:"flex",gap:5}}>
+            <button onClick={()=>setSelectedMenu(m.id)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px"}}>📖 Recipe</button>
+            <button onClick={()=>setEditM(m)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px"}}>Edit</button>
+            <button onClick={()=>setDelId(m.id)} className="btn" style={{fontSize:12,padding:"4px 10px",background:"#fee2e2",color:"#991b1b"}}>Del</button>
+          </div></td>
         </tr>)}</tbody>
       </table>
     </div>
-
     <EditMenuModal open={showAdd||!!editM} onClose={()=>{setShowAdd(false);setEditM(null);}} menu={editM} onSave={saveMenu}/>
-
-    {delId&&<div className="ov">
-      <div className="mb" style={{maxWidth:380}}>
-        <h3 style={{fontSize:16,fontWeight:700,margin:"0 0 8px"}}>Delete Menu?</h3>
-        <p style={{fontSize:13,color:"#6b7280",marginBottom:20}}>This cannot be undone. Recipe lines and steps will remain in Sheets.</p>
-        <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
-          <button onClick={()=>setDelId(null)} className="btn btn-o">Cancel</button>
-          <button onClick={()=>delMenu(delId)} className="btn btn-r">Delete</button>
-        </div>
+    {delId&&<div className="ov"><div className="mb" style={{maxWidth:380}}>
+      <h3 style={{fontSize:16,fontWeight:700,margin:"0 0 8px"}}>Delete Menu?</h3>
+      <p style={{fontSize:13,color:"#6b7280",marginBottom:20}}>This cannot be undone.</p>
+      <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+        <button onClick={()=>setDelId(null)} className="btn btn-o">Cancel</button>
+        <button onClick={()=>delMenu(delId)} className="btn btn-r">Delete</button>
       </div>
-    </div>}
+    </div></div>}
   </div>;
 }
 
-/* ── EditIngredientModal ─────────────────── */
+/* ── EditIngredientModal ── */
 function EditIngredientModal({open,onClose,ingr,onSave}){
   const blank={name:"",purchase_unit:"",cost_per_unit:"",yield_pct:1,notes:""};
   const[f,setF]=useState(blank);
   useEffect(()=>{setF(ingr?{...ingr}:blank);},[open,ingr]);
   const ch=(k,v)=>setF(p=>({...p,[k]:v}));
-  function save(){
-    if(!f.name)return;
-    onSave({...f,id:f.id||uid(),cost_per_unit:+f.cost_per_unit||0,yield_pct:+f.yield_pct||1});
-    onClose();
-  }
+  function save(){if(!f.name)return;onSave({...f,id:f.id||uid(),cost_per_unit:+f.cost_per_unit||0,yield_pct:+f.yield_pct||1});onClose();}
   return <Modal open={open} onClose={onClose} title={ingr?"Edit Ingredient":"Add Ingredient"}>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
       <div style={{gridColumn:"1/-1"}}><label className="fl">Ingredient Name *</label><input className="inp" value={f.name} onChange={e=>ch("name",e.target.value)}/></div>
       <div><label className="fl">Purchase Unit</label><input className="inp" placeholder="kg, g, ml, pcs…" value={f.purchase_unit} onChange={e=>ch("purchase_unit",e.target.value)}/></div>
       <div><label className="fl">Cost per Unit (฿)</label><input className="inp" type="number" min="0" step="0.01" value={f.cost_per_unit} onChange={e=>ch("cost_per_unit",e.target.value)}/></div>
-      <div><label className="fl">Yield % (0–1)</label><input className="inp" type="number" min="0.01" max="1" step="0.01" value={f.yield_pct} onChange={e=>ch("yield_pct",e.target.value)} placeholder="1 = no waste"/></div>
+      <div><label className="fl">Yield % (0.01–1.0)</label><input className="inp" type="number" min="0.01" max="1" step="0.01" value={f.yield_pct} onChange={e=>ch("yield_pct",e.target.value)} placeholder="1 = no waste"/></div>
       <div><label className="fl">Notes</label><input className="inp" value={f.notes} onChange={e=>ch("notes",e.target.value)}/></div>
     </div>
     <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
@@ -555,107 +676,159 @@ function EditIngredientModal({open,onClose,ingr,onSave}){
   </Modal>;
 }
 
-/* ── IngredientsPage ─────────────────── */
+/* ── UploadIngrModal ── */
+function UploadIngrModal({open,onClose,existingIngredients,updateIngredients}){
+  const[preview,setPreview]=useState(null);
+  const[error,setError]=useState("");
+  const[importing,setImporting]=useState(false);
+  const fileRef=useRef();
+
+  function onFile(e){
+    const file=e.target.files[0];if(!file)return;
+    setError("");setPreview(null);
+    parseIngredientExcel(file,(rows)=>{
+      if(rows===null){setError("Could not parse file. Make sure the first sheet has a 'name' column.");return;}
+      if(rows.length===0){setError("No data rows found in file.");return;}
+      const existNames=new Set(existingIngredients.map(i=>i.name.toLowerCase()));
+      const toAdd=rows.filter(r=>!existNames.has(r.name.toLowerCase()));
+      const dups=rows.length-toAdd.length;
+      setPreview({rows,toAdd,dups});
+    });
+  }
+  function doImport(){
+    setImporting(true);
+    updateIngredients(prev=>[...prev,...preview.toAdd]);
+    setImporting(false);
+    setPreview(null);
+    onClose();
+  }
+  function reset(){setPreview(null);setError("");if(fileRef.current)fileRef.current.value="";}
+
+  return <Modal open={open} onClose={()=>{reset();onClose();}} title="Upload Ingredients from Excel" wide>
+    <div style={{display:"flex",gap:12,marginBottom:20,flexWrap:"wrap"}}>
+      <button onClick={downloadIngredientTemplate} className="btn btn-b">⬇ Download Template</button>
+      <button onClick={()=>fileRef.current?.click()} className="btn btn-g">⬆ Choose Excel File</button>
+      <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}} onChange={onFile}/>
+    </div>
+    {error&&<div style={{background:"#fee2e2",color:"#991b1b",padding:"10px 14px",borderRadius:8,fontSize:13,marginBottom:14}}>{error}</div>}
+    {!preview&&<div style={{fontSize:13,color:"#6b7280",lineHeight:1.7}}>
+      <strong>Instructions:</strong><br/>
+      1. Download the template above and fill in your ingredients.<br/>
+      2. Required column: <code>name</code>. Optional: <code>purchase_unit</code>, <code>cost_per_unit</code>, <code>yield_pct</code>, <code>notes</code>.<br/>
+      3. Upload the completed file. Ingredients with duplicate names are skipped.
+    </div>}
+    {preview&&<>
+      <div style={{marginBottom:12,fontSize:13,color:"#374151"}}>
+        Found <strong>{preview.rows.length}</strong> rows · <strong style={{color:"#166534"}}>{preview.toAdd.length} new</strong> will be imported
+        {preview.dups>0&&<span style={{color:"#d97706"}}> · {preview.dups} duplicate(s) skipped</span>}
+      </div>
+      <div style={{maxHeight:300,overflowY:"auto",marginBottom:16}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead><tr><th className="th">Name</th><th className="th">Unit</th><th className="th">Cost/Unit</th><th className="th">Yield%</th><th className="th">Status</th></tr></thead>
+          <tbody>{preview.rows.map((r,i)=>{
+            const isDup=existingIngredients.some(e=>e.name.toLowerCase()===r.name.toLowerCase());
+            return <tr key={i} style={{opacity:isDup?.5:1}}>
+              <td className="td" style={{fontWeight:500}}>{r.name}</td>
+              <td className="td" style={{color:"#6b7280"}}>{r.purchase_unit||"—"}</td>
+              <td className="td">{r.cost_per_unit?fmtB(r.cost_per_unit):"—"}</td>
+              <td className="td">{(+r.yield_pct*100).toFixed(0)}%</td>
+              <td className="td">{isDup?<span style={{color:"#d97706",fontSize:12}}>⚠ skip (dup)</span>:<span style={{color:"#16a34a",fontSize:12}}>✓ import</span>}</td>
+            </tr>;
+          })}</tbody>
+        </table>
+      </div>
+      <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+        <button onClick={reset} className="btn btn-o">Clear</button>
+        <button onClick={doImport} disabled={preview.toAdd.length===0||importing} className="btn btn-g">
+          {importing?"Importing…":`Import ${preview.toAdd.length} Ingredients`}
+        </button>
+      </div>
+    </>}
+  </Modal>;
+}
+
+/* ── IngredientsPage ── */
 function IngredientsPage({ingredients,updateIngredients}){
-  const[editI,setEditI]=useState(null);
-  const[showAdd,setShowAdd]=useState(false);
-  const[delId,setDelId]=useState(null);
-  const[search,setSearch]=useState("");
-  const filtered=useMemo(()=>{
-    if(!search)return ingredients;
-    const s=search.toLowerCase();
-    return ingredients.filter(i=>i.name?.toLowerCase().includes(s));
-  },[ingredients,search]);
+  const[editI,setEditI]=useState(null);const[showAdd,setShowAdd]=useState(false);
+  const[delId,setDelId]=useState(null);const[search,setSearch]=useState("");
+  const[showUpload,setShowUpload]=useState(false);
+  const filtered=useMemo(()=>!search?ingredients:ingredients.filter(i=>i.name?.toLowerCase().includes(search.toLowerCase())),[ingredients,search]);
   function save(i){updateIngredients(prev=>{const idx=prev.findIndex(x=>x.id===i.id);if(idx>=0){const n=[...prev];n[idx]=i;return n;}return[...prev,i];});}
   function del(id){updateIngredients(prev=>prev.filter(i=>i.id!==id));setDelId(null);}
   return <div style={{flex:1,padding:"28px 32px",overflowY:"auto"}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
       <div><h2 style={{fontSize:22,fontWeight:700,margin:0}}>Ingredient Master List</h2>
-      <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>{ingredients.length} ingredients · select when building recipes</div></div>
-      <button onClick={()=>setShowAdd(true)} className="btn btn-g">+ Add Ingredient</button>
+        <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>{ingredients.length} ingredients</div></div>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={downloadIngredientTemplate} className="btn btn-b" title="Download blank Excel template">⬇ Template</button>
+        <button onClick={()=>setShowUpload(true)} className="btn btn-o">⬆ Upload Excel</button>
+        <button onClick={()=>setShowAdd(true)} className="btn btn-g">+ Add Ingredient</button>
+      </div>
     </div>
-    <div style={{marginBottom:16}}>
+    <div style={{marginBottom:14}}>
       <input className="inp" placeholder="Search ingredients…" value={search} onChange={e=>setSearch(e.target.value)} style={{maxWidth:280}}/>
     </div>
     {filtered.length===0?<div className="card" style={{padding:40,textAlign:"center",color:"#9ca3af"}}>
       <div style={{fontSize:32,marginBottom:12}}>🧂</div>
       <div style={{fontSize:15,fontWeight:600,marginBottom:6}}>No ingredients yet</div>
-      <div style={{fontSize:13}}>Add your first ingredient to start building recipes.</div>
+      <div style={{fontSize:13}}>Upload an Excel file or add ingredients one by one.</div>
     </div>:
     <div className="card" style={{overflow:"hidden"}}>
       <table style={{width:"100%",borderCollapse:"collapse"}}>
-        <thead><tr>
-          <th className="th">Name</th><th className="th">Unit</th>
+        <thead><tr><th className="th">Name</th><th className="th">Unit</th>
           <th className="th" style={{textAlign:"right"}}>Cost/Unit (฿)</th>
           <th className="th" style={{textAlign:"right"}}>Yield %</th>
           <th className="th" style={{textAlign:"right"}}>Eff. Cost/Unit</th>
-          <th className="th">Notes</th><th className="th">Actions</th>
-        </tr></thead>
+          <th className="th">Notes</th><th className="th">Actions</th></tr></thead>
         <tbody>{filtered.map(i=>{
-          const yld=parseFloat(i.yield_pct||1);
-          const cpu=parseFloat(i.cost_per_unit||0);
-          const eff=yld>0?cpu/yld:0;
+          const yld=parseFloat(i.yield_pct||1);const cpu=parseFloat(i.cost_per_unit||0);
           return <tr key={i.id}>
             <td className="td" style={{fontWeight:500}}>{i.name}</td>
             <td className="td" style={{color:"#6b7280"}}>{i.purchase_unit||"—"}</td>
-            <td className="td" style={{textAlign:"right"}}>{fmtB(i.cost_per_unit)}</td>
+            <td className="td" style={{textAlign:"right"}}>{fmtB(cpu)}</td>
             <td className="td" style={{textAlign:"right"}}>{(yld*100).toFixed(0)}%</td>
-            <td className="td" style={{textAlign:"right",fontWeight:600,color:"#166534"}}>{fmtB(eff)}</td>
+            <td className="td" style={{textAlign:"right",fontWeight:600,color:"#166534"}}>{fmtB(yld>0?cpu/yld:0)}</td>
             <td className="td" style={{fontSize:12,color:"#9ca3af"}}>{i.notes||"—"}</td>
-            <td className="td">
-              <div style={{display:"flex",gap:6}}>
-                <button onClick={()=>setEditI(i)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px"}}>Edit</button>
-                <button onClick={()=>setDelId(i.id)} className="btn" style={{fontSize:12,padding:"4px 10px",background:"#fee2e2",color:"#991b1b"}}>Del</button>
-              </div>
-            </td>
+            <td className="td"><div style={{display:"flex",gap:5}}>
+              <button onClick={()=>setEditI(i)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px"}}>Edit</button>
+              <button onClick={()=>setDelId(i.id)} className="btn" style={{fontSize:12,padding:"4px 10px",background:"#fee2e2",color:"#991b1b"}}>Del</button>
+            </div></td>
           </tr>;
         })}</tbody>
       </table>
     </div>}
     <EditIngredientModal open={showAdd||!!editI} onClose={()=>{setShowAdd(false);setEditI(null);}} ingr={editI} onSave={save}/>
-    {delId&&<div className="ov">
-      <div className="mb" style={{maxWidth:360}}>
-        <h3 style={{fontSize:16,fontWeight:700,margin:"0 0 8px"}}>Delete Ingredient?</h3>
-        <p style={{fontSize:13,color:"#6b7280",marginBottom:20}}>Existing recipe lines using this ingredient won't be affected.</p>
-        <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
-          <button onClick={()=>setDelId(null)} className="btn btn-o">Cancel</button>
-          <button onClick={()=>del(delId)} className="btn btn-r">Delete</button>
-        </div>
+    <UploadIngrModal open={showUpload} onClose={()=>setShowUpload(false)} existingIngredients={ingredients} updateIngredients={updateIngredients}/>
+    {delId&&<div className="ov"><div className="mb" style={{maxWidth:360}}>
+      <h3 style={{fontSize:16,fontWeight:700,margin:"0 0 8px"}}>Delete Ingredient?</h3>
+      <p style={{fontSize:13,color:"#6b7280",marginBottom:20}}>Existing recipe lines using this ingredient won't be affected.</p>
+      <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+        <button onClick={()=>setDelId(null)} className="btn btn-o">Cancel</button>
+        <button onClick={()=>del(delId)} className="btn btn-r">Delete</button>
       </div>
-    </div>}
+    </div></div>}
   </div>;
 }
 
-/* ── EditRecipeModal ─────────────────── */
+/* ── EditRecipeModal ── */
 function EditRecipeModal({open,onClose,menu,recipeLines,updateRecipeLines,ingredients}){
   const lines=useMemo(()=>recipeLines.filter(r=>String(r.menu_id)===String(menu?.id)),[recipeLines,menu]);
   const[nl,setNl]=useState({ingredient_id:"",ingredient_name:"",usage_qty:"",usage_unit:""});
   const selIngr=useMemo(()=>ingredients.find(i=>i.id===nl.ingredient_id),[ingredients,nl.ingredient_id]);
   const previewCost=useMemo(()=>calcLineIngCost(selIngr,nl.usage_qty),[selIngr,nl.usage_qty]);
-
-  function onSelectIngr(id){
-    const i=ingredients.find(x=>x.id===id);
-    setNl(p=>({...p,ingredient_id:id,ingredient_name:i?.name||"",usage_unit:i?.purchase_unit||""}));
-  }
+  function onSelIngr(id){const i=ingredients.find(x=>x.id===id);setNl(p=>({...p,ingredient_id:id,ingredient_name:i?.name||"",usage_unit:i?.purchase_unit||""}));}
   function addLine(){
     if(!nl.ingredient_id||!nl.usage_qty)return;
-    const line={id:uid(),menu_id:menu.id,ingredient_id:nl.ingredient_id,ingredient_name:nl.ingredient_name,
-      usage_qty:+nl.usage_qty,usage_unit:nl.usage_unit,ingredient_cost:previewCost};
-    updateRecipeLines(prev=>[...prev,line]);
+    updateRecipeLines(prev=>[...prev,{id:uid(),menu_id:menu.id,ingredient_id:nl.ingredient_id,ingredient_name:nl.ingredient_name,usage_qty:+nl.usage_qty,usage_unit:nl.usage_unit,ingredient_cost:previewCost}]);
     setNl({ingredient_id:"",ingredient_name:"",usage_qty:"",usage_unit:""});
   }
   function delLine(id){updateRecipeLines(prev=>prev.filter(l=>l.id!==id));}
-
   if(!menu)return null;
   return <Modal open={open} onClose={onClose} title={`Recipe Ingredients — ${menu.menu_id}`} wide>
-    {/* existing lines */}
-    {lines.length===0?<div style={{padding:"20px 0",textAlign:"center",color:"#9ca3af",fontSize:13}}>No ingredients added yet. Use the form below.</div>:
-    <div className="card" style={{overflow:"hidden",marginBottom:20}}>
+    {lines.length===0?<div style={{padding:"16px 0",textAlign:"center",color:"#9ca3af",fontSize:13}}>No ingredients added yet.</div>:
+    <div className="card" style={{overflow:"hidden",marginBottom:18}}>
       <table style={{width:"100%",borderCollapse:"collapse"}}>
-        <thead><tr>
-          <th className="th">Ingredient</th><th className="th" style={{textAlign:"right"}}>Usage Qty</th>
-          <th className="th">Unit</th><th className="th" style={{textAlign:"right"}}>Ingredient Cost</th><th className="th"/>
-        </tr></thead>
+        <thead><tr><th className="th">Ingredient</th><th className="th" style={{textAlign:"right"}}>Qty</th><th className="th">Unit</th><th className="th" style={{textAlign:"right"}}>Cost</th><th className="th"/></tr></thead>
         <tbody>{lines.map(l=><tr key={l.id}>
           <td className="td" style={{fontWeight:500}}>{l.ingredient_name}</td>
           <td className="td" style={{textAlign:"right"}}>{l.usage_qty}</td>
@@ -664,87 +837,109 @@ function EditRecipeModal({open,onClose,menu,recipeLines,updateRecipeLines,ingred
           <td className="td"><button onClick={()=>delLine(l.id)} className="btn" style={{fontSize:11,padding:"3px 8px",background:"#fee2e2",color:"#991b1b"}}>✕</button></td>
         </tr>)}
         <tr><td colSpan={3} className="td" style={{fontWeight:700,textAlign:"right"}}>Raw total:</td>
-          <td className="td" style={{fontWeight:700,color:"#166534"}}>{fmtB(lines.reduce((s,l)=>s+parseFloat(l.ingredient_cost||0),0))}</td>
-          <td className="td"/>
-        </tr></tbody>
+          <td className="td" style={{fontWeight:700,color:"#166534"}}>{fmtB(lines.reduce((s,l)=>s+parseFloat(l.ingredient_cost||0),0))}</td><td className="td"/></tr>
+        </tbody>
       </table>
     </div>}
-
-    {/* add line form */}
-    <div className="card" style={{padding:18}}>
-      <div style={{fontSize:13,fontWeight:700,marginBottom:12,color:"#374151"}}>➕ Add Ingredient Line</div>
-      {ingredients.length===0?<div style={{fontSize:13,color:"#d97706",padding:"10px 0"}}>⚠️ No ingredients in master list. Go to <strong>Ingredients</strong> page to add some first.</div>:
+    <div className="card" style={{padding:16}}>
+      <div style={{fontSize:13,fontWeight:700,marginBottom:10,color:"#374151"}}>➕ Add Ingredient Line</div>
+      {ingredients.length===0?<div style={{fontSize:13,color:"#d97706"}}>⚠️ No ingredients in master list yet. Go to the <strong>Ingredients</strong> page to add some first.</div>:
       <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr auto",gap:10,alignItems:"end"}}>
-        <div>
-          <label className="fl">Ingredient</label>
-          <select className="inp" value={nl.ingredient_id} onChange={e=>onSelectIngr(e.target.value)}>
+        <div><label className="fl">Ingredient</label>
+          <select className="inp" value={nl.ingredient_id} onChange={e=>onSelIngr(e.target.value)}>
             <option value="">— select —</option>
             {ingredients.map(i=><option key={i.id} value={i.id}>{i.name} ({fmtB(i.cost_per_unit)}/{i.purchase_unit||"unit"})</option>)}
           </select>
         </div>
-        <div>
-          <label className="fl">Usage Qty</label>
-          <input className="inp" type="number" min="0" step="0.001" value={nl.usage_qty} onChange={e=>setNl(p=>({...p,usage_qty:e.target.value}))}/>
-        </div>
-        <div>
-          <label className="fl">Unit</label>
-          <input className="inp" value={nl.usage_unit} onChange={e=>setNl(p=>({...p,usage_unit:e.target.value}))} placeholder="kg, g…"/>
-        </div>
-        <div>
-          <button onClick={addLine} className="btn btn-g" disabled={!nl.ingredient_id||!nl.usage_qty}>Add</button>
-        </div>
+        <div><label className="fl">Usage Qty</label><input className="inp" type="number" min="0" step="0.001" value={nl.usage_qty} onChange={e=>setNl(p=>({...p,usage_qty:e.target.value}))}/></div>
+        <div><label className="fl">Unit</label><input className="inp" value={nl.usage_unit} onChange={e=>setNl(p=>({...p,usage_unit:e.target.value}))}/></div>
+        <button onClick={addLine} className="btn btn-g" disabled={!nl.ingredient_id||!nl.usage_qty}>Add</button>
       </div>}
       {selIngr&&nl.usage_qty&&<div style={{marginTop:10,fontSize:12,color:"#6b7280"}}>
         Cost: ({fmtB(selIngr.cost_per_unit)} ÷ {(+selIngr.yield_pct*100).toFixed(0)}%) × {nl.usage_qty} = <strong style={{color:"#166534"}}>{fmtB(previewCost)}</strong>
       </div>}
     </div>
-    <div style={{display:"flex",justifyContent:"flex-end",marginTop:16}}>
+    <div style={{display:"flex",justifyContent:"flex-end",marginTop:14}}>
       <button onClick={onClose} className="btn btn-g">Done</button>
     </div>
   </Modal>;
 }
 
-/* ── RecipePage ─────────────────────── */
-function RecipePage({menuId,menus,updateMenus,recipeLines,updateRecipeLines,cookingSteps,updateCookingSteps,ingredients,onBack}){
-  const menu=useMemo(()=>menus.find(m=>m.id===menuId),[menus,menuId]);
-  const[showEdit,setShowEdit]=useState(false);
-  const[showAddStep,setShowAddStep]=useState(false);
-  const[stepText,setStepText]=useState("");
-  const[editStep,setEditStep]=useState(null);
-  const[localPrice,setLocalPrice]=useState("");
+/* ── StorePricesSection ── */
+function StorePricesSection({menuId,storePrices,updateStorePrices,stores,totalCost}){
+  const myPrices=useMemo(()=>storePrices.filter(p=>String(p.menu_id)===String(menuId)),[storePrices,menuId]);
+  const storeNames=useMemo(()=>[...new Set(stores.map(s=>s.name))],[stores]);
+  const[newStore,setNewStore]=useState("");const[newPrice,setNewPrice]=useState("");const[editId,setEditId]=useState(null);const[editPrice,setEditPrice]=useState("");
+  function addPrice(){
+    const st=newStore.trim();if(!st||!newPrice)return;
+    updateStorePrices(prev=>[...prev,{id:uid(),menu_id:menuId,store_name:st,price:+newPrice}]);
+    setNewStore("");setNewPrice("");
+  }
+  function delPrice(id){updateStorePrices(prev=>prev.filter(p=>p.id!==id));}
+  function saveEdit(id){updateStorePrices(prev=>prev.map(p=>p.id===id?{...p,price:+editPrice}:p));setEditId(null);}
+  return <div className="card" style={{padding:"18px 22px"}}>
+    <div style={{fontSize:14,fontWeight:700,marginBottom:14}}>🏪 Store Prices</div>
+    {myPrices.length===0?<div style={{fontSize:13,color:"#9ca3af",marginBottom:14}}>No store prices set. Add below.</div>:
+    <table style={{width:"100%",borderCollapse:"collapse",marginBottom:14}}>
+      <thead><tr><th className="th">Store</th><th className="th" style={{textAlign:"right"}}>Price</th><th className="th" style={{textAlign:"right"}}>Food Cost %</th><th className="th"/></tr></thead>
+      <tbody>{myPrices.map(p=>{
+        const fcp=totalCost>0&&+p.price>0?totalCost/+p.price:null;
+        return <tr key={p.id}>
+          <td className="td" style={{fontWeight:500}}>🏪 {p.store_name}</td>
+          <td className="td" style={{textAlign:"right"}}>
+            {editId===p.id?<div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+              <input className="inp" type="number" value={editPrice} onChange={e=>setEditPrice(e.target.value)} style={{width:90}}/>
+              <button onClick={()=>saveEdit(p.id)} className="btn btn-g" style={{fontSize:11,padding:"3px 8px"}}>✓</button>
+              <button onClick={()=>setEditId(null)} className="btn btn-o" style={{fontSize:11,padding:"3px 8px"}}>✕</button>
+            </div>:<span style={{fontWeight:600}}>{fmtB(p.price)}</span>}
+          </td>
+          <td className="td" style={{textAlign:"right"}}><PctBadge pct={fcp}/></td>
+          <td className="td"><div style={{display:"flex",gap:5}}>
+            {editId!==p.id&&<button onClick={()=>{setEditId(p.id);setEditPrice(String(p.price));}} className="btn btn-o" style={{fontSize:11,padding:"3px 8px"}}>Edit</button>}
+            <button onClick={()=>delPrice(p.id)} className="btn" style={{fontSize:11,padding:"3px 8px",background:"#fee2e2",color:"#991b1b"}}>✕</button>
+          </div></td>
+        </tr>;
+      })}</tbody>
+    </table>}
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:10,alignItems:"end"}}>
+      <div><label className="fl">Store Name</label>
+        <input className="inp" list="store-list" value={newStore} onChange={e=>setNewStore(e.target.value)} placeholder="Select or type new…"/>
+        <datalist id="store-list">{storeNames.map(n=><option key={n} value={n}/>)}</datalist>
+      </div>
+      <div><label className="fl">Price (฿)</label>
+        <input className="inp" type="number" min="0" value={newPrice} onChange={e=>setNewPrice(e.target.value)}/>
+      </div>
+      <button onClick={addPrice} className="btn btn-g" disabled={!newStore.trim()||!newPrice}>Add Price</button>
+    </div>
+    {totalCost>0&&newPrice&&newStore&&<div style={{marginTop:8,fontSize:12,color:"#6b7280"}}>
+      Food cost at {fmtB(+newPrice)}: <strong style={{color:pctColor(totalCost/+newPrice)}}>{(totalCost/+newPrice*100).toFixed(1)}%</strong>
+    </div>}
+  </div>;
+}
 
+/* ── RecipePage ── */
+function RecipePage({menuId,menus,updateMenus,recipeLines,updateRecipeLines,cookingSteps,updateCookingSteps,ingredients,storePrices,updateStorePrices,stores,onBack}){
+  const menu=useMemo(()=>menus.find(m=>m.id===menuId),[menus,menuId]);
+  const[showEdit,setShowEdit]=useState(false);const[showAddStep,setShowAddStep]=useState(false);
+  const[stepText,setStepText]=useState("");const[editStep,setEditStep]=useState(null);
+  const[localPrice,setLocalPrice]=useState("");
   const myLines=useMemo(()=>recipeLines.filter(r=>String(r.menu_id)===String(menuId)),[recipeLines,menuId]);
   const mySteps=useMemo(()=>cookingSteps.filter(s=>String(s.menu_id)===String(menuId)).sort((a,b)=>+a.step_no-+b.step_no),[cookingSteps,menuId]);
   const cost=useMemo(()=>menu?calcMenuCost(menuId,recipeLines,menu):{rawCost:0,totalCost:0,suggestExcl:0,suggestIncl:0,foodCostPct:null,lineCount:0},[menuId,recipeLines,menu]);
-
   useEffect(()=>{if(menu)setLocalPrice(menu.actual_price===""?"":String(menu.actual_price));},[menu?.id]);
-
-  function savePrice(){
-    const val=localPrice===""?"":+localPrice;
-    updateMenus(prev=>prev.map(m=>m.id===menuId?{...m,actual_price:val}:m));
-  }
-  function updateMenuField(k,v){
-    updateMenus(prev=>prev.map(m=>m.id===menuId?{...m,[k]:v}:m));
-  }
+  function savePrice(){const val=localPrice===""?"":+localPrice;updateMenus(prev=>prev.map(m=>m.id===menuId?{...m,actual_price:val}:m));}
+  function updField(k,v){updateMenus(prev=>prev.map(m=>m.id===menuId?{...m,[k]:v}:m));}
   function addStep(){
     if(!stepText.trim())return;
-    const maxNo=mySteps.length>0?Math.max(...mySteps.map(s=>+s.step_no)):0;
-    const s={id:uid(),menu_id:menuId,step_no:maxNo+1,instruction:stepText.trim()};
-    updateCookingSteps(prev=>[...prev,s]);
+    const mx=mySteps.length>0?Math.max(...mySteps.map(s=>+s.step_no)):0;
+    updateCookingSteps(prev=>[...prev,{id:uid(),menu_id:menuId,step_no:mx+1,instruction:stepText.trim()}]);
     setStepText("");setShowAddStep(false);
   }
   function delStep(id){updateCookingSteps(prev=>prev.filter(s=>s.id!==id));}
-  function saveStep(id,text){
-    updateCookingSteps(prev=>prev.map(s=>s.id===id?{...s,instruction:text}:s));
-    setEditStep(null);
-  }
-
+  function saveStep(id,txt){updateCookingSteps(prev=>prev.map(s=>s.id===id?{...s,instruction:txt}:s));setEditStep(null);}
   if(!menu)return <div style={{flex:1,padding:32,color:"#9ca3af"}}>Menu not found.</div>;
-
-  const catC=CCOL[menu.category]||{bg:"#f3f4f6",tx:"#6b7280"};
   return <div style={{flex:1,padding:"28px 32px",overflowY:"auto"}}>
-    <button onClick={onBack} className="btn btn-o" style={{marginBottom:16,fontSize:12}}>← Back to Dashboard</button>
-
+    <button onClick={onBack} className="btn btn-o" style={{marginBottom:16,fontSize:12}}>← Back</button>
     {/* header */}
     <div className="card" style={{padding:"20px 24px",marginBottom:20}}>
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
@@ -759,79 +954,52 @@ function RecipePage({menuId,menus,updateMenus,recipeLines,updateRecipeLines,cook
         </div>
         <button onClick={()=>setShowEdit(true)} className="btn btn-a">✏️ Edit Ingredients</button>
       </div>
-
-      {/* settings row */}
       <div style={{display:"flex",gap:20,marginTop:18,flexWrap:"wrap"}}>
-        <div>
-          <div style={{fontSize:11,color:"#9ca3af",fontWeight:700,textTransform:"uppercase"}}>Serves/Recipe</div>
-          <input className="inp" type="number" min="1" value={menu.serves_per_recipe||1}
-            onChange={e=>updateMenuField("serves_per_recipe",+e.target.value)}
-            style={{width:80,marginTop:4}}/>
-        </div>
-        <div>
-          <div style={{fontSize:11,color:"#9ca3af",fontWeight:700,textTransform:"uppercase"}}>Spice Allowance %</div>
-          <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4}}>
-            <input className="inp" type="number" step="1" min="0" max="100"
-              value={Math.round((+menu.spice_pct||0.10)*100)}
-              onChange={e=>updateMenuField("spice_pct",+e.target.value/100)}
-              style={{width:70}}/><span style={{fontSize:13,color:"#6b7280"}}>%</span>
+        <div><div className="fl">Serves/Recipe</div><input className="inp" type="number" min="1" value={menu.serves_per_recipe||1} onChange={e=>updField("serves_per_recipe",+e.target.value)} style={{width:80,marginTop:4}}/></div>
+        <div><div className="fl">Spice Allowance</div>
+          <div style={{display:"flex",alignItems:"center",gap:5,marginTop:4}}>
+            <input className="inp" type="number" step="1" min="0" max="100" value={Math.round((+menu.spice_pct||0.10)*100)} onChange={e=>updField("spice_pct",+e.target.value/100)} style={{width:65}}/><span style={{fontSize:13}}>%</span>
           </div>
         </div>
-        <div>
-          <div style={{fontSize:11,color:"#9ca3af",fontWeight:700,textTransform:"uppercase"}}>Target Food Cost %</div>
-          <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4}}>
-            <input className="inp" type="number" step="1" min="1" max="100"
-              value={Math.round((+menu.target_food_cost_pct||0.35)*100)}
-              onChange={e=>updateMenuField("target_food_cost_pct",+e.target.value/100)}
-              style={{width:70}}/><span style={{fontSize:13,color:"#6b7280"}}>%</span>
+        <div><div className="fl">Target Food Cost</div>
+          <div style={{display:"flex",alignItems:"center",gap:5,marginTop:4}}>
+            <input className="inp" type="number" step="1" min="1" max="100" value={Math.round((+menu.target_food_cost_pct||0.35)*100)} onChange={e=>updField("target_food_cost_pct",+e.target.value/100)} style={{width:65}}/><span style={{fontSize:13}}>%</span>
           </div>
         </div>
-        <div>
-          <div style={{fontSize:11,color:"#9ca3af",fontWeight:700,textTransform:"uppercase"}}>Actual Selling Price</div>
-          <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4}}>
-            <span style={{fontSize:13}}>฿</span>
-            <input className="inp" type="number" min="0" value={localPrice}
-              onChange={e=>setLocalPrice(e.target.value)}
-              onBlur={savePrice} style={{width:90}}/>
+        <div><div className="fl">Base Price (฿)</div>
+          <div style={{display:"flex",alignItems:"center",gap:5,marginTop:4}}>
+            <input className="inp" type="number" min="0" value={localPrice} onChange={e=>setLocalPrice(e.target.value)} onBlur={savePrice} style={{width:90}}/>
           </div>
         </div>
       </div>
     </div>
-
     {/* cost summary */}
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}}>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
       <div className="card" style={{padding:"18px 22px"}}>
-        <div style={{fontSize:13,fontWeight:700,color:"#374151",marginBottom:14}}>📊 Cost Breakdown</div>
-        {[
-          ["Raw ingredient cost",fmtB(cost.rawCost),"#374151"],
-          [`Spice allowance (${Math.round((+menu.spice_pct||0.10)*100)}%)`,fmtB(cost.rawCost*(+menu.spice_pct||0.10)),"#6b7280"],
-          ["Total cost / serve",fmtB(cost.totalCost),"#111827"],
-        ].map(([k,v,c])=><div key={k} style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-          <span style={{fontSize:13,color:"#6b7280"}}>{k}</span>
-          <span style={{fontSize:13,fontWeight:600,color:c}}>{v}</span>
+        <div style={{fontSize:13,fontWeight:700,color:"#374151",marginBottom:12}}>📊 Cost Breakdown</div>
+        {[["Raw ingredient cost",fmtB(cost.rawCost)],
+          [`Spice (${Math.round((+menu.spice_pct||0.10)*100)}%)`,fmtB(cost.rawCost*(+menu.spice_pct||0.10))],
+          ["Total cost / serve",fmtB(cost.totalCost)]
+        ].map(([k,v])=><div key={k} style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+          <span style={{fontSize:13,color:"#6b7280"}}>{k}</span><span style={{fontSize:13,fontWeight:600}}>{v}</span>
         </div>)}
         <div style={{borderTop:"1px solid #f1f5f9",margin:"10px 0"}}/>
-        {[
-          ["Suggested price (excl. 7% VAT)",fmtB(cost.suggestExcl),"#166534"],
-          ["Suggested price (incl. 7% VAT)",fmtB(cost.suggestIncl),"#166534"],
-        ].map(([k,v,c])=><div key={k} style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-          <span style={{fontSize:13,color:"#6b7280"}}>{k}</span>
-          <span style={{fontSize:14,fontWeight:700,color:c}}>{v}</span>
-        </div>)}
+        {[["Suggested (excl. 7% VAT)",fmtB(cost.suggestExcl)],["Suggested (incl. 7% VAT)",fmtB(cost.suggestIncl)]].map(([k,v])=>
+          <div key={k} style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+            <span style={{fontSize:13,color:"#6b7280"}}>{k}</span><span style={{fontSize:14,fontWeight:700,color:"#166534"}}>{v}</span>
+          </div>
+        )}
       </div>
       <div className="card" style={{padding:"18px 22px"}}>
-        <div style={{fontSize:13,fontWeight:700,color:"#374151",marginBottom:14}}>💰 Pricing Analysis</div>
-        <div style={{marginBottom:16}}>
-          <div style={{fontSize:11,color:"#9ca3af",fontWeight:700,textTransform:"uppercase",marginBottom:4}}>Actual Food Cost %</div>
-          {cost.foodCostPct!==null?<>
-            <div style={{fontSize:32,fontWeight:800,color:pctColor(cost.foodCostPct)}}>{(cost.foodCostPct*100).toFixed(1)}%</div>
-            <div style={{fontSize:12,color:"#9ca3af",marginTop:2}}>
-              {cost.foodCostPct<=0.35?"✅ On target":cost.foodCostPct<=0.50?"⚠️ Slightly high":"🔴 High — consider adjusting"}
-            </div>
-          </>:<div style={{fontSize:13,color:"#9ca3af"}}>Set actual selling price to see food cost %</div>}
-        </div>
-        <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-          <span style={{fontSize:13,color:"#6b7280"}}>Actual price</span>
+        <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>💰 Base Price Analysis</div>
+        {cost.foodCostPct!==null?<>
+          <div style={{fontSize:32,fontWeight:800,color:pctColor(cost.foodCostPct)}}>{(cost.foodCostPct*100).toFixed(1)}%</div>
+          <div style={{fontSize:12,color:"#9ca3af",marginTop:2,marginBottom:12}}>
+            {cost.foodCostPct<=0.35?"✅ On target":cost.foodCostPct<=0.50?"⚠️ Slightly high":"🔴 High — review pricing"}
+          </div>
+        </>:<div style={{fontSize:13,color:"#9ca3af",marginBottom:12}}>Set base price to see food cost %</div>}
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+          <span style={{fontSize:13,color:"#6b7280"}}>Base price</span>
           <span style={{fontSize:13,fontWeight:600}}>{localPrice?fmtB(+localPrice):"—"}</span>
         </div>
         <div style={{display:"flex",justifyContent:"space-between"}}>
@@ -840,46 +1008,43 @@ function RecipePage({menuId,menus,updateMenus,recipeLines,updateRecipeLines,cook
         </div>
       </div>
     </div>
-
+    {/* store prices */}
+    <div style={{marginBottom:16}}>
+      <StorePricesSection menuId={menuId} storePrices={storePrices} updateStorePrices={updateStorePrices} stores={stores} totalCost={cost.totalCost}/>
+    </div>
     {/* recipe lines */}
-    <div className="card" style={{padding:"18px 22px",marginBottom:20}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+    <div className="card" style={{padding:"18px 22px",marginBottom:16}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
         <div style={{fontSize:14,fontWeight:700}}>🧂 Recipe Ingredients ({cost.lineCount})</div>
         <button onClick={()=>setShowEdit(true)} className="btn btn-o" style={{fontSize:12}}>Edit</button>
       </div>
-      {myLines.length===0?<div style={{textAlign:"center",padding:"20px 0",color:"#9ca3af",fontSize:13}}>No ingredients yet. Click Edit to add.</div>:
+      {myLines.length===0?<div style={{textAlign:"center",padding:"16px 0",color:"#9ca3af",fontSize:13}}>No ingredients. Click Edit to add.</div>:
       <table style={{width:"100%",borderCollapse:"collapse"}}>
-        <thead><tr>
-          <th className="th">Ingredient</th><th className="th" style={{textAlign:"right"}}>Usage Qty</th>
-          <th className="th">Unit</th><th className="th" style={{textAlign:"right"}}>Cost</th>
-        </tr></thead>
+        <thead><tr><th className="th">Ingredient</th><th className="th" style={{textAlign:"right"}}>Qty</th><th className="th">Unit</th><th className="th" style={{textAlign:"right"}}>Cost</th></tr></thead>
         <tbody>{myLines.map(l=><tr key={l.id}>
           <td className="td" style={{fontWeight:500}}>{l.ingredient_name}</td>
           <td className="td" style={{textAlign:"right"}}>{l.usage_qty}</td>
           <td className="td" style={{color:"#6b7280"}}>{l.usage_unit||"—"}</td>
           <td className="td" style={{textAlign:"right",fontWeight:600}}>{fmtB(l.ingredient_cost)}</td>
         </tr>)}
-        <tr>
-          <td colSpan={3} className="td" style={{fontWeight:700,textAlign:"right"}}>Raw total:</td>
-          <td className="td" style={{fontWeight:700,color:"#166534"}}>{fmtB(cost.rawCost)}</td>
-        </tr></tbody>
+        <tr><td colSpan={3} className="td" style={{fontWeight:700,textAlign:"right"}}>Raw total:</td>
+          <td className="td" style={{fontWeight:700,color:"#166534"}}>{fmtB(cost.rawCost)}</td></tr>
+        </tbody>
       </table>}
     </div>
-
     {/* cooking steps */}
     <div className="card" style={{padding:"18px 22px"}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
         <div style={{fontSize:14,fontWeight:700}}>👨‍🍳 Cooking Steps ({mySteps.length})</div>
         <button onClick={()=>setShowAddStep(true)} className="btn btn-o" style={{fontSize:12}}>+ Add Step</button>
       </div>
-      {mySteps.length===0?<div style={{textAlign:"center",padding:"20px 0",color:"#9ca3af",fontSize:13}}>No steps recorded yet.</div>:
+      {mySteps.length===0?<div style={{textAlign:"center",padding:"16px 0",color:"#9ca3af",fontSize:13}}>No steps yet.</div>:
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {mySteps.map((s,i)=><div key={s.id} style={{display:"flex",gap:12,alignItems:"flex-start"}}>
-          <div style={{minWidth:28,height:28,borderRadius:"50%",background:"#166534",color:"#fff",
-            display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>{i+1}</div>
+          <div style={{minWidth:28,height:28,borderRadius:"50%",background:"#166534",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>{i+1}</div>
           {editStep===s.id?<div style={{flex:1,display:"flex",gap:8}}>
-            <input className="inp" defaultValue={s.instruction} id={"step_"+s.id} style={{flex:1}}/>
-            <button onClick={()=>saveStep(s.id,document.getElementById("step_"+s.id).value)} className="btn btn-g" style={{fontSize:12}}>Save</button>
+            <input className="inp" defaultValue={s.instruction} id={"s_"+s.id} style={{flex:1}}/>
+            <button onClick={()=>saveStep(s.id,document.getElementById("s_"+s.id).value)} className="btn btn-g" style={{fontSize:12}}>Save</button>
             <button onClick={()=>setEditStep(null)} className="btn btn-o" style={{fontSize:12}}>✕</button>
           </div>:<>
             <div style={{flex:1,fontSize:14,color:"#374151",paddingTop:4}}>{s.instruction}</div>
@@ -888,75 +1053,55 @@ function RecipePage({menuId,menus,updateMenus,recipeLines,updateRecipeLines,cook
           </>}
         </div>)}
       </div>}
-
       {showAddStep&&<div style={{marginTop:14,display:"flex",gap:10}}>
-        <input className="inp" placeholder="Describe this step…" value={stepText} onChange={e=>setStepText(e.target.value)} style={{flex:1}}
-          onKeyDown={e=>{if(e.key==="Enter")addStep();}}/>
+        <input className="inp" placeholder="Describe this step…" value={stepText} onChange={e=>setStepText(e.target.value)} style={{flex:1}} onKeyDown={e=>{if(e.key==="Enter")addStep();}}/>
         <button onClick={addStep} className="btn btn-g">Add</button>
         <button onClick={()=>{setShowAddStep(false);setStepText("");}} className="btn btn-o">✕</button>
       </div>}
     </div>
-
-    <EditRecipeModal open={showEdit} onClose={()=>setShowEdit(false)} menu={menu}
-      recipeLines={recipeLines} updateRecipeLines={updateRecipeLines} ingredients={ingredients}/>
+    <EditRecipeModal open={showEdit} onClose={()=>setShowEdit(false)} menu={menu} recipeLines={recipeLines} updateRecipeLines={updateRecipeLines} ingredients={ingredients}/>
   </div>;
 }
 
-/* ── DashboardPage ─────────────────── */
-function DashboardPage({menus,recipeLines,setSelectedMenu,setPage}){
-  const[cat,setCat]=useState("All");
-  const[search,setSearch]=useState("");
-
+/* ── DashboardPage ── */
+function DashboardPage({menus,recipeLines,storePrices,setSelectedMenu,setPage}){
+  const cats=useContext(CatsCtx);
+  const[cat,setCat]=useState("All");const[search,setSearch]=useState("");
   const enriched=useMemo(()=>menus.map(m=>{
     const c=calcMenuCost(m.id,recipeLines,m);
-    return{...m,...c};
-  }),[menus,recipeLines]);
-
+    const sp=storePrices.filter(p=>String(p.menu_id)===String(m.id));
+    return{...m,...c,storeCount:sp.length};
+  }),[menus,recipeLines,storePrices]);
   const withPrice=useMemo(()=>enriched.filter(m=>m.foodCostPct!==null),[enriched]);
-  const avgFoodCost=useMemo(()=>{
-    if(!withPrice.length)return null;
-    return withPrice.reduce((s,m)=>s+m.foodCostPct,0)/withPrice.length;
-  },[withPrice]);
-  const withRecipe=useMemo(()=>enriched.filter(m=>m.lineCount>0).length,[enriched]);
-
+  const avgFoodCost=useMemo(()=>!withPrice.length?null:withPrice.reduce((s,m)=>s+m.foodCostPct,0)/withPrice.length,[withPrice]);
   const filtered=useMemo(()=>enriched.filter(m=>{
     if(cat!=="All"&&m.category!==cat)return false;
     if(search){const s=search.toLowerCase();return m.name_en?.toLowerCase().includes(s)||m.name_th?.includes(search)||m.menu_id?.toLowerCase().includes(s);}
     return true;
   }),[enriched,cat,search]);
-
-  function goRecipe(menuId){setSelectedMenu(menuId);setPage("recipe");}
-
-  const statStyle={flex:1,minWidth:160};
+  function go(id){setSelectedMenu(id);setPage("recipe");}
   return <div style={{flex:1,padding:"28px 32px",overflowY:"auto"}}>
-    <div style={{marginBottom:24}}>
-      <h2 style={{fontSize:24,fontWeight:800,margin:"0 0 4px"}}>Dashboard</h2>
-      <div style={{fontSize:14,color:"#6b7280"}}>UPB Kitchen — Food Cost Overview</div>
-    </div>
-
-    {/* stats */}
-    <div style={{display:"flex",gap:16,marginBottom:24,flexWrap:"wrap"}}>
+    <div style={{marginBottom:22}}><h2 style={{fontSize:24,fontWeight:800,margin:"0 0 4px"}}>Dashboard</h2>
+      <div style={{fontSize:14,color:"#6b7280"}}>UPB Kitchen — Food Cost Overview</div></div>
+    <div style={{display:"flex",gap:14,marginBottom:22,flexWrap:"wrap"}}>
       {[
         {label:"Total Menus",val:menus.length,icon:"📋",color:"#166534",bg:"#dcfce7"},
-        {label:"With Recipe",val:withRecipe,icon:"📖",color:"#1d4ed8",bg:"#dbeafe"},
+        {label:"With Recipe",val:enriched.filter(m=>m.lineCount>0).length,icon:"📖",color:"#1d4ed8",bg:"#dbeafe"},
         {label:"Avg Food Cost",val:avgFoodCost!==null?fmtP(avgFoodCost):"—",icon:"💹",color:avgFoodCost!==null?pctColor(avgFoodCost):"#9ca3af",bg:"#f3f4f6"},
-        {label:"With Price Set",val:withPrice.length,icon:"💰",color:"#92400e",bg:"#fef3c7"},
+        {label:"Store Prices Set",val:storePrices.length,icon:"🏪",color:"#92400e",bg:"#fef3c7"},
       ].map(({label,val,icon,color,bg})=>
-        <div key={label} className="card" style={{...statStyle,padding:"18px 22px"}}>
+        <div key={label} className="card" style={{flex:1,minWidth:150,padding:"18px 22px"}}>
           <div style={{fontSize:24,marginBottom:8}}>{icon}</div>
           <div style={{fontSize:28,fontWeight:800,color}}>{val}</div>
           <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>{label}</div>
         </div>
       )}
     </div>
-
-    {/* filter */}
-    <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
-      {CATS.map(c=><button key={c} onClick={()=>setCat(c)} className="btn"
+    <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+      {["All",...cats.map(c=>c.name)].map(c=><button key={c} onClick={()=>setCat(c)} className="btn"
         style={{fontSize:12,padding:"5px 12px",background:cat===c?"#166534":"#f1f5f9",color:cat===c?"#fff":"#374151"}}>{c}</button>)}
-      <input className="inp" placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)} style={{width:200,marginLeft:"auto"}}/>
+      <input className="inp" placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)} style={{width:190,marginLeft:"auto"}}/>
     </div>
-
     <div className="card" style={{overflow:"hidden"}}>
       <table style={{width:"100%",borderCollapse:"collapse"}}>
         <thead><tr>
@@ -964,58 +1109,71 @@ function DashboardPage({menus,recipeLines,setSelectedMenu,setPage}){
           <th className="th" style={{textAlign:"right"}}>Recipe Lines</th>
           <th className="th" style={{textAlign:"right"}}>Cost/Serve</th>
           <th className="th" style={{textAlign:"right"}}>Suggested (excl. VAT)</th>
-          <th className="th" style={{textAlign:"right"}}>Actual Price</th>
+          <th className="th" style={{textAlign:"right"}}>Base Price</th>
           <th className="th" style={{textAlign:"right"}}>Food Cost %</th>
+          <th className="th" style={{textAlign:"right"}}>Stores</th>
           <th className="th"/>
         </tr></thead>
-        <tbody>{filtered.map(m=><tr key={m.id} style={{cursor:"pointer"}} onClick={()=>goRecipe(m.id)}>
-          <td className="td">
-            <div style={{fontWeight:600,fontSize:12,color:"#166534"}}>{m.menu_id}</div>
+        <tbody>{filtered.map(m=><tr key={m.id} style={{cursor:"pointer"}} onClick={()=>go(m.id)}>
+          <td className="td"><div style={{fontWeight:600,fontSize:12,color:"#166534"}}>{m.menu_id}</div>
             <div style={{fontWeight:500,fontSize:13}}>{m.name_en}</div>
-            <div style={{fontSize:11,color:"#9ca3af"}}>{m.name_th}</div>
-          </td>
+            <div style={{fontSize:11,color:"#9ca3af"}}>{m.name_th}</div></td>
           <td className="td"><CatBadge cat={m.category}/></td>
           <td className="td" style={{textAlign:"right"}}>{m.lineCount||0}</td>
           <td className="td" style={{textAlign:"right",fontWeight:600}}>{m.lineCount>0?fmtB(m.totalCost):"—"}</td>
           <td className="td" style={{textAlign:"right",fontWeight:600,color:"#166534"}}>{m.lineCount>0?fmtB(m.suggestExcl):"—"}</td>
           <td className="td" style={{textAlign:"right",fontWeight:600}}>{m.actual_price!==""&&m.actual_price!==null?fmtB(m.actual_price):"—"}</td>
           <td className="td" style={{textAlign:"right"}}><PctBadge pct={m.foodCostPct}/></td>
-          <td className="td"><button onClick={e=>{e.stopPropagation();goRecipe(m.id);}} className="btn btn-o" style={{fontSize:11,padding:"3px 10px"}}>View →</button></td>
+          <td className="td" style={{textAlign:"right"}}>{m.storeCount>0?<span className="badge" style={{background:"#dbeafe",color:"#1e40af"}}>🏪 {m.storeCount}</span>:"—"}</td>
+          <td className="td"><button onClick={e=>{e.stopPropagation();go(m.id);}} className="btn btn-o" style={{fontSize:11,padding:"3px 10px"}}>View →</button></td>
         </tr>)}</tbody>
       </table>
     </div>
   </div>;
 }
 
-/* ── App ─────────────────────────────── */
+/* ── App ── */
 function App(){
   const{token,login,gisReady}=useAuth();
-  const[menus,updMenus,,setMenuTok,,menuErr]=useSave("Menus",SHEETS.Menus,INITIAL_MENUS);
-  const[ingredients,updIngr,,setIngrTok,,ingrErr]=useSave("Ingredients",SHEETS.Ingredients,[]);
-  const[recipeLines,updLines,,setLineTok,,lineErr]=useSave("RecipeLines",SHEETS.RecipeLines,[]);
-  const[cookingSteps,updSteps,,setStepTok,,stepErr]=useSave("CookingSteps",SHEETS.CookingSteps,[]);
-
-  const saveError=menuErr||ingrErr||lineErr||stepErr;
+  const[menus,updMenus,setMenuTok,,menuErr]=useSave("Menus",SHEETS.Menus,INITIAL_MENUS);
+  const[ingredients,updIngr,setIngrTok,,ingrErr]=useSave("Ingredients",SHEETS.Ingredients,[]);
+  const[recipeLines,updLines,setLineTok,,lineErr]=useSave("RecipeLines",SHEETS.RecipeLines,[]);
+  const[cookingSteps,updSteps,setStepTok,,stepErr]=useSave("CookingSteps",SHEETS.CookingSteps,[]);
+  const[cats,updCats,setCatTok,,catErr]=useSave("Categories",SHEETS.Categories,INITIAL_CATS);
+  const[stores,updStores,setStoreTok,,storeErr]=useSave("Stores",SHEETS.Stores,[]);
+  const[storePrices,updSP,setSPTok,,spErr]=useSave("StorePrices",SHEETS.StorePrices,[]);
+  const saveError=menuErr||ingrErr||lineErr||stepErr||catErr||storeErr||spErr;
   const[page,setPage]=useState("dashboard");
   const[selectedMenu,setSelectedMenu]=useState(null);
+  const[showCatMgr,setShowCatMgr]=useState(false);
+  const[showStoreMgr,setShowStoreMgr]=useState(false);
 
   useEffect(()=>{
     if(!token)return;
     setMenuTok(token);setIngrTok(token);setLineTok(token);setStepTok(token);
+    setCatTok(token);setStoreTok(token);setSPTok(token);
   },[token]);
 
-  function navToRecipe(menuId){setSelectedMenu(menuId);setPage("recipe");}
+  function navRecipe(id){setSelectedMenu(id);setPage("recipe");}
 
-  return <div style={{display:"flex",minHeight:"100vh"}}>
-    <Sidebar page={page} setPage={setPage} token={token} onLogin={login} gisReady={gisReady} saveError={saveError}/>
-    {page==="dashboard"&&<DashboardPage menus={menus} recipeLines={recipeLines} setSelectedMenu={setSelectedMenu} setPage={setPage}/>}
-    {page==="menus"&&<MenusPage menus={menus} updateMenus={updMenus} setSelectedMenu={navToRecipe}/>}
-    {page==="ingredients"&&<IngredientsPage ingredients={ingredients} updateIngredients={updIngr}/>}
-    {page==="recipe"&&<RecipePage menuId={selectedMenu} menus={menus} updateMenus={updMenus}
-      recipeLines={recipeLines} updateRecipeLines={updLines}
-      cookingSteps={cookingSteps} updateCookingSteps={updSteps}
-      ingredients={ingredients} onBack={()=>setPage("dashboard")}/>}
-  </div>;
+  return <CatsCtx.Provider value={cats}>
+    <StoresCtx.Provider value={stores}>
+      <div style={{display:"flex",minHeight:"100vh"}}>
+        <Sidebar page={page} setPage={setPage} token={token} onLogin={login} gisReady={gisReady}
+          saveError={saveError} onCatMgr={()=>setShowCatMgr(true)} onStoreMgr={()=>setShowStoreMgr(true)}/>
+        {page==="dashboard"&&<DashboardPage menus={menus} recipeLines={recipeLines} storePrices={storePrices} setSelectedMenu={setSelectedMenu} setPage={setPage}/>}
+        {page==="menus"&&<MenusPage menus={menus} updateMenus={updMenus} setSelectedMenu={navRecipe}/>}
+        {page==="ingredients"&&<IngredientsPage ingredients={ingredients} updateIngredients={updIngr}/>}
+        {page==="recipe"&&<RecipePage menuId={selectedMenu} menus={menus} updateMenus={updMenus}
+          recipeLines={recipeLines} updateRecipeLines={updLines}
+          cookingSteps={cookingSteps} updateCookingSteps={updSteps}
+          ingredients={ingredients} storePrices={storePrices} updateStorePrices={updSP}
+          stores={stores} onBack={()=>setPage("dashboard")}/>}
+        <ManageCatsModal open={showCatMgr} onClose={()=>setShowCatMgr(false)} cats={cats} updateCats={updCats} menus={menus}/>
+        <ManageStoresModal open={showStoreMgr} onClose={()=>setShowStoreMgr(false)} stores={stores} updateStores={updStores} storePrices={storePrices}/>
+      </div>
+    </StoresCtx.Provider>
+  </CatsCtx.Provider>;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
