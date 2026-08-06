@@ -210,6 +210,7 @@ const INITIAL_INGR_CATS=[
 ];
 
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
+function toBool(v){return v===true||v==="true"||v==="TRUE"||v===1||v==="1";}
 function fmtB(n){const v=+n;if(!v&&v!==0)return"—";return"฿"+v.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});}
 function fmtP(n){if(n===null||n===undefined||n==="")return"—";return(+n*100).toFixed(1)+"%";}
 function pctColor(p){if(p===null||p===undefined||p==="")return"#9ca3af";const v=+p;if(v<=0.35)return"#16a34a";if(v<=0.50)return"#d97706";return"#dc2626";}
@@ -700,7 +701,7 @@ function ManageStoresModal({open,onClose,stores,updateStores,storePrices}){
 }
 
 /* ── Sidebar ── */
-function Sidebar({page,setPage,token,onLogin,gisReady,saveError,onCatMgr,onIngrCatMgr,onStoreMgr}){
+function Sidebar({page,setPage,token,gisReady,saveError,onCatMgr,onIngrCatMgr,onStoreMgr,onRefresh,syncing}){
   const cats=useContext(CatsCtx);
   return <div style={{width:215,minHeight:"100vh",background:"#fff",borderRight:"1px solid #f1f5f9",padding:"20px 10px",display:"flex",flexDirection:"column",gap:3,flexShrink:0}}>
     <div style={{display:"flex",alignItems:"center",gap:9,padding:"0 8px 18px"}}>
@@ -720,15 +721,14 @@ function Sidebar({page,setPage,token,onLogin,gisReady,saveError,onCatMgr,onIngrC
     <div style={{flex:1}}/>
     {saveError&&<div style={{margin:"4px 6px",padding:"8px 10px",background:"#fee2e2",borderRadius:8,fontSize:12,color:"#991b1b"}}>⚠️ Save error — check connection</div>}
     <div className="card" style={{margin:"6px 4px",padding:"12px"}}>
-      {!token?<>
-        <div style={{fontSize:12,color:"#6b7280",marginBottom:10,lineHeight:1.5}}>Sign in to sync with Google Sheets</div>
-        <button onClick={onLogin} disabled={!gisReady} className="btn btn-g" style={{width:"100%",justifyContent:"center",fontSize:12}}>🔑 Sign In</button>
-      </>:<>
-        <div style={{display:"flex",alignItems:"center",gap:6}}>
-          <span style={{width:8,height:8,borderRadius:"50%",background:"#16a34a",display:"inline-block"}}/>
-          <span style={{fontSize:12,color:"#166534",fontWeight:600}}>Synced to Sheets</span>
-        </div>
-      </>}
+      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
+        <span style={{width:8,height:8,borderRadius:"50%",background:"#16a34a",display:"inline-block",flexShrink:0}}/>
+        <span style={{fontSize:12,color:"#166534",fontWeight:600}}>Synced to Sheets</span>
+      </div>
+      <button onClick={onRefresh} disabled={syncing} className="btn btn-o"
+        style={{width:"100%",justifyContent:"center",fontSize:12,padding:"6px 10px",opacity:syncing?.6:1}}>
+        {syncing?"⏳ Syncing…":"↻ Refresh from Sheets"}
+      </button>
     </div>
   </div>;
 }
@@ -746,7 +746,7 @@ function EditMenuModal({open,onClose,menu,onSave}){
     onSave({...f,id:f.id||f.menu_id,serves_per_recipe:+f.serves_per_recipe||1,spice_pct:+f.spice_pct||0.10,
       target_food_cost_pct:+f.target_food_cost_pct||0.35,
       actual_price:isPC?"":f.actual_price===""?"":+f.actual_price,
-      checked:!!f.checked,menu_type:f.menu_type||"menu"});
+      checked:toBool(f.checked),menu_type:f.menu_type||"menu"});
     onClose();
   }
   return <Modal open={open} onClose={onClose} title={menu?"Edit Menu":"Add New Menu"} wide>
@@ -787,7 +787,7 @@ function EditMenuModal({open,onClose,menu,onSave}){
       </div>}
     </div>
     <div style={{display:"flex",alignItems:"center",gap:8,margin:"14px 0"}}>
-      <input type="checkbox" id="chk" checked={!!f.checked} onChange={e=>ch("checked",e.target.checked)}/>
+      <input type="checkbox" id="chk" checked={toBool(f.checked)} onChange={e=>ch("checked",e.target.checked)}/>
       <label htmlFor="chk" style={{fontSize:13,color:"#374151"}}>Recipe verified / checked</label>
     </div>
     <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:16}}>
@@ -836,7 +836,7 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
           <td className="td"><div style={{fontWeight:500}}>{m.name_en}</div><div style={{fontSize:11,color:"#9ca3af"}}>{m.name_th}</div></td>
           <td className="td">{m.menu_type==="precooked"?<span className="badge" style={{background:"#fef3c7",color:"#92400e"}}>🍳 Pre-Cooked</span>:<CatBadge cat={m.category}/>}</td>
           <td className="td" style={{textAlign:"right",fontWeight:600}}>{m.menu_type==="precooked"?<span style={{color:"#9ca3af",fontSize:12}}>auto-calc</span>:m.actual_price!==""&&m.actual_price!==null?fmtB(m.actual_price):"—"}</td>
-          <td className="td">{m.checked?<span className="badge" style={{background:"#dcfce7",color:"#166534"}}>✓ Done</span>:<span className="badge" style={{background:"#f3f4f6",color:"#6b7280"}}>Draft</span>}</td>
+          <td className="td">{toBool(m.checked)?<span className="badge" style={{background:"#dcfce7",color:"#166534"}}>✓ Done</span>:<span className="badge" style={{background:"#f3f4f6",color:"#6b7280"}}>Draft</span>}</td>
           <td className="td"><div style={{display:"flex",gap:5}}>
             <button onClick={()=>setSelectedMenu(m.id)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px"}}>📖 Recipe</button>
             <button onClick={()=>setEditM(m)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px"}}>Edit</button>
@@ -1402,7 +1402,7 @@ function RecipePage({menuId,menus,updateMenus,recipeLines,updateRecipeLines,cook
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
             <span style={{fontWeight:800,fontSize:13,color:"#166534"}}>{menu.menu_id}</span>
             {isPC?<span className="badge" style={{background:"#fef3c7",color:"#92400e"}}>🍳 Pre-Cooked</span>:<CatBadge cat={menu.category}/>}
-            {menu.checked&&<span className="badge" style={{background:"#dcfce7",color:"#166534"}}>✓ Verified</span>}
+            {toBool(menu.checked)&&<span className="badge" style={{background:"#dcfce7",color:"#166534"}}>✓ Verified</span>}
           </div>
           <h2 style={{fontSize:22,fontWeight:700,margin:"0 0 2px"}}>{menu.name_en}</h2>
           <div style={{fontSize:14,color:"#9ca3af"}}>{menu.name_th}</div>
@@ -1589,6 +1589,21 @@ function DashboardPage({menus,recipeLines,storePrices,setSelectedMenu,setPage}){
 }
 
 /* ── App ── */
+function LoginScreen({onLogin,gisReady}){
+  return <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#052e16 0%,#14532d 60%,#166534 100%)",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+    <div style={{background:"#fff",borderRadius:24,padding:"48px 40px",maxWidth:420,width:"100%",textAlign:"center",boxShadow:"0 25px 80px rgba(0,0,0,.35)"}}>
+      <div style={{fontSize:56,marginBottom:12}}>🍺</div>
+      <h1 style={{fontSize:26,fontWeight:800,color:"#111827",margin:"0 0 6px"}}>UPB Kitchen</h1>
+      <p style={{fontSize:14,color:"#6b7280",margin:"0 0 32px",lineHeight:1.6}}>Recipe Cost Manager — sign in with your Google account to sync your recipe data with Google Sheets.</p>
+      <button onClick={onLogin} disabled={!gisReady} className="btn btn-g"
+        style={{width:"100%",justifyContent:"center",fontSize:15,padding:"13px 20px",borderRadius:12,opacity:gisReady?1:.6,cursor:gisReady?"pointer":"not-allowed"}}>
+        <svg width="18" height="18" viewBox="0 0 24 24" style={{flexShrink:0}}><path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#fff" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#fff" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#fff" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+        {gisReady?"Sign in with Google":"Loading…"}
+      </button>
+    </div>
+  </div>;
+}
+
 function App(){
   const{token,login,gisReady}=useAuth();
   const[menus,updMenus,setMenuTok,,menuErr]=useSave("Menus",SHEETS.Menus,INITIAL_MENUS);
@@ -1605,11 +1620,20 @@ function App(){
   const[showCatMgr,setShowCatMgr]=useState(false);
   const[showIngrCatMgr,setShowIngrCatMgr]=useState(false);
   const[showStoreMgr,setShowStoreMgr]=useState(false);
+  const[syncing,setSyncing]=useState(false);
 
   useEffect(()=>{
     if(!token)return;
     setMenuTok(token);setIngrTok(token);setLineTok(token);setStepTok(token);
     setCatTok(token);setStoreTok(token);setSPTok(token);setIngrCatTok(token);
+  },[token]);
+
+  const handleRefresh=useCallback(()=>{
+    if(!token)return;
+    setSyncing(true);
+    setMenuTok(token);setIngrTok(token);setLineTok(token);setStepTok(token);
+    setCatTok(token);setStoreTok(token);setSPTok(token);setIngrCatTok(token);
+    setTimeout(()=>setSyncing(false),2000);
   },[token]);
 
   // Auto-sync: for every pre-cooked menu, ensure a linked ingredient exists and keep its cost_per_unit current
@@ -1654,12 +1678,15 @@ function App(){
   function navRecipe(id){setSelectedMenu(id);setPage("recipe");}
   const openIngrCatMgr=()=>setShowIngrCatMgr(true);
 
+  if(!token)return <LoginScreen onLogin={login} gisReady={gisReady}/>;
+
   return <CatsCtx.Provider value={cats}>
     <StoresCtx.Provider value={stores}>
     <IngrCatsCtx.Provider value={ingrCats}>
       <div style={{display:"flex",minHeight:"100vh"}}>
         <Sidebar page={page} setPage={setPage} token={token} onLogin={login} gisReady={gisReady}
-          saveError={saveError} onCatMgr={()=>setShowCatMgr(true)} onIngrCatMgr={openIngrCatMgr} onStoreMgr={()=>setShowStoreMgr(true)}/>
+          saveError={saveError} onCatMgr={()=>setShowCatMgr(true)} onIngrCatMgr={openIngrCatMgr} onStoreMgr={()=>setShowStoreMgr(true)}
+          onRefresh={handleRefresh} syncing={syncing}/>
         {page==="dashboard"&&<DashboardPage menus={menus} recipeLines={recipeLines} storePrices={storePrices} setSelectedMenu={setSelectedMenu} setPage={setPage}/>}
         {page==="menus"&&<MenusPage menus={menus} updateMenus={updMenus} setSelectedMenu={navRecipe}
           ingredients={ingredients} updateIngredients={updIngr} updateRecipeLines={updLines}/>}
