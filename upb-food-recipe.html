@@ -338,6 +338,87 @@ function parseIngredientExcel(file,onParsed){
   reader.readAsArrayBuffer(file);
 }
 
+/* ── Recipe Book parser (multi-sheet Excel) ── */
+function parseRecipeBook(file,onParsed){
+  const reader=new FileReader();
+  reader.onload=(e)=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:"array"});
+      const results=[];
+      for(const sheetName of wb.SheetNames){
+        const ws=wb.Sheets[sheetName];
+        const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
+        if(!rows.length)continue;
+        // Scan first 10 rows for label→value pairs
+        const findVal=(label,maxRow=10)=>{
+          for(let r=0;r<Math.min(rows.length,maxRow);r++){
+            for(let c=0;c<rows[r].length;c++){
+              if(String(rows[r][c]||"").trim().replace(/\s+/g," ").includes(label)){
+                for(let nc=c+1;nc<rows[r].length;nc++){
+                  const v=String(rows[r][nc]||"").trim();
+                  if(v)return v;
+                }
+              }
+            }
+          }
+          return"";
+        };
+        const nameTh=findVal("ชื่อเมนู (ไทย)")||findVal("ชื่อเมนู(ไทย)");
+        const nameEn=findVal("ชื่อเมนู (Eng)")||findVal("ชื่อเมนู(Eng)");
+        // Find column-header row: the row containing exactly "วัตถุดิบ" as one of the cells
+        let hdrRow=-1,ingCol=-1,pqCol=-1,puCol=-1,cpuCol=-1,yldCol=-1,uqCol=-1,uuCol=-1,icCol=-1;
+        for(let r=5;r<Math.min(rows.length,25);r++){
+          const row=rows[r];
+          const idx=row.findIndex(c=>String(c||"").trim()==="วัตถุดิบ");
+          if(idx>=0){
+            hdrRow=r;ingCol=idx;
+            row.forEach((cell,i)=>{
+              const s=String(cell||"").trim();
+              if(s.includes("ปริมาณซื้อ"))pqCol=i;
+              if(s.includes("หน่วยซื้อ"))puCol=i;
+              if(s.includes("ต้นทุนต่อหน่วย"))cpuCol=i;
+              if(s.toLowerCase().includes("yield"))yldCol=i;
+              if(s.includes("ปริมาณใช้"))uqCol=i;
+              if(s.includes("หน่วยใช้"))uuCol=i;
+              if(s.includes("ต้นทุนวัตถุดิบ"))icCol=i;
+            });
+            break;
+          }
+        }
+        const lines=[];
+        if(hdrRow>=0&&ingCol>=0){
+          for(let r=hdrRow+1;r<rows.length;r++){
+            const row=rows[r];
+            const name=String(row[ingCol]||"").trim();
+            if(!name)continue;
+            const yRaw=String(row[yldCol]||"100%").replace(/[^0-9.]/g,"");
+            const yNum=parseFloat(yRaw)||100;
+            const yld=yNum>1?yNum/100:yNum;
+            const uq=parseFloat(row[uqCol]||0)||0;
+            const ic=parseFloat(row[icCol]||0)||0;
+            if(uq===0&&ic===0)continue; // skip empty template rows
+            lines.push({
+              ingredient_name:name,
+              purchase_qty:parseFloat(row[pqCol]||0)||0,
+              purchase_unit:String(row[puCol]||"").trim(),
+              cost_per_unit:parseFloat(row[cpuCol]||0)||0,
+              yield_pct:yld,
+              usage_qty:uq,
+              usage_unit:uuCol>=0?String(row[uuCol]||"").trim():"",
+              ingredient_cost:ic,
+            });
+          }
+        }
+        if(lines.length>0||nameTh){
+          results.push({sheetName,name_th:nameTh||sheetName,name_en:nameEn,lines});
+        }
+      }
+      onParsed(results);
+    }catch(err){onParsed(null);}
+  };
+  reader.readAsArrayBuffer(file);
+}
+
 /* ── Sheets helpers ── */
 function gvizFetch(sid,sname){
   return new Promise((res,rej)=>{
@@ -690,13 +771,14 @@ function EditMenuModal({open,onClose,menu,onSave}){
 }
 
 /* ── MenusPage ── */
-function MenusPage({menus,updateMenus,setSelectedMenu}){
+function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredients,updateRecipeLines}){
   const cats=useContext(CatsCtx);
   const[cat,setCat]=useState("All");
   const[search,setSearch]=useState("");
   const[editM,setEditM]=useState(null);
   const[showAdd,setShowAdd]=useState(false);
   const[delId,setDelId]=useState(null);
+  const[showRecipeUpload,setShowRecipeUpload]=useState(false);
   const filtered=useMemo(()=>menus.filter(m=>{
     if(cat!=="All"&&m.category!==cat)return false;
     if(search){const s=search.toLowerCase();return m.name_en?.toLowerCase().includes(s)||m.name_th?.includes(search)||m.menu_id?.toLowerCase().includes(s);}
@@ -708,7 +790,10 @@ function MenusPage({menus,updateMenus,setSelectedMenu}){
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
       <div><h2 style={{fontSize:22,fontWeight:700,margin:0}}>All Menus</h2>
         <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>{menus.length} items total</div></div>
-      <button onClick={()=>setShowAdd(true)} className="btn btn-g">+ Add Menu</button>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={()=>setShowRecipeUpload(true)} className="btn btn-b">📤 Upload Recipe Book</button>
+        <button onClick={()=>setShowAdd(true)} className="btn btn-g">+ Add Menu</button>
+      </div>
     </div>
     <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
       {["All",...cats.map(c=>c.name)].map(c=><button key={c} onClick={()=>setCat(c)} className="btn"
@@ -734,6 +819,8 @@ function MenusPage({menus,updateMenus,setSelectedMenu}){
       </table>
     </div>
     <EditMenuModal open={showAdd||!!editM} onClose={()=>{setShowAdd(false);setEditM(null);}} menu={editM} onSave={saveMenu}/>
+    <UploadRecipeBookModal open={showRecipeUpload} onClose={()=>setShowRecipeUpload(false)}
+      menus={menus} ingredients={ingredients} updateIngredients={updateIngredients} updateRecipeLines={updateRecipeLines}/>
     {delId&&<div className="ov"><div className="mb" style={{maxWidth:380}}>
       <h3 style={{fontSize:16,fontWeight:700,margin:"0 0 8px"}}>Delete Menu?</h3>
       <p style={{fontSize:13,color:"#6b7280",marginBottom:20}}>This cannot be undone.</p>
@@ -873,6 +960,186 @@ function UploadIngrModal({open,onClose,existingIngredients,updateIngredients}){
         </button>
       </div>
     </>}
+  </Modal>;
+}
+
+/* ── UploadRecipeBookModal ── */
+function UploadRecipeBookModal({open,onClose,menus,ingredients,updateIngredients,updateRecipeLines}){
+  const[preview,setPreview]=useState(null);
+  const[error,setError]=useState("");
+  const[addMissing,setAddMissing]=useState(true);
+  const[importing,setImporting]=useState(false);
+  const fileRef=useRef();
+
+  function matchMenu(sheet){
+    const try_=(a,b)=>String(a||"").trim().toLowerCase()===String(b||"").trim().toLowerCase();
+    return menus.find(m=>
+      try_(m.name_th,sheet.name_th)||try_(m.name_en,sheet.name_en)||
+      try_(m.name_th,sheet.sheetName)||try_(m.name_en,sheet.sheetName)||
+      try_(m.name_th,sheet.name_en)||try_(m.name_en,sheet.name_th)
+    )||null;
+  }
+
+  function onFile(e){
+    const file=e.target.files[0];if(!file)return;
+    setError("");setPreview(null);
+    parseRecipeBook(file,(results)=>{
+      if(!results){setError("Could not parse file.");return;}
+      if(!results.length){setError("No recipe sheets found.");return;}
+      const seen=new Map(); // ingredient name (lower) → first occurrence
+      const processed=results.map(sheet=>{
+        const matched=matchMenu(sheet);
+        const newIngr=[];
+        const lines=sheet.lines.map(l=>{
+          const existing=ingredients.find(i=>i.name.toLowerCase()===l.ingredient_name.toLowerCase());
+          if(!existing&&!seen.has(l.ingredient_name.toLowerCase())){
+            seen.set(l.ingredient_name.toLowerCase(),l);
+            newIngr.push(l);
+          }
+          return{...l,existing_ingr:existing||null};
+        });
+        return{...sheet,matched,lines,newIngr};
+      });
+      setPreview(processed);
+    });
+  }
+
+  function doImport(){
+    setImporting(true);
+    // Build final ingredient list (current + newly added stubs)
+    const finalIngr=[...ingredients];
+    if(addMissing){
+      const seen=new Set(ingredients.map(i=>i.name.toLowerCase()));
+      for(const sheet of preview){
+        for(const ni of sheet.newIngr){
+          if(!seen.has(ni.ingredient_name.toLowerCase())){
+            seen.add(ni.ingredient_name.toLowerCase());
+            finalIngr.push({
+              id:uid(),name:ni.ingredient_name,supplier:"",ingr_category:"",
+              purchase_price:ni.cost_per_unit*(ni.purchase_qty||1),
+              purchase_qty:ni.purchase_qty,unit:ni.purchase_unit,
+              cost_per_unit:ni.cost_per_unit,vat:false,
+              yield_pct:ni.yield_pct,last_price_date:"",notes:"",
+            });
+          }
+        }
+      }
+      updateIngredients(()=>finalIngr);
+    }
+    // Build new recipe lines
+    const newLines=[];
+    const replacedMenuIds=new Set();
+    for(const sheet of preview){
+      if(!sheet.matched)continue;
+      replacedMenuIds.add(String(sheet.matched.id));
+      for(const line of sheet.lines){
+        const ingr=finalIngr.find(i=>i.name.toLowerCase()===line.ingredient_name.toLowerCase());
+        if(!ingr)continue;
+        // Use cost from Excel if available, else calc from master
+        const cost=line.ingredient_cost>0?line.ingredient_cost:calcLineIngCost(ingr,line.usage_qty);
+        newLines.push({
+          id:uid(),menu_id:sheet.matched.id,
+          ingredient_id:ingr.id,ingredient_name:ingr.name,
+          usage_qty:line.usage_qty,usage_unit:line.usage_unit,
+          ingredient_cost:Math.round(cost*10000)/10000,
+        });
+      }
+    }
+    updateRecipeLines(prev=>[...prev.filter(l=>!replacedMenuIds.has(String(l.menu_id))),...newLines]);
+    setImporting(false);
+    setPreview(null);
+    if(fileRef.current)fileRef.current.value="";
+    onClose();
+  }
+
+  const matchedCount=preview?preview.filter(s=>s.matched).length:0;
+  const unmatchedCount=preview?preview.filter(s=>!s.matched).length:0;
+  const allNewIngr=preview?[...new Map(preview.flatMap(s=>s.newIngr).map(i=>[i.ingredient_name.toLowerCase(),i])).values()]:[];
+  const totalLines=preview?preview.filter(s=>s.matched).reduce((n,s)=>n+s.lines.length,0):0;
+
+  return <Modal open={open} onClose={()=>{setPreview(null);setError("");if(fileRef.current)fileRef.current.value="";onClose();}} title="Upload Recipe Book (Multi-Sheet Excel)" wide>
+    <div style={{display:"flex",gap:12,marginBottom:16,alignItems:"center"}}>
+      <button onClick={()=>fileRef.current?.click()} className="btn btn-g">📂 Choose Excel File</button>
+      <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={onFile}/>
+      <div style={{fontSize:13,color:"#6b7280"}}>Each sheet = one menu. Reads: Thai name, ingredient list, qty, unit, cost.</div>
+    </div>
+    {error&&<div style={{background:"#fee2e2",color:"#991b1b",padding:"10px 14px",borderRadius:8,fontSize:13,marginBottom:14}}>{error}</div>}
+
+    {preview&&<>
+      {/* Summary bar */}
+      <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
+        {[
+          {label:"Sheets found",val:preview.length,bg:"#dbeafe",tx:"#1e40af"},
+          {label:"Matched to menus",val:matchedCount,bg:"#dcfce7",tx:"#166534"},
+          {label:"Unmatched",val:unmatchedCount,bg:unmatchedCount>0?"#fee2e2":"#f3f4f6",tx:unmatchedCount>0?"#991b1b":"#6b7280"},
+          {label:"Recipe lines",val:totalLines,bg:"#fef9c3",tx:"#92400e"},
+          {label:"New ingredients",val:allNewIngr.length,bg:allNewIngr.length>0?"#ede9fe":"#f3f4f6",tx:allNewIngr.length>0?"#5b21b6":"#6b7280"},
+        ].map(({label,val,bg,tx})=>
+          <div key={label} className="card" style={{padding:"10px 16px",flex:1,minWidth:100}}>
+            <div style={{fontSize:22,fontWeight:800,color:tx}}>{val}</div>
+            <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{label}</div>
+          </div>
+        )}
+      </div>
+
+      {/* Sheet match table */}
+      <div style={{maxHeight:200,overflowY:"auto",marginBottom:14}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead><tr><th className="th">Sheet Name</th><th className="th">Thai Name (in file)</th><th className="th">Matched Menu</th><th className="th" style={{textAlign:"right"}}>Lines</th></tr></thead>
+          <tbody>{preview.map((s,i)=><tr key={i}>
+            <td className="td" style={{fontSize:12,color:"#6b7280"}}>{s.sheetName}</td>
+            <td className="td" style={{fontWeight:500}}>{s.name_th}</td>
+            <td className="td">{s.matched
+              ?<span className="badge" style={{background:"#dcfce7",color:"#166534"}}>✓ {s.matched.menu_id} — {s.matched.name_en||s.matched.name_th}</span>
+              :<span className="badge" style={{background:"#fee2e2",color:"#991b1b"}}>✗ No match</span>}
+            </td>
+            <td className="td" style={{textAlign:"right"}}>{s.lines.length}</td>
+          </tr>)}</tbody>
+        </table>
+      </div>
+
+      {/* New ingredients */}
+      {allNewIngr.length>0&&<div className="card" style={{padding:"14px 18px",marginBottom:14,background:"#faf5ff"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#5b21b6"}}>🆕 {allNewIngr.length} ingredients not in master list</div>
+          <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}>
+            <input type="checkbox" checked={addMissing} onChange={e=>setAddMissing(e.target.checked)}/>
+            Auto-add these to Ingredients master list
+          </label>
+        </div>
+        <div style={{maxHeight:140,overflowY:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead><tr><th className="th">Name</th><th className="th">Cost/Unit from recipe</th><th className="th">Yield</th><th className="th">Usage Unit</th></tr></thead>
+            <tbody>{allNewIngr.map((ni,i)=><tr key={i}>
+              <td className="td" style={{fontWeight:500}}>{ni.ingredient_name}</td>
+              <td className="td">{ni.cost_per_unit?fmtB(ni.cost_per_unit):"—"}</td>
+              <td className="td">{(ni.yield_pct*100).toFixed(0)}%</td>
+              <td className="td" style={{color:"#6b7280"}}>{ni.purchase_unit||"—"}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+        {!addMissing&&<div style={{marginTop:8,fontSize:12,color:"#d97706"}}>⚠️ Lines for unmatched ingredients will be skipped.</div>}
+      </div>}
+
+      {unmatchedCount>0&&<div style={{marginBottom:14,fontSize:13,color:"#6b7280",padding:"10px 14px",background:"#fef9c3",borderRadius:8}}>
+        ⚠️ {unmatchedCount} sheet(s) couldn't be matched to a menu — they will be skipped. Make sure the menu names in your Excel match the Thai or English names in the system.
+      </div>}
+
+      <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:4}}>
+        <button onClick={()=>{setPreview(null);if(fileRef.current)fileRef.current.value="";}} className="btn btn-o">Clear</button>
+        <button onClick={doImport} disabled={matchedCount===0||importing} className="btn btn-g">
+          {importing?"Importing…":`Import ${totalLines} recipe lines into ${matchedCount} menu(s)`}
+        </button>
+      </div>
+    </>}
+
+    {!preview&&!error&&<div style={{fontSize:13,color:"#6b7280",lineHeight:1.8}}>
+      <strong>How it works:</strong><br/>
+      1. Pick your recipe Excel file — the one with one sheet per menu.<br/>
+      2. The system reads the Thai/English menu name from each sheet and matches it to your menu list.<br/>
+      3. Review the preview: matched menus, new ingredients, and line count.<br/>
+      4. Click Import — existing recipe lines for matched menus are replaced with the file's data.
+    </div>}
   </Modal>;
 }
 
@@ -1311,7 +1578,8 @@ function App(){
         <Sidebar page={page} setPage={setPage} token={token} onLogin={login} gisReady={gisReady}
           saveError={saveError} onCatMgr={()=>setShowCatMgr(true)} onIngrCatMgr={openIngrCatMgr} onStoreMgr={()=>setShowStoreMgr(true)}/>
         {page==="dashboard"&&<DashboardPage menus={menus} recipeLines={recipeLines} storePrices={storePrices} setSelectedMenu={setSelectedMenu} setPage={setPage}/>}
-        {page==="menus"&&<MenusPage menus={menus} updateMenus={updMenus} setSelectedMenu={navRecipe}/>}
+        {page==="menus"&&<MenusPage menus={menus} updateMenus={updMenus} setSelectedMenu={navRecipe}
+          ingredients={ingredients} updateIngredients={updIngr} updateRecipeLines={updLines}/>}
         {page==="ingredients"&&<IngredientsPage ingredients={ingredients} updateIngredients={updIngr} onIngrCatMgr={openIngrCatMgr}/>}
         {page==="recipe"&&<RecipePage menuId={selectedMenu} menus={menus} updateMenus={updMenus}
           recipeLines={recipeLines} updateRecipeLines={updLines}
