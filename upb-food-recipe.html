@@ -186,7 +186,8 @@ const SCOPES="https://www.googleapis.com/auth/spreadsheets";
 
 const SHEETS={
   Menus:       ["id","menu_id","category","name_th","name_en","serves_per_recipe","spice_pct","target_food_cost_pct","actual_price","checked"],
-  Ingredients: ["id","name","supplier","ingr_category","purchase_size","purchase_price","purchase_qty","unit","cost_per_unit","vat","yield_pct","last_price_date","notes"],
+  Ingredients: ["id","name","supplier","ingr_category","purchase_price","purchase_qty","unit","cost_per_unit","vat","yield_pct","last_price_date","notes"],
+  IngrCats:    ["id","name"],
   RecipeLines: ["id","menu_id","ingredient_id","ingredient_name","usage_qty","usage_unit","ingredient_cost"],
   CookingSteps:["id","menu_id","step_no","instruction"],
   Categories:  ["id","name","icon"],
@@ -196,6 +197,17 @@ const SHEETS={
 
 const CatsCtx=createContext([]);
 const StoresCtx=createContext([]);
+const IngrCatsCtx=createContext([]);
+
+const INITIAL_INGR_CATS=[
+  {id:"ic_1",name:"Dry Food (ของแห้ง)"},
+  {id:"ic_2",name:"Meat (เนื้อสัตว์)"},
+  {id:"ic_3",name:"Processed (แปรรูป)"},
+  {id:"ic_4",name:"Sauces & Dressings (ซอส)"},
+  {id:"ic_5",name:"Seafood (ซีฟู้ด)"},
+  {id:"ic_6",name:"Vegetable (ผัก)"},
+  {id:"ic_7",name:"น้ำยำ/ซอสต่างๆ/อาหาร Pre-Cooked"},
+];
 
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
 function fmtB(n){const v=+n;if(!v&&v!==0)return"—";return"฿"+v.toLocaleString("th-TH",{minimumFractionDigits:2,maximumFractionDigits:2});}
@@ -230,43 +242,48 @@ function calcLineIngCost(ingredient,usageQty){
 }
 
 /* ── Excel helpers ── */
-function downloadIngredientTemplate(){
+function downloadIngredientTemplate(ingrCats){
   const wb=XLSX.utils.book_new();
+  const catNames=ingrCats&&ingrCats.length?ingrCats.map(c=>c.name):INITIAL_INGR_CATS.map(c=>c.name);
   const tmpl=[
-    ["name","supplier","ingr_category","purchase_size","purchase_price","purchase_qty","unit","vat","yield_pct","last_price_date","notes"],
-    ["Chicken Breast (อกไก่)","Makro","Meat (เนื้อสัตว์)","1000 gram",159,1000,"Gram",false,0.9,"","Fresh boneless"],
-    ["Tako Wasabi (ทาโกะวาซาบิ)","Food Project","Seafood (ซีฟู้ด)","500 gram",245,500,"Gram",false,1,"",""],
-    ["Cooking Oil (น้ำมัน)","Makro","Dry Food (ของแห้ง)","1 L",60,1,"L",false,1,"",""],
-    ["","","","","","","","","","",""],
-    ["","","","","","","","","","",""],
-    ["","","","","","","","","","",""],
-    ["","","","","","","","","","",""],
+    ["supplier","name","ingr_category","purchase_price","purchase_qty","unit","vat","yield_pct","last_price_date","notes"],
+    ["Makro","Chicken Breast (อกไก่)","Meat (เนื้อสัตว์)",159,1000,"Gram",false,0.9,"","Fresh boneless"],
+    ["Food Project","Tako Wasabi (ทาโกะวาซาบิ)","Seafood (ซีฟู้ด)",245,500,"Gram",false,1,"",""],
+    ["Makro","Cooking Oil (น้ำมัน)","Dry Food (ของแห้ง)",60,1,"L",false,1,"",""],
+    ["","","","","","","","","",""],
+    ["","","","","","","","","",""],
+    ["","","","","","","","","",""],
+    ["","","","","","","","","",""],
   ];
   const ws1=XLSX.utils.aoa_to_sheet(tmpl);
-  ws1["!cols"]=[{wch:30},{wch:16},{wch:20},{wch:14},{wch:14},{wch:14},{wch:10},{wch:8},{wch:10},{wch:16},{wch:28}];
+  ws1["!cols"]=[{wch:18},{wch:30},{wch:26},{wch:14},{wch:12},{wch:10},{wch:8},{wch:10},{wch:16},{wch:28}];
   XLSX.utils.book_append_sheet(wb,ws1,"Ingredient Template");
+  const catRows=catNames.map((n,i)=>i===0?[n,"← copy one of these into ingr_category"]:[ n,""]);
   const instr=[
     ["Field","Description","Example","Required?"],
-    ["name","Ingredient name (EN or TH)","Chicken Breast / อกไก่","Yes"],
     ["supplier","Supplier / shop name","Makro, Food Project, เอบีซี","No"],
-    ["ingr_category","Ingredient category","Meat (เนื้อสัตว์), Seafood (ซีฟู้ด), Vegetable (ผัก), Dry Food, Sauces & Dressings, Processed","No"],
-    ["purchase_size","Size as purchased (text)","500 gram, 1000 gram, 1 L","No"],
+    ["name","Ingredient name (EN or TH)","Chicken Breast / อกไก่","Yes"],
+    ["ingr_category","Ingredient category — pick from list below","Meat (เนื้อสัตว์)","No"],
     ["purchase_price","Total price paid in Thai Baht (฿)","159","Yes"],
-    ["purchase_qty","Quantity in the purchase (number only)","1000","Yes"],
-    ["unit","Unit of the purchase_qty","Gram, ml, pcs, L","No"],
+    ["purchase_qty","Quantity in that purchase (number only)","1000","Yes"],
+    ["unit","Unit for purchase_qty","Gram, ml, pcs, L, kg","No"],
     ["vat","Has VAT? (TRUE/FALSE)","FALSE","No (default: FALSE)"],
-    ["yield_pct","Usable ratio after prep (0.01–1.0)","0.9 = 90% usable after trimming","No (default: 1)"],
-    ["last_price_date","Date price was last updated (DD-Mon-YYYY)","30-Jul-2025","No"],
+    ["yield_pct","Usable ratio after prep (0.01–1.0)  ·  1 = no waste","0.9 = 90% usable after trimming","No (default: 1)"],
+    ["last_price_date","Date price was last updated","30-Jul-2025","No"],
     ["notes","Any extra notes","Fresh, boneless skinless","No"],
     ["","","",""],
     ["Tips:","","",""],
-    ["• cost_per_unit is auto-calculated as purchase_price ÷ purchase_qty","","",""],
-    ["• Leave yield_pct blank or 1 for zero-waste ingredients (oil, spices, etc.)","","",""],
-    ["• Ingredients with the same name already in the system will be skipped (deduplication)","","",""],
-    ["• The system reads the FIRST sheet in the file, so keep your data in the first tab","","",""],
+    ["• cost_per_unit is auto-calculated: purchase_price ÷ purchase_qty","","",""],
+    ["• Leave yield_pct blank or 1 for zero-waste items (oil, spices…)","","",""],
+    ["• Duplicate names (already in system) are skipped on import","","",""],
+    ["• Data must be in the FIRST sheet tab","","",""],
+    ["","","",""],
+    ["Available Ingredient Categories (ingr_category):","","",""],
+    ...catRows,
+    ["","← You can add more categories inside the app (Ingredients → Manage Categories)","",""],
   ];
   const ws2=XLSX.utils.aoa_to_sheet(instr);
-  ws2["!cols"]=[{wch:22},{wch:50},{wch:40},{wch:20}];
+  ws2["!cols"]=[{wch:22},{wch:55},{wch:38},{wch:20}];
   XLSX.utils.book_append_sheet(wb,ws2,"Instructions");
   XLSX.writeFile(wb,"UPB_Ingredient_Template.xlsx");
 }
@@ -286,7 +303,6 @@ function parseIngredientExcel(file,onParsed){
       if(ni===-1){onParsed(null);return;}
       const supi=col(["supplier","ซัพพลายเออร์"]);
       const cati=col(["ingr_category","category","หมวดหมู่"]);
-      const psi=col(["purchase_size","ขนาดที่ซื้อ"]);
       const ppi=col(["purchase_price","ราคาซื้อ","price"]);
       const pqi=col(["purchase_qty","ปริมาณซื้อ","qty","quantity"]);
       const uni=col(["unit","หน่วย"]);
@@ -306,7 +322,6 @@ function parseIngredientExcel(file,onParsed){
             name:String(r[ni]).trim(),
             supplier:supi>=0?String(r[supi]||"").trim():"",
             ingr_category:cati>=0?String(r[cati]||"").trim():"",
-            purchase_size:psi>=0?String(r[psi]||"").trim():"",
             purchase_price:pp,
             purchase_qty:pq,
             unit:uni>=0?String(r[uni]||"").trim():"",
@@ -525,6 +540,43 @@ function ManageCatsModal({open,onClose,cats,updateCats,menus}){
   </Modal>;
 }
 
+/* ── ManageIngrCatsModal ── */
+function ManageIngrCatsModal({open,onClose,ingrCats,updateIngrCats,ingredients}){
+  const[newName,setNewName]=useState("");
+  function addCat(){
+    const n=newName.trim();
+    if(!n||ingrCats.some(c=>c.name===n))return;
+    updateIngrCats(prev=>[...prev,{id:uid(),name:n}]);
+    setNewName("");
+  }
+  function delCat(id){
+    const cat=ingrCats.find(c=>c.id===id);
+    const count=ingredients.filter(i=>i.ingr_category===cat?.name).length;
+    if(count>0){alert(`Cannot delete — ${count} ingredient(s) use this category.`);return;}
+    updateIngrCats(prev=>prev.filter(c=>c.id!==id));
+  }
+  return <Modal open={open} onClose={onClose} title="Manage Ingredient Categories">
+    <table style={{width:"100%",borderCollapse:"collapse",marginBottom:20}}>
+      <thead><tr><th className="th">Category Name</th><th className="th">Ingredients</th><th className="th"/></tr></thead>
+      <tbody>{ingrCats.length===0?<tr><td colSpan={3} className="td" style={{textAlign:"center",color:"#9ca3af"}}>No categories yet.</td></tr>:
+        ingrCats.map(c=>{
+          const count=ingredients.filter(i=>i.ingr_category===c.name).length;
+          return <tr key={c.id}>
+            <td className="td" style={{fontWeight:500}}>🏷 {c.name}</td>
+            <td className="td" style={{textAlign:"center",color:"#6b7280"}}>{count}</td>
+            <td className="td">{count===0&&<button onClick={()=>delCat(c.id)} className="btn btn-r" style={{fontSize:11,padding:"3px 10px"}}>Delete</button>}</td>
+          </tr>;
+        })
+      }</tbody>
+    </table>
+    <div style={{display:"flex",gap:10}}>
+      <input className="inp" value={newName} onChange={e=>setNewName(e.target.value)} placeholder="New category name…"
+        onKeyDown={e=>{if(e.key==="Enter")addCat();}}/>
+      <button onClick={addCat} className="btn btn-g" style={{flexShrink:0}}>Add</button>
+    </div>
+  </Modal>;
+}
+
 /* ── ManageStoresModal ── */
 function ManageStoresModal({open,onClose,stores,updateStores,storePrices}){
   const[newName,setNewName]=useState("");
@@ -565,7 +617,7 @@ function ManageStoresModal({open,onClose,stores,updateStores,storePrices}){
 }
 
 /* ── Sidebar ── */
-function Sidebar({page,setPage,token,onLogin,gisReady,saveError,onCatMgr,onStoreMgr}){
+function Sidebar({page,setPage,token,onLogin,gisReady,saveError,onCatMgr,onIngrCatMgr,onStoreMgr}){
   const cats=useContext(CatsCtx);
   return <div style={{width:215,minHeight:"100vh",background:"#fff",borderRight:"1px solid #f1f5f9",padding:"20px 10px",display:"flex",flexDirection:"column",gap:3,flexShrink:0}}>
     <div style={{display:"flex",alignItems:"center",gap:9,padding:"0 8px 18px"}}>
@@ -579,7 +631,8 @@ function Sidebar({page,setPage,token,onLogin,gisReady,saveError,onCatMgr,onStore
     )}
     <div style={{borderTop:"1px solid #f1f5f9",margin:"8px 0"}}/>
     <div style={{padding:"4px 10px",fontSize:10,fontWeight:700,color:"#94a3b8",letterSpacing:".07em",textTransform:"uppercase"}}>Settings</div>
-    <button onClick={onCatMgr} className="sl"><span>🗂</span>Categories</button>
+    <button onClick={onCatMgr} className="sl"><span>🗂</span>Menu Categories</button>
+    <button onClick={onIngrCatMgr} className="sl"><span>🏷</span>Ingr. Categories</button>
     <button onClick={onStoreMgr} className="sl"><span>🏪</span>Stores</button>
     <div style={{flex:1}}/>
     {saveError&&<div style={{margin:"4px 6px",padding:"8px 10px",background:"#fee2e2",borderRadius:8,fontSize:12,color:"#991b1b"}}>⚠️ Save error — check connection</div>}
@@ -692,11 +745,10 @@ function MenusPage({menus,updateMenus,setSelectedMenu}){
   </div>;
 }
 
-const INGR_CATS=["Meat (เนื้อสัตว์)","Seafood (ซีฟู้ด)","Vegetable (ผัก)","Dry Food (ของแห้ง)","Sauces & Dressings (ซอส)","Processed (แปรรูป)","Dairy","Other"];
-
 /* ── EditIngredientModal ── */
 function EditIngredientModal({open,onClose,ingr,onSave}){
-  const blank={name:"",supplier:"",ingr_category:"",purchase_size:"",purchase_price:"",purchase_qty:"",unit:"",vat:false,yield_pct:1,last_price_date:"",notes:""};
+  const ingrCats=useContext(IngrCatsCtx);
+  const blank={name:"",supplier:"",ingr_category:"",purchase_price:"",purchase_qty:"",unit:"",vat:false,yield_pct:1,last_price_date:"",notes:""};
   const[f,setF]=useState(blank);
   useEffect(()=>{setF(ingr?{...ingr}:blank);},[open,ingr]);
   const ch=(k,v)=>setF(p=>({...p,[k]:v}));
@@ -705,23 +757,20 @@ function EditIngredientModal({open,onClose,ingr,onSave}){
   const cpu=pq>0?Math.round(pp/pq*10000)/10000:0;
   function save(){
     if(!f.name)return;
-    onSave({...f,id:f.id||uid(),
-      purchase_price:pp,purchase_qty:pq,
-      cost_per_unit:cpu,
-      vat:!!f.vat,yield_pct:+f.yield_pct||1});
+    onSave({...f,id:f.id||uid(),purchase_price:pp,purchase_qty:pq,
+      cost_per_unit:cpu,vat:!!f.vat,yield_pct:+f.yield_pct||1});
     onClose();
   }
   return <Modal open={open} onClose={onClose} title={ingr?"Edit Ingredient":"Add Ingredient"} wide>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-      <div style={{gridColumn:"1/-1"}}><label className="fl">Ingredient Name * (EN / TH)</label><input className="inp" value={f.name} onChange={e=>ch("name",e.target.value)} placeholder="e.g. Chicken Breast / อกไก่"/></div>
       <div><label className="fl">Supplier</label><input className="inp" value={f.supplier} onChange={e=>ch("supplier",e.target.value)} placeholder="Makro, Food Project…"/></div>
+      <div><label className="fl">Ingredient Name * (EN / TH)</label><input className="inp" value={f.name} onChange={e=>ch("name",e.target.value)} placeholder="e.g. Chicken Breast / อกไก่"/></div>
       <div><label className="fl">Ingredient Category</label>
         <select className="inp" value={f.ingr_category} onChange={e=>ch("ingr_category",e.target.value)}>
           <option value="">— select —</option>
-          {INGR_CATS.map(c=><option key={c}>{c}</option>)}
+          {ingrCats.map(c=><option key={c.id} value={c.name}>{c.name}</option>)}
         </select>
       </div>
-      <div><label className="fl">Purchase Size (text)</label><input className="inp" value={f.purchase_size} onChange={e=>ch("purchase_size",e.target.value)} placeholder="e.g. 1000 gram, 1 L"/></div>
       <div><label className="fl">Unit</label><input className="inp" value={f.unit} onChange={e=>ch("unit",e.target.value)} placeholder="Gram, ml, pcs, L…"/></div>
       <div><label className="fl">Purchase Price (฿)</label><input className="inp" type="number" min="0" step="0.01" value={f.purchase_price} onChange={e=>ch("purchase_price",e.target.value)} placeholder="Total price paid"/></div>
       <div><label className="fl">Purchase Qty</label><input className="inp" type="number" min="0" step="1" value={f.purchase_qty} onChange={e=>ch("purchase_qty",e.target.value)} placeholder="Qty in that purchase"/></div>
@@ -801,12 +850,12 @@ function UploadIngrModal({open,onClose,existingIngredients,updateIngredients}){
       </div>
       <div style={{maxHeight:300,overflowY:"auto",marginBottom:16}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
-          <thead><tr><th className="th">Name</th><th className="th">Supplier</th><th className="th">Category</th><th className="th">Purchase Price</th><th className="th">Qty</th><th className="th">Unit</th><th className="th">Cost/Unit</th><th className="th">Status</th></tr></thead>
+          <thead><tr><th className="th">Supplier</th><th className="th">Name</th><th className="th">Category</th><th className="th">Price (฿)</th><th className="th">Qty</th><th className="th">Unit</th><th className="th">Cost/Unit</th><th className="th">Status</th></tr></thead>
           <tbody>{preview.rows.map((r,i)=>{
             const isDup=existingIngredients.some(e=>e.name.toLowerCase()===r.name.toLowerCase());
             return <tr key={i} style={{opacity:isDup?.5:1}}>
-              <td className="td" style={{fontWeight:500}}>{r.name}</td>
               <td className="td" style={{color:"#6b7280",fontSize:12}}>{r.supplier||"—"}</td>
+              <td className="td" style={{fontWeight:500}}>{r.name}</td>
               <td className="td" style={{fontSize:12}}>{r.ingr_category||"—"}</td>
               <td className="td">{r.purchase_price?fmtB(r.purchase_price):"—"}</td>
               <td className="td">{r.purchase_qty||"—"}</td>
@@ -828,7 +877,8 @@ function UploadIngrModal({open,onClose,existingIngredients,updateIngredients}){
 }
 
 /* ── IngredientsPage ── */
-function IngredientsPage({ingredients,updateIngredients}){
+function IngredientsPage({ingredients,updateIngredients,onIngrCatMgr}){
+  const ingrCats=useContext(IngrCatsCtx);
   const[editI,setEditI]=useState(null);const[showAdd,setShowAdd]=useState(false);
   const[delId,setDelId]=useState(null);const[search,setSearch]=useState("");
   const[showUpload,setShowUpload]=useState(false);
@@ -840,8 +890,9 @@ function IngredientsPage({ingredients,updateIngredients}){
       <div><h2 style={{fontSize:22,fontWeight:700,margin:0}}>Ingredient Master List</h2>
         <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>{ingredients.length} ingredients</div></div>
       <div style={{display:"flex",gap:8}}>
-        <button onClick={downloadIngredientTemplate} className="btn btn-b" title="Download blank Excel template">⬇ Template</button>
+        <button onClick={()=>downloadIngredientTemplate(ingrCats)} className="btn btn-b" title="Download blank Excel template">⬇ Template</button>
         <button onClick={()=>setShowUpload(true)} className="btn btn-o">⬆ Upload Excel</button>
+        <button onClick={onIngrCatMgr} className="btn btn-o" title="Manage ingredient categories">🏷 Categories</button>
         <button onClick={()=>setShowAdd(true)} className="btn btn-g">+ Add Ingredient</button>
       </div>
     </div>
@@ -859,7 +910,6 @@ function IngredientsPage({ingredients,updateIngredients}){
           <th className="th">Name</th>
           <th className="th">Supplier</th>
           <th className="th">Category</th>
-          <th className="th">Purchase Size</th>
           <th className="th" style={{textAlign:"right"}}>Price (฿)</th>
           <th className="th" style={{textAlign:"right"}}>Qty</th>
           <th className="th">Unit</th>
@@ -876,7 +926,6 @@ function IngredientsPage({ingredients,updateIngredients}){
             <td className="td"><div style={{fontWeight:500}}>{i.name}</div></td>
             <td className="td" style={{fontSize:12,color:"#6b7280"}}>{i.supplier||"—"}</td>
             <td className="td" style={{fontSize:11}}>{i.ingr_category?<span className="badge" style={{background:"#f3f4f6",color:"#374151"}}>{i.ingr_category}</span>:"—"}</td>
-            <td className="td" style={{fontSize:12,color:"#6b7280"}}>{i.purchase_size||"—"}</td>
             <td className="td" style={{textAlign:"right"}}>{fmtB(i.purchase_price||0)}</td>
             <td className="td" style={{textAlign:"right",color:"#6b7280"}}>{i.purchase_qty||"—"}</td>
             <td className="td" style={{color:"#6b7280",fontSize:12}}>{i.unit||"—"}</td>
@@ -1238,36 +1287,42 @@ function App(){
   const[cats,updCats,setCatTok,,catErr]=useSave("Categories",SHEETS.Categories,INITIAL_CATS);
   const[stores,updStores,setStoreTok,,storeErr]=useSave("Stores",SHEETS.Stores,[]);
   const[storePrices,updSP,setSPTok,,spErr]=useSave("StorePrices",SHEETS.StorePrices,[]);
-  const saveError=menuErr||ingrErr||lineErr||stepErr||catErr||storeErr||spErr;
+  const[ingrCats,updIngrCats,setIngrCatTok,,ingrCatErr]=useSave("IngrCats",SHEETS.IngrCats,INITIAL_INGR_CATS);
+  const saveError=menuErr||ingrErr||lineErr||stepErr||catErr||storeErr||spErr||ingrCatErr;
   const[page,setPage]=useState("dashboard");
   const[selectedMenu,setSelectedMenu]=useState(null);
   const[showCatMgr,setShowCatMgr]=useState(false);
+  const[showIngrCatMgr,setShowIngrCatMgr]=useState(false);
   const[showStoreMgr,setShowStoreMgr]=useState(false);
 
   useEffect(()=>{
     if(!token)return;
     setMenuTok(token);setIngrTok(token);setLineTok(token);setStepTok(token);
-    setCatTok(token);setStoreTok(token);setSPTok(token);
+    setCatTok(token);setStoreTok(token);setSPTok(token);setIngrCatTok(token);
   },[token]);
 
   function navRecipe(id){setSelectedMenu(id);setPage("recipe");}
+  const openIngrCatMgr=()=>setShowIngrCatMgr(true);
 
   return <CatsCtx.Provider value={cats}>
     <StoresCtx.Provider value={stores}>
+    <IngrCatsCtx.Provider value={ingrCats}>
       <div style={{display:"flex",minHeight:"100vh"}}>
         <Sidebar page={page} setPage={setPage} token={token} onLogin={login} gisReady={gisReady}
-          saveError={saveError} onCatMgr={()=>setShowCatMgr(true)} onStoreMgr={()=>setShowStoreMgr(true)}/>
+          saveError={saveError} onCatMgr={()=>setShowCatMgr(true)} onIngrCatMgr={openIngrCatMgr} onStoreMgr={()=>setShowStoreMgr(true)}/>
         {page==="dashboard"&&<DashboardPage menus={menus} recipeLines={recipeLines} storePrices={storePrices} setSelectedMenu={setSelectedMenu} setPage={setPage}/>}
         {page==="menus"&&<MenusPage menus={menus} updateMenus={updMenus} setSelectedMenu={navRecipe}/>}
-        {page==="ingredients"&&<IngredientsPage ingredients={ingredients} updateIngredients={updIngr}/>}
+        {page==="ingredients"&&<IngredientsPage ingredients={ingredients} updateIngredients={updIngr} onIngrCatMgr={openIngrCatMgr}/>}
         {page==="recipe"&&<RecipePage menuId={selectedMenu} menus={menus} updateMenus={updMenus}
           recipeLines={recipeLines} updateRecipeLines={updLines}
           cookingSteps={cookingSteps} updateCookingSteps={updSteps}
           ingredients={ingredients} storePrices={storePrices} updateStorePrices={updSP}
           stores={stores} onBack={()=>setPage("dashboard")}/>}
         <ManageCatsModal open={showCatMgr} onClose={()=>setShowCatMgr(false)} cats={cats} updateCats={updCats} menus={menus}/>
+        <ManageIngrCatsModal open={showIngrCatMgr} onClose={()=>setShowIngrCatMgr(false)} ingrCats={ingrCats} updateIngrCats={updIngrCats} ingredients={ingredients}/>
         <ManageStoresModal open={showStoreMgr} onClose={()=>setShowStoreMgr(false)} stores={stores} updateStores={updStores} storePrices={storePrices}/>
       </div>
+    </IngrCatsCtx.Provider>
     </StoresCtx.Provider>
   </CatsCtx.Provider>;
 }
