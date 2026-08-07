@@ -875,33 +875,62 @@ function EditMenuModal({open,onClose,menu,onSave,menus}){
 }
 
 /* ── MenusPage ── */
-function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredients,updateRecipeLines,updateCookingSteps}){
+function menuStatus(m,recipeLines){
+  const lc=recipeLines.filter(r=>String(r.menu_id)===String(m.id)).length;
+  if(lc>0&&toBool(m.checked))return"verified";
+  if(lc>0)return"has_recipe";
+  return"draft";
+}
+function StatusBadge({status}){
+  if(status==="verified")return<span className="badge" style={{background:"#dcfce7",color:"#166534"}}>✓ Verified</span>;
+  if(status==="has_recipe")return<span className="badge" style={{background:"#dbeafe",color:"#1e40af"}}>📖 Has Recipe</span>;
+  return<span className="badge" style={{background:"#f3f4f6",color:"#6b7280"}}>⬜ Draft</span>;
+}
+function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredients,updateRecipeLines,updateCookingSteps,recipeLines,menuCat,setMenuCat}){
   const cats=useContext(CatsCtx);
-  const[cat,setCat]=useState("All");
   const[search,setSearch]=useState("");
+  const[statusFilter,setStatusFilter]=useState("All");
   const[editM,setEditM]=useState(null);
   const[showAdd,setShowAdd]=useState(false);
   const[delId,setDelId]=useState(null);
   const[showRecipeUpload,setShowRecipeUpload]=useState(false);
-  const filtered=useMemo(()=>menus.filter(m=>{
-    if(cat!=="All"&&m.category!==cat)return false;
+  const enriched=useMemo(()=>menus.map(m=>({...m,status:menuStatus(m,recipeLines)})),[menus,recipeLines]);
+  const filtered=useMemo(()=>enriched.filter(m=>{
+    if(menuCat!=="All"&&m.category!==menuCat)return false;
+    if(statusFilter!=="All"&&m.status!==statusFilter)return false;
     if(search){const s=search.toLowerCase();return m.name_en?.toLowerCase().includes(s)||m.name_th?.includes(search)||m.menu_id?.toLowerCase().includes(s);}
     return true;
-  }),[menus,cat,search]);
+  }),[enriched,menuCat,statusFilter,search]);
   function saveMenu(m){updateMenus(prev=>{const i=prev.findIndex(x=>x.id===m.id);if(i>=0){const n=[...prev];n[i]=m;return n;}return[...prev,m];});}
   function delMenu(id){updateMenus(prev=>prev.filter(m=>m.id!==id));setDelId(null);}
+  const statusCounts=useMemo(()=>({
+    verified:enriched.filter(m=>m.status==="verified").length,
+    has_recipe:enriched.filter(m=>m.status==="has_recipe").length,
+    draft:enriched.filter(m=>m.status==="draft").length,
+  }),[enriched]);
   return <div style={{flex:1,padding:"28px 32px",overflowY:"auto"}}>
-    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
       <div><h2 style={{fontSize:22,fontWeight:700,margin:0}}>All Menus</h2>
-        <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>{menus.length} items total</div></div>
+        <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>{menus.length} items · {filtered.length} shown</div></div>
       <div style={{display:"flex",gap:8}}>
         <button onClick={()=>setShowRecipeUpload(true)} className="btn btn-b">📤 Upload Recipe Book</button>
         <button onClick={()=>setShowAdd(true)} className="btn btn-g">+ Add Menu</button>
       </div>
     </div>
-    <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
-      {["All",...cats.map(c=>c.name)].map(c=><button key={c} onClick={()=>setCat(c)} className="btn"
-        style={{fontSize:12,padding:"5px 12px",background:cat===c?"#166534":"#f1f5f9",color:cat===c?"#fff":"#374151"}}>{c}</button>)}
+    {/* Category filter */}
+    <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+      {["All",...cats.map(c=>c.name)].map(c=><button key={c} onClick={()=>setMenuCat(c)} className="btn"
+        style={{fontSize:12,padding:"5px 12px",background:menuCat===c?"#166534":"#f1f5f9",color:menuCat===c?"#fff":"#374151"}}>{c}</button>)}
+    </div>
+    {/* Status filter + search */}
+    <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+      {[["All","All"],["draft","⬜ Draft"],["has_recipe","📖 Has Recipe"],["verified","✓ Verified"]].map(([k,label])=>{
+        const count=k==="All"?enriched.length:statusCounts[k];
+        return<button key={k} onClick={()=>setStatusFilter(k)} className="btn"
+          style={{fontSize:12,padding:"5px 12px",background:statusFilter===k?"#1d4ed8":"#f1f5f9",color:statusFilter===k?"#fff":"#374151"}}>
+          {label} <span style={{opacity:.7,marginLeft:3}}>({count})</span>
+        </button>;
+      })}
       <input className="inp" placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)} style={{width:190,marginLeft:"auto"}}/>
     </div>
     <div className="card" style={{overflow:"hidden"}}>
@@ -913,7 +942,7 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
           <td className="td"><div style={{fontWeight:500}}>{m.name_en}</div><div style={{fontSize:11,color:"#9ca3af"}}>{m.name_th}</div></td>
           <td className="td">{m.menu_type==="precooked"?<span className="badge" style={{background:"#fef3c7",color:"#92400e"}}>🍳 Pre-Cooked</span>:<CatBadge cat={m.category}/>}</td>
           <td className="td" style={{textAlign:"right",fontWeight:600}}>{m.menu_type==="precooked"?<span style={{color:"#9ca3af",fontSize:12}}>auto-calc</span>:m.actual_price!==""&&m.actual_price!==null?fmtB(m.actual_price):"—"}</td>
-          <td className="td">{toBool(m.checked)?<span className="badge" style={{background:"#dcfce7",color:"#166534"}}>✓ Done</span>:<span className="badge" style={{background:"#f3f4f6",color:"#6b7280"}}>Draft</span>}</td>
+          <td className="td"><StatusBadge status={m.status}/></td>
           <td className="td"><div style={{display:"flex",gap:5}}>
             <button onClick={()=>setSelectedMenu(m.id)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px"}}>📖 Recipe</button>
             <button onClick={()=>setEditM(m)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px"}}>Edit</button>
@@ -1696,29 +1725,41 @@ function RecipePage({menuId,menus,updateMenus,recipeLines,updateRecipeLines,cook
 /* ── DashboardPage ── */
 function DashboardPage({menus,recipeLines,storePrices,setSelectedMenu,setPage}){
   const cats=useContext(CatsCtx);
-  const[cat,setCat]=useState("All");const[search,setSearch]=useState("");
   const enriched=useMemo(()=>menus.map(m=>{
     const c=calcMenuCost(m.id,recipeLines,m);
     const sp=storePrices.filter(p=>String(p.menu_id)===String(m.id));
-    return{...m,...c,storeCount:sp.length};
+    const lc=recipeLines.filter(r=>String(r.menu_id)===String(m.id)).length;
+    const status=lc>0&&toBool(m.checked)?"verified":lc>0?"has_recipe":"draft";
+    return{...m,...c,storeCount:sp.length,status};
   }),[menus,recipeLines,storePrices]);
   const withPrice=useMemo(()=>enriched.filter(m=>m.foodCostPct!==null),[enriched]);
   const avgFoodCost=useMemo(()=>!withPrice.length?null:withPrice.reduce((s,m)=>s+m.foodCostPct,0)/withPrice.length,[withPrice]);
-  const filtered=useMemo(()=>enriched.filter(m=>{
-    if(cat!=="All"&&m.category!==cat)return false;
-    if(search){const s=search.toLowerCase();return m.name_en?.toLowerCase().includes(s)||m.name_th?.includes(search)||m.menu_id?.toLowerCase().includes(s);}
-    return true;
-  }),[enriched,cat,search]);
+  const needsRecipe=useMemo(()=>enriched.filter(m=>m.status==="draft"&&m.menu_type!=="precooked").slice(0,8),[enriched]);
+  const highCost=useMemo(()=>[...withPrice].filter(m=>m.foodCostPct!==null).sort((a,b)=>b.foodCostPct-a.foodCostPct).slice(0,8),[withPrice]);
+  const catBreakdown=useMemo(()=>{
+    const map={};
+    enriched.forEach(m=>{
+      const k=m.menu_type==="precooked"?"🍳 Pre-Cooked":(m.category||"Other");
+      if(!map[k])map[k]={name:k,total:0,withRecipe:0,verified:0};
+      map[k].total++;
+      if(m.status==="has_recipe"||m.status==="verified")map[k].withRecipe++;
+      if(m.status==="verified")map[k].verified++;
+    });
+    return Object.values(map).sort((a,b)=>b.total-a.total);
+  },[enriched]);
   function go(id){setSelectedMenu(id);setPage("recipe");}
+  const totalFoodMenus=enriched.filter(m=>m.menu_type!=="precooked").length;
+  const verified=enriched.filter(m=>m.status==="verified").length;
   return <div style={{flex:1,padding:"28px 32px",overflowY:"auto"}}>
     <div style={{marginBottom:22}}><h2 style={{fontSize:24,fontWeight:800,margin:"0 0 4px"}}>Dashboard</h2>
       <div style={{fontSize:14,color:"#6b7280"}}>UPB Kitchen — Food Cost Overview</div></div>
-    <div style={{display:"flex",gap:14,marginBottom:22,flexWrap:"wrap"}}>
+    {/* Stat cards */}
+    <div style={{display:"flex",gap:14,marginBottom:24,flexWrap:"wrap"}}>
       {[
         {label:"Total Menus",val:menus.length,icon:"📋",color:"#166534",bg:"#dcfce7"},
-        {label:"With Recipe",val:enriched.filter(m=>m.lineCount>0).length,icon:"📖",color:"#1d4ed8",bg:"#dbeafe"},
+        {label:"Verified",val:verified,icon:"✅",color:"#166534",bg:"#dcfce7"},
+        {label:"Needs Recipe",val:needsRecipe.length+(enriched.filter(m=>m.status==="draft"&&m.menu_type!=="precooked").length>8?"+":""),icon:"⚠️",color:"#92400e",bg:"#fef3c7"},
         {label:"Avg Food Cost",val:avgFoodCost!==null?fmtP(avgFoodCost):"—",icon:"💹",color:avgFoodCost!==null?pctColor(avgFoodCost):"#9ca3af",bg:"#f3f4f6"},
-        {label:"Store Prices Set",val:storePrices.length,icon:"🏪",color:"#92400e",bg:"#fef3c7"},
       ].map(({label,val,icon,color,bg})=>
         <div key={label} className="card" style={{flex:1,minWidth:150,padding:"18px 22px"}}>
           <div style={{fontSize:24,marginBottom:8}}>{icon}</div>
@@ -1727,36 +1768,84 @@ function DashboardPage({menus,recipeLines,storePrices,setSelectedMenu,setPage}){
         </div>
       )}
     </div>
-    <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
-      {["All",...cats.map(c=>c.name)].map(c=><button key={c} onClick={()=>setCat(c)} className="btn"
-        style={{fontSize:12,padding:"5px 12px",background:cat===c?"#166534":"#f1f5f9",color:cat===c?"#fff":"#374151"}}>{c}</button>)}
-      <input className="inp" placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)} style={{width:190,marginLeft:"auto"}}/>
+    {/* Progress bar */}
+    {totalFoodMenus>0&&<div className="card" style={{padding:"16px 20px",marginBottom:20}}>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:600,marginBottom:8}}>
+        <span>Recipe Completion</span>
+        <span style={{color:"#166534"}}>{verified}/{totalFoodMenus} verified</span>
+      </div>
+      <div style={{background:"#f1f5f9",borderRadius:99,height:10,overflow:"hidden"}}>
+        {(()=>{
+          const hasR=enriched.filter(m=>m.menu_type!=="precooked"&&m.status==="has_recipe").length;
+          const verR=verified;
+          const tot=totalFoodMenus;
+          return<>
+            <div style={{width:`${(verR/tot)*100}%`,background:"#16a34a",height:"100%",float:"left",borderRadius:"99px 0 0 99px"}}/>
+            <div style={{width:`${(hasR/tot)*100}%`,background:"#60a5fa",height:"100%",float:"left"}}/>
+          </>;
+        })()}
+      </div>
+      <div style={{display:"flex",gap:16,marginTop:8,fontSize:11,color:"#6b7280"}}>
+        <span><span style={{display:"inline-block",width:10,height:10,background:"#16a34a",borderRadius:2,marginRight:4}}/>Verified</span>
+        <span><span style={{display:"inline-block",width:10,height:10,background:"#60a5fa",borderRadius:2,marginRight:4}}/>Has Recipe</span>
+        <span><span style={{display:"inline-block",width:10,height:10,background:"#e5e7eb",borderRadius:2,marginRight:4}}/>Draft</span>
+      </div>
+    </div>}
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}}>
+      {/* Needs attention */}
+      <div className="card" style={{padding:"16px 20px"}}>
+        <div style={{fontWeight:700,fontSize:14,marginBottom:12,display:"flex",alignItems:"center",gap:6}}>
+          <span>⚠️</span> Needs Recipe
+          <span style={{fontSize:11,color:"#9ca3af",fontWeight:400,marginLeft:"auto"}}>{enriched.filter(m=>m.status==="draft"&&m.menu_type!=="precooked").length} total</span>
+        </div>
+        {needsRecipe.length===0?<div style={{fontSize:13,color:"#6b7280"}}>All menus have a recipe 🎉</div>:
+          needsRecipe.map(m=><div key={m.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid #f1f5f9"}}>
+            <span style={{fontSize:11,fontWeight:700,color:"#166534",minWidth:52}}>{m.menu_id}</span>
+            <span style={{fontSize:13,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.name_en}</span>
+            <button onClick={()=>go(m.id)} className="btn btn-o" style={{fontSize:10,padding:"2px 8px"}}>Add →</button>
+          </div>)
+        }
+      </div>
+      {/* High food cost */}
+      <div className="card" style={{padding:"16px 20px"}}>
+        <div style={{fontWeight:700,fontSize:14,marginBottom:12,display:"flex",alignItems:"center",gap:6}}>
+          <span>📈</span> Highest Food Cost %
+        </div>
+        {highCost.length===0?<div style={{fontSize:13,color:"#6b7280"}}>No costed menus yet</div>:
+          highCost.map(m=><div key={m.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderBottom:"1px solid #f1f5f9"}}>
+            <span style={{fontSize:11,fontWeight:700,color:"#166534",minWidth:52}}>{m.menu_id}</span>
+            <span style={{fontSize:13,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.name_en}</span>
+            <PctBadge pct={m.foodCostPct}/>
+          </div>)
+        }
+      </div>
     </div>
-    <div className="card" style={{overflow:"hidden"}}>
+    {/* Category breakdown */}
+    <div className="card" style={{padding:"16px 20px"}}>
+      <div style={{fontWeight:700,fontSize:14,marginBottom:14}}>📂 By Category</div>
       <table style={{width:"100%",borderCollapse:"collapse"}}>
         <thead><tr>
-          <th className="th">Menu</th><th className="th">Category</th>
-          <th className="th" style={{textAlign:"right"}}>Recipe Lines</th>
-          <th className="th" style={{textAlign:"right"}}>Cost/Serve</th>
-          <th className="th" style={{textAlign:"right"}}>Suggested (excl. VAT)</th>
-          <th className="th" style={{textAlign:"right"}}>Base Price</th>
-          <th className="th" style={{textAlign:"right"}}>Food Cost %</th>
-          <th className="th" style={{textAlign:"right"}}>Stores</th>
-          <th className="th"/>
+          <th className="th">Category</th>
+          <th className="th" style={{textAlign:"right"}}>Menus</th>
+          <th className="th" style={{textAlign:"right"}}>Has Recipe</th>
+          <th className="th" style={{textAlign:"right"}}>Verified</th>
+          <th className="th">Progress</th>
         </tr></thead>
-        <tbody>{filtered.map(m=><tr key={m.id} style={{cursor:"pointer"}} onClick={()=>go(m.id)}>
-          <td className="td"><div style={{fontWeight:600,fontSize:12,color:"#166534"}}>{m.menu_id}</div>
-            <div style={{fontWeight:500,fontSize:13}}>{m.name_en}</div>
-            <div style={{fontSize:11,color:"#9ca3af"}}>{m.name_th}</div></td>
-          <td className="td">{m.menu_type==="precooked"?<span className="badge" style={{background:"#fef3c7",color:"#92400e"}}>🍳 Pre-Cooked</span>:<CatBadge cat={m.category}/>}</td>
-          <td className="td" style={{textAlign:"right"}}>{m.lineCount||0}</td>
-          <td className="td" style={{textAlign:"right",fontWeight:600}}>{m.lineCount>0?fmtB(m.costPerServe):"—"}</td>
-          <td className="td" style={{textAlign:"right",fontWeight:600,color:"#166534"}}>{m.lineCount>0?fmtB(m.suggestExcl):"—"}</td>
-          <td className="td" style={{textAlign:"right",fontWeight:600}}>{m.actual_price!==""&&m.actual_price!==null?fmtB(m.actual_price):"—"}</td>
-          <td className="td" style={{textAlign:"right"}}><PctBadge pct={m.foodCostPct}/></td>
-          <td className="td" style={{textAlign:"right"}}>{m.storeCount>0?<span className="badge" style={{background:"#dbeafe",color:"#1e40af"}}>🏪 {m.storeCount}</span>:"—"}</td>
-          <td className="td"><button onClick={e=>{e.stopPropagation();go(m.id);}} className="btn btn-o" style={{fontSize:11,padding:"3px 10px"}}>View →</button></td>
-        </tr>)}</tbody>
+        <tbody>{catBreakdown.map(c=>{
+          const pct=c.total>0?(c.withRecipe/c.total)*100:0;
+          return<tr key={c.name}>
+            <td className="td"><CatBadge cat={c.name}/></td>
+            <td className="td" style={{textAlign:"right",fontWeight:600}}>{c.total}</td>
+            <td className="td" style={{textAlign:"right",color:"#1d4ed8"}}>{c.withRecipe}</td>
+            <td className="td" style={{textAlign:"right",color:"#166534"}}>{c.verified}</td>
+            <td className="td" style={{minWidth:100}}>
+              <div style={{background:"#f1f5f9",borderRadius:99,height:6,overflow:"hidden",position:"relative"}}>
+                <div style={{width:`${(c.verified/c.total)*100}%`,background:"#16a34a",height:"100%",position:"absolute",left:0}}/>
+                <div style={{width:`${pct}%`,background:"#93c5fd",height:"100%",position:"absolute",left:0,zIndex:0}}/>
+              </div>
+            </td>
+          </tr>;
+        })}</tbody>
       </table>
     </div>
   </div>;
@@ -1791,6 +1880,7 @@ function App(){
   const saveError=menuErr||ingrErr||lineErr||stepErr||catErr||storeErr||spErr||ingrCatErr;
   const[page,setPage]=useState("dashboard");
   const[selectedMenu,setSelectedMenu]=useState(null);
+  const[menuCat,setMenuCat]=useState("All"); // lifted so filter survives recipe navigation
   const[showCatMgr,setShowCatMgr]=useState(false);
   const[showIngrCatMgr,setShowIngrCatMgr]=useState(false);
   const[showStoreMgr,setShowStoreMgr]=useState(false);
@@ -1865,7 +1955,8 @@ function App(){
           onRefresh={handleRefresh} syncing={syncing}/>
         {page==="dashboard"&&<DashboardPage menus={menus} recipeLines={recipeLines} storePrices={storePrices} setSelectedMenu={setSelectedMenu} setPage={setPage}/>}
         {page==="menus"&&<MenusPage menus={menus} updateMenus={updMenus} setSelectedMenu={navRecipe}
-          ingredients={ingredients} updateIngredients={updIngr} updateRecipeLines={updLines} updateCookingSteps={updSteps}/>}
+          ingredients={ingredients} updateIngredients={updIngr} updateRecipeLines={updLines} updateCookingSteps={updSteps}
+          recipeLines={recipeLines} menuCat={menuCat} setMenuCat={setMenuCat}/>}
         {page==="ingredients"&&<IngredientsPage ingredients={ingredients} updateIngredients={updIngr} onIngrCatMgr={openIngrCatMgr}/>}
         {page==="recipe"&&<RecipePage menuId={selectedMenu} menus={menus} updateMenus={updMenus}
           recipeLines={recipeLines} updateRecipeLines={updLines}
