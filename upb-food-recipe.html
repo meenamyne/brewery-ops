@@ -1750,6 +1750,7 @@ function DashboardPage({menus,recipeLines,storePrices,setSelectedMenu,setPage}){
     return Object.values(map).sort((a,b)=>b.total-a.total);
   },[enriched]);
   const totalFoodMenus=enriched.filter(m=>m.menu_type!=="precooked").length;
+  const totalPreCooked=enriched.filter(m=>m.menu_type==="precooked").length;
   const storeBreakdown=useMemo(()=>{
     const regularMenuIds=new Set(enriched.filter(m=>m.menu_type!=="precooked").map(m=>m.id));
     return stores.map(s=>{
@@ -1766,18 +1767,33 @@ function DashboardPage({menus,recipeLines,storePrices,setSelectedMenu,setPage}){
       <div style={{fontSize:14,color:"#6b7280"}}>UPB Kitchen — Food Cost Overview</div></div>
     {/* Stat cards */}
     <div style={{display:"flex",gap:14,marginBottom:24,flexWrap:"wrap"}}>
-      {[
-        {label:"Total Menus",val:menus.length,icon:"📋",color:"#166534",bg:"#dcfce7"},
-        {label:"Verified",val:verified,icon:"✅",color:"#166534",bg:"#dcfce7"},
-        {label:"Needs Recipe",val:allNeedsRecipe.length,icon:"⚠️",color:"#92400e",bg:"#fef3c7"},
-        {label:"Avg Food Cost",val:avgFoodCost!==null?fmtP(avgFoodCost):"—",icon:"💹",color:avgFoodCost!==null?pctColor(avgFoodCost):"#9ca3af",bg:"#f3f4f6"},
-      ].map(({label,val,icon,color,bg})=>
-        <div key={label} className="card" style={{flex:1,minWidth:150,padding:"18px 22px"}}>
-          <div style={{fontSize:24,marginBottom:8}}>{icon}</div>
-          <div style={{fontSize:28,fontWeight:800,color}}>{val}</div>
-          <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>{label}</div>
-        </div>
-      )}
+      <div className="card" style={{flex:1,minWidth:150,padding:"18px 22px"}}>
+        <div style={{fontSize:24,marginBottom:8}}>🍽️</div>
+        <div style={{fontSize:28,fontWeight:800,color:"#166534"}}>{totalFoodMenus}</div>
+        <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>Food Menus</div>
+      </div>
+      <div className="card" style={{flex:1,minWidth:150,padding:"18px 22px"}}>
+        <div style={{fontSize:24,marginBottom:8}}>🍳</div>
+        <div style={{fontSize:28,fontWeight:800,color:"#92400e"}}>{totalPreCooked}</div>
+        <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>Pre-Cooked</div>
+      </div>
+      <div className="card" style={{flex:1,minWidth:150,padding:"18px 22px"}}>
+        <div style={{fontSize:24,marginBottom:8}}>✅</div>
+        <div style={{fontSize:28,fontWeight:800,color:"#166534"}}>{verified}</div>
+        <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>Verified</div>
+        <div style={{fontSize:11,color:"#9ca3af",marginTop:1}}>of {totalFoodMenus} food menus</div>
+      </div>
+      <div className="card" style={{flex:1,minWidth:150,padding:"18px 22px"}}>
+        <div style={{fontSize:24,marginBottom:8}}>⚠️</div>
+        <div style={{fontSize:28,fontWeight:800,color:"#92400e"}}>{allNeedsRecipe.length}</div>
+        <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>Needs Recipe</div>
+        <div style={{fontSize:11,color:"#9ca3af",marginTop:1}}>food menus only</div>
+      </div>
+      <div className="card" style={{flex:1,minWidth:150,padding:"18px 22px"}}>
+        <div style={{fontSize:24,marginBottom:8}}>💹</div>
+        <div style={{fontSize:28,fontWeight:800,color:avgFoodCost!==null?pctColor(avgFoodCost):"#9ca3af"}}>{avgFoodCost!==null?fmtP(avgFoodCost):"—"}</div>
+        <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>Avg Food Cost</div>
+      </div>
     </div>
     {/* Progress bar */}
     {totalFoodMenus>0&&<div className="card" style={{padding:"16px 20px",marginBottom:20}}>
