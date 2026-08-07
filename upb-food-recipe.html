@@ -596,7 +596,7 @@ function Modal({open,onClose,title,children,wide}){
 function CatBadge({cat}){
   const cats=useContext(CatsCtx);
   const s=getCatStyle(cats,cat);
-  return <span className="badge" style={{background:s.bg,color:s.tx}}>{s.icon} {cat||"—"}</span>;
+  return <span className="badge" style={{background:s.bg,color:s.tx,whiteSpace:"nowrap"}}>{s.icon} {cat||"—"}</span>;
 }
 
 function PctBadge({pct}){
@@ -876,6 +876,222 @@ function EditMenuModal({open,onClose,menu,onSave,menus}){
   </Modal>;
 }
 
+/* ── Recipe Print helpers ── */
+function escH(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+
+function buildPrintHTML(selectedMenus,recipeLines,ingredients,cookingSteps){
+  const now=new Date().toLocaleDateString("th-TH",{year:"numeric",month:"long",day:"numeric"});
+  const summaryRows=selectedMenus.map((m,idx)=>{
+    const c=calcMenuCost(m.id,recipeLines,m);
+    return`<tr>
+      <td>${idx+1}</td>
+      <td style="font-weight:700;color:#166534">${escH(m.menu_id)}</td>
+      <td><div style="font-weight:600">${escH(m.name_en)}</div><div style="font-size:10pt;color:#6b7280">${escH(m.name_th)}</div></td>
+      <td>${escH(m.category)}</td>
+      <td class="r">${m.serves_per_recipe||1}</td>
+      <td class="r">${c.costPerServe>0?"฿"+c.costPerServe.toFixed(2):"—"}</td>
+      <td class="r" style="color:#166534;font-weight:700">${c.suggestIncl>0?"฿"+c.suggestIncl.toFixed(2):"—"}</td>
+    </tr>`;
+  }).join("");
+  const recipePages=selectedMenus.map(m=>{
+    const lines=recipeLines.filter(r=>String(r.menu_id)===String(m.id));
+    const steps=(cookingSteps||[]).filter(s=>String(s.menu_id)===String(m.id)).sort((a,b)=>a.step_no-b.step_no);
+    const c=calcMenuCost(m.id,recipeLines,m);
+    const serves=m.serves_per_recipe||1;
+    const ingRows=lines.map((l,i)=>{
+      return`<tr>
+        <td style="text-align:center;color:#9ca3af">${i+1}</td>
+        <td>${escH(l.ingredient_name||"")}</td>
+        <td class="r">${l.usage_qty||0}</td>
+        <td style="color:#6b7280">${escH(l.usage_unit||"")}</td>
+        <td class="r">฿${(+l.ingredient_cost||0).toFixed(2)}</td>
+      </tr>`;
+    }).join("")||`<tr><td colspan="5" style="text-align:center;padding:12px;color:#9ca3af">No ingredients added yet</td></tr>`;
+    const stepsHtml=steps.length?`<div class="section">
+      <div class="section-title">วิธีการปรุงอาหาร / Cooking Steps</div>
+      <ol class="steps">${steps.map(s=>`<li>${escH(s.instruction)}</li>`).join("")}</ol>
+    </div>`:"";
+    return`<div class="page">
+      <div class="recipe-header">
+        <div class="recipe-id">${escH(m.menu_id)}</div>
+        <div class="recipe-title">${escH(m.name_en)}</div>
+        ${m.name_th?`<div class="recipe-title-th">${escH(m.name_th)}</div>`:""}
+      </div>
+      <div class="info-row">
+        <div class="info-box"><div class="info-label">Category</div><div class="info-val">${escH(m.category)}</div></div>
+        <div class="info-box"><div class="info-label">Batch Yield</div><div class="info-val">${serves} serves</div></div>
+        <div class="info-box"><div class="info-label">Spice & Misc</div><div class="info-val">${Math.round((+m.spice_pct||0.1)*100)}%</div></div>
+        <div class="info-box"><div class="info-label">Target Food Cost</div><div class="info-val">${Math.round((+m.target_food_cost_pct||0.35)*100)}%</div></div>
+        ${m.actual_price!==""&&m.actual_price!==null&&m.actual_price!==undefined?`<div class="info-box"><div class="info-label">Selling Price</div><div class="info-val" style="color:#166534">฿${(+m.actual_price).toFixed(0)}</div></div>`:""}
+      </div>
+      <div class="section">
+        <div class="section-title">วัตถุดิบ / Ingredients (${lines.length} items)</div>
+        <table class="ingr-table">
+          <thead><tr><th>#</th><th>วัตถุดิบ / Ingredient</th><th class="r">ปริมาณ</th><th>หน่วย</th><th class="r">ต้นทุน (฿)</th></tr></thead>
+          <tbody>${ingRows}</tbody>
+          <tfoot>
+            <tr><td colspan="3"></td><td>รวม / Total</td><td class="r">฿${(c.rawCost||0).toFixed(2)}</td></tr>
+            <tr><td colspan="3"></td><td>Spice & Misc</td><td class="r">฿${((c.totalCost||0)-(c.rawCost||0)).toFixed(2)}</td></tr>
+            <tr class="ft-total"><td colspan="3"></td><td>ต้นทุน/สูตร</td><td class="r">฿${(c.totalCost||0).toFixed(2)}</td></tr>
+            <tr class="ft-serve"><td colspan="3"></td><td>ต้นทุน/เสิร์ฟ</td><td class="r">฿${(c.costPerServe||0).toFixed(2)}</td></tr>
+            ${c.suggestIncl>0?`<tr class="ft-sugg"><td colspan="3"></td><td>ราคาแนะนำ (incl. VAT)</td><td class="r">฿${c.suggestIncl.toFixed(2)}</td></tr>`:""}
+          </tfoot>
+        </table>
+      </div>
+      ${stepsHtml}
+    </div>`;
+  }).join("");
+  return`<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">
+<title>Recipe Print — UPB Kitchen</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Sarabun',sans-serif;font-size:11pt;color:#1a1a1a;background:#fff;}
+@page{size:A4;margin:14mm 14mm 16mm 14mm;}
+.page{page-break-after:always;padding-bottom:16px;}
+.page:last-child{page-break-after:avoid;}
+.r{text-align:right;}
+/* Summary */
+.sum-hdr{text-align:center;border-bottom:3px solid #166534;padding-bottom:12px;margin-bottom:18px;}
+.sum-hdr h1{font-size:20pt;font-weight:800;color:#166534;}
+.sum-hdr p{font-size:10pt;color:#6b7280;margin-top:4px;}
+.sum-table{width:100%;border-collapse:collapse;font-size:10pt;}
+.sum-table th{background:#166534;color:#fff;padding:7px 8px;text-align:left;font-weight:700;}
+.sum-table td{padding:6px 8px;border-bottom:1px solid #e5e7eb;vertical-align:middle;}
+.sum-table tr:nth-child(even) td{background:#f9fafb;}
+/* Recipe header */
+.recipe-header{background:#052e16;color:#fff;border-radius:8px;padding:16px 20px;margin-bottom:12px;}
+.recipe-id{font-size:11pt;font-weight:700;color:#4ade80;margin-bottom:3px;}
+.recipe-title{font-size:18pt;font-weight:800;}
+.recipe-title-th{font-size:12pt;color:#86efac;margin-top:2px;}
+/* Info row */
+.info-row{display:flex;gap:7px;margin-bottom:12px;flex-wrap:wrap;}
+.info-box{flex:1;min-width:80px;border:1px solid #e5e7eb;border-radius:6px;padding:7px 10px;}
+.info-label{font-size:7.5pt;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em;font-weight:700;}
+.info-val{font-size:12pt;font-weight:700;margin-top:2px;}
+/* Section */
+.section{margin-bottom:14px;}
+.section-title{font-size:10pt;font-weight:700;color:#166534;border-bottom:2px solid #166534;padding-bottom:4px;margin-bottom:8px;}
+/* Ingredient table */
+.ingr-table{width:100%;border-collapse:collapse;font-size:10pt;}
+.ingr-table th{background:#f1f5f9;padding:6px 8px;text-align:left;font-weight:700;font-size:8.5pt;text-transform:uppercase;letter-spacing:.03em;border-bottom:2px solid #e5e7eb;}
+.ingr-table td{padding:5px 8px;border-bottom:1px solid #f1f5f9;vertical-align:middle;}
+.ingr-table tfoot td{padding:5px 8px;border-top:1px solid #e2e8f0;}
+.ft-total td{background:#f1f5f9;font-weight:700;}
+.ft-serve td{background:#dcfce7;font-weight:800;font-size:11pt;}
+.ft-sugg td{background:#dbeafe;font-weight:700;color:#1d4ed8;}
+/* Steps */
+.steps{padding-left:18px;}
+.steps li{margin-bottom:5px;line-height:1.6;}
+@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+</style></head><body>
+<div class="page">
+  <div class="sum-hdr"><h1>🍽️ UPB Kitchen — Recipe Summary</h1>
+    <p>Printed: ${escH(now)} &nbsp;·&nbsp; ${selectedMenus.length} recipe${selectedMenus.length!==1?"s":""} selected</p>
+  </div>
+  <table class="sum-table"><thead><tr>
+    <th>#</th><th>ID</th><th>Menu Name</th><th>Category</th>
+    <th class="r">Serves</th><th class="r">Cost/Serve</th><th class="r">Suggested (incl. VAT)</th>
+  </tr></thead><tbody>${summaryRows}</tbody></table>
+</div>
+${recipePages}
+</body></html>`;
+}
+
+/* ── PrintRecipesModal ── */
+function PrintRecipesModal({open,onClose,menus,recipeLines,ingredients,cookingSteps}){
+  const cats=useContext(CatsCtx);
+  const[mode,setMode]=useState("category");
+  const[selCat,setSelCat]=useState("All");
+  const[selIds,setSelIds]=useState(new Set());
+  const[printing,setPrinting]=useState(false);
+  const selectedMenus=useMemo(()=>{
+    if(mode==="category")return menus.filter(m=>selCat==="All"||(m.category===selCat&&m.menu_type!=="precooked"));
+    return menus.filter(m=>selIds.has(m.id));
+  },[mode,menus,selCat,selIds]);
+  function toggleId(id){setSelIds(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});}
+  function toggleAll(ids){
+    const allSel=ids.every(id=>selIds.has(id));
+    setSelIds(prev=>{const n=new Set(prev);ids.forEach(id=>allSel?n.delete(id):n.add(id));return n;});
+  }
+  function doPrint(){
+    if(!selectedMenus.length)return;
+    setPrinting(true);
+    const html=buildPrintHTML(selectedMenus,recipeLines,ingredients,cookingSteps);
+    const win=window.open("","_blank");
+    if(!win){alert("Please allow pop-ups for this page.");setPrinting(false);return;}
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(()=>{win.print();setPrinting(false);},900);
+  }
+  const foodMenus=useMemo(()=>menus.filter(m=>m.menu_type!=="precooked"),[menus]);
+  const catGroups=useMemo(()=>{
+    const map={};
+    foodMenus.forEach(m=>{if(!map[m.category])map[m.category]=[];map[m.category].push(m);});
+    return map;
+  },[foodMenus]);
+  if(!open)return null;
+  return<div className="ov"><div className="mb" style={{maxWidth:640,maxHeight:"80vh",display:"flex",flexDirection:"column"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+      <h3 style={{fontSize:17,fontWeight:700}}>🖨️ Print / Export Recipes as PDF</h3>
+      <button onClick={onClose} className="btn btn-o" style={{fontSize:12}}>✕ Close</button>
+    </div>
+    {/* Mode tabs */}
+    <div style={{display:"flex",gap:6,marginBottom:14}}>
+      {[["category","📂 By Category"],["select","☑ Select Recipes"]].map(([k,label])=>
+        <button key={k} onClick={()=>setMode(k)} className="btn"
+          style={{fontSize:12,padding:"6px 14px",background:mode===k?"#166534":"#f1f5f9",color:mode===k?"#fff":"#374151"}}>
+          {label}
+        </button>
+      )}
+    </div>
+    {mode==="category"&&<div>
+      <div style={{fontSize:12,color:"#6b7280",marginBottom:8}}>Select a category — all its food menus will be included:</div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+        {["All",...cats.map(c=>c.name)].map(c=><button key={c} onClick={()=>setSelCat(c)} className="btn"
+          style={{fontSize:12,padding:"5px 12px",background:selCat===c?"#166534":"#f1f5f9",color:selCat===c?"#fff":"#374151"}}>
+          {c} {c==="All"?`(${foodMenus.length})`:catGroups[c]?`(${catGroups[c].length})`:"(0)"}
+        </button>)}
+      </div>
+    </div>}
+    {mode==="select"&&<div style={{overflowY:"auto",flex:1,marginBottom:12,border:"1px solid #e5e7eb",borderRadius:8}}>
+      {cats.map(cat=>{
+        const catMenus=foodMenus.filter(m=>m.category===cat.name);
+        if(!catMenus.length)return null;
+        const catIds=catMenus.map(m=>m.id);
+        const allChk=catIds.every(id=>selIds.has(id));
+        return<div key={cat.id}>
+          <div style={{background:"#f8fafc",padding:"7px 14px",borderBottom:"1px solid #e5e7eb",display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}
+            onClick={()=>toggleAll(catIds)}>
+            <input type="checkbox" checked={allChk} onChange={()=>{}} style={{cursor:"pointer"}}/>
+            <span style={{fontWeight:700,fontSize:12}}>{cat.name}</span>
+            <span style={{fontSize:11,color:"#9ca3af"}}>({catMenus.length})</span>
+          </div>
+          {catMenus.map(m=><div key={m.id} style={{padding:"6px 14px 6px 30px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}
+            onClick={()=>toggleId(m.id)}>
+            <input type="checkbox" checked={selIds.has(m.id)} onChange={()=>{}} style={{cursor:"pointer"}}/>
+            <span style={{fontSize:11,fontWeight:600,color:"#166534",minWidth:48}}>{m.menu_id}</span>
+            <span style={{fontSize:12}}>{m.name_en}</span>
+            {m.name_th&&<span style={{fontSize:11,color:"#9ca3af"}}>{m.name_th}</span>}
+          </div>)}
+        </div>;
+      })}
+    </div>}
+    {/* Footer */}
+    <div style={{borderTop:"1px solid #e5e7eb",paddingTop:14,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <div style={{fontSize:13,color:"#6b7280"}}>
+        <span style={{fontWeight:700,color:"#166534",fontSize:15}}>{selectedMenus.length}</span> recipe{selectedMenus.length!==1?"s":""} selected
+        {selectedMenus.length>0&&<span style={{marginLeft:8,fontSize:11}}>· 1 summary page + {selectedMenus.length} recipe page{selectedMenus.length!==1?"s":""}</span>}
+      </div>
+      <button onClick={doPrint} disabled={!selectedMenus.length||printing} className="btn btn-g"
+        style={{fontSize:13,padding:"8px 20px",opacity:selectedMenus.length?1:.5}}>
+        {printing?"⏳ Opening…":"🖨️ Print / Save as PDF"}
+      </button>
+    </div>
+  </div></div>;
+}
+
 /* ── MenusPage ── */
 function menuStatus(m,recipeLines){
   const lc=recipeLines.filter(r=>String(r.menu_id)===String(m.id)).length;
@@ -888,7 +1104,7 @@ function StatusBadge({status}){
   if(status==="has_recipe")return<span className="badge" style={{background:"#dbeafe",color:"#1e40af"}}>📖 Has Recipe</span>;
   return<span className="badge" style={{background:"#f3f4f6",color:"#6b7280"}}>⬜ Draft</span>;
 }
-function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredients,updateRecipeLines,updateCookingSteps,recipeLines,menuCat,setMenuCat}){
+function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredients,updateRecipeLines,updateCookingSteps,recipeLines,cookingSteps,menuCat,setMenuCat}){
   const cats=useContext(CatsCtx);
   const[search,setSearch]=useState("");
   const[statusFilter,setStatusFilter]=useState("All");
@@ -898,6 +1114,7 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
   const[dupSrc,setDupSrc]=useState(null); // menu being duplicated
   const[dupName,setDupName]=useState("");
   const[showRecipeUpload,setShowRecipeUpload]=useState(false);
+  const[showPrint,setShowPrint]=useState(false);
   const enriched=useMemo(()=>menus.map(m=>{
     const c=calcMenuCost(m.id,recipeLines,m);
     return{...m,status:menuStatus(m,recipeLines),...c};
@@ -929,6 +1146,7 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
       <div><h2 style={{fontSize:22,fontWeight:700,margin:0}}>All Menus</h2>
         <div style={{fontSize:13,color:"#6b7280",marginTop:2}}>{menus.length} items · {filtered.length} shown</div></div>
       <div style={{display:"flex",gap:8}}>
+        <button onClick={()=>setShowPrint(true)} className="btn" style={{background:"#7c3aed",color:"#fff"}}>🖨️ Print PDF</button>
         <button onClick={()=>setShowRecipeUpload(true)} className="btn btn-b">📤 Upload Recipe Book</button>
         <button onClick={()=>setShowAdd(true)} className="btn btn-g">+ Add Menu</button>
       </div>
@@ -950,7 +1168,18 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
       <input className="inp" placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)} style={{width:190,marginLeft:"auto"}}/>
     </div>
     <div className="card" style={{overflow:"hidden"}}>
-      <table style={{width:"100%",borderCollapse:"collapse"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed"}}>
+        <colgroup>
+          <col style={{width:72}}/>{/* ID */}
+          <col/>{/* Menu Name — flexible */}
+          <col style={{width:140}}/>{/* Category */}
+          <col style={{width:100}}/>{/* Cost/Batch */}
+          <col style={{width:100}}/>{/* Cost/Serve */}
+          <col style={{width:100}}/>{/* Actual Price */}
+          <col style={{width:120}}/>{/* Suggested */}
+          <col style={{width:110}}/>{/* Status */}
+          <col style={{width:210}}/>{/* Actions */}
+        </colgroup>
         <thead><tr>
           <th className="th">ID</th><th className="th">Menu Name</th><th className="th">Category</th>
           <th className="th" style={{textAlign:"right"}}>Cost/Batch</th>
@@ -965,7 +1194,7 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
           return<tr key={m.id}>
             <td className="td" style={{fontWeight:600,color:"#166534",fontSize:12}}>{m.menu_id}</td>
             <td className="td"><div style={{fontWeight:500}}>{m.name_en}</div><div style={{fontSize:11,color:"#9ca3af"}}>{m.name_th}</div></td>
-            <td className="td">{isPC?<span className="badge" style={{background:"#fef3c7",color:"#92400e"}}>🍳 Pre-Cooked</span>:<CatBadge cat={m.category}/>}</td>
+            <td className="td">{isPC?<span className="badge" style={{background:"#fef3c7",color:"#92400e",whiteSpace:"nowrap"}}>🍳 Pre-Cooked</span>:<CatBadge cat={m.category}/>}</td>
             <td className="td" style={{textAlign:"right",fontWeight:600,color:"#374151"}}>
               {isPC?(hasLines?fmtB(m.totalCost):"—"):"—"}
             </td>
@@ -990,6 +1219,8 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
       </table>
     </div>
     <EditMenuModal open={showAdd||!!editM} onClose={()=>{setShowAdd(false);setEditM(null);}} menu={editM} onSave={saveMenu} menus={menus}/>
+    <PrintRecipesModal open={showPrint} onClose={()=>setShowPrint(false)}
+      menus={menus} recipeLines={recipeLines} ingredients={ingredients} cookingSteps={cookingSteps}/>
     <UploadRecipeBookModal open={showRecipeUpload} onClose={()=>setShowRecipeUpload(false)}
       menus={menus} updateMenus={updateMenus} ingredients={ingredients} updateIngredients={updateIngredients} updateRecipeLines={updateRecipeLines} updateCookingSteps={updateCookingSteps}/>
     {dupSrc&&<div className="ov"><div className="mb" style={{maxWidth:420}}>
@@ -2078,7 +2309,7 @@ function App(){
         {page==="dashboard"&&<DashboardPage menus={menus} recipeLines={recipeLines} storePrices={storePrices} setSelectedMenu={setSelectedMenu} setPage={setPage}/>}
         {page==="menus"&&<MenusPage menus={menus} updateMenus={updMenus} setSelectedMenu={navRecipe}
           ingredients={ingredients} updateIngredients={updIngr} updateRecipeLines={updLines} updateCookingSteps={updSteps}
-          recipeLines={recipeLines} menuCat={menuCat} setMenuCat={setMenuCat}/>}
+          recipeLines={recipeLines} cookingSteps={cookingSteps} menuCat={menuCat} setMenuCat={setMenuCat}/>}
         {page==="ingredients"&&<IngredientsPage ingredients={ingredients} updateIngredients={updIngr} onIngrCatMgr={openIngrCatMgr}/>}
         {page==="recipe"&&<RecipePage menuId={selectedMenu} menus={menus} updateMenus={updMenus}
           recipeLines={recipeLines} updateRecipeLines={updLines}
