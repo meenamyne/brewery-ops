@@ -389,9 +389,13 @@ function parseRecipeBook(file,onParsed){
           }
         }
         const lines=[];
+        let stepsStartRow=-1; // will be set when we find the cooking steps header
         if(hdrRow>=0&&ingCol>=0){
           for(let r=hdrRow+1;r<rows.length;r++){
             const row=rows[r];
+            // Check if this row is the cooking steps header before parsing as ingredient
+            const rowText=row.map(c=>String(c||"").trim()).join(" ");
+            if(rowText.includes("วิธีการปรุงอาหาร")){stepsStartRow=r+1;break;}
             const name=String(row[ingCol]||"").trim();
             if(!name)continue;
             const yRaw=String(row[yldCol]||"100%").replace(/[^0-9.]/g,"");
@@ -412,8 +416,29 @@ function parseRecipeBook(file,onParsed){
             });
           }
         }
-        if(lines.length>0||nameTh){
-          results.push({sheetName,name_th:nameTh||sheetName,name_en:nameEn,lines});
+        // If cooking header wasn't found in ingredient rows, scan the rest of the sheet
+        if(stepsStartRow<0){
+          for(let r=hdrRow>=0?hdrRow:0;r<rows.length;r++){
+            const rowText=rows[r].map(c=>String(c||"").trim()).join(" ");
+            if(rowText.includes("วิธีการปรุงอาหาร")){stepsStartRow=r+1;break;}
+          }
+        }
+        // Parse cooking steps: col A = step number, col B (ingCol) = instruction text
+        const steps=[];
+        if(stepsStartRow>=0){
+          for(let r=stepsStartRow;r<rows.length;r++){
+            const row=rows[r];
+            const stepNo=parseInt(String(row[0]||"").trim());
+            if(!stepNo)continue; // skip blank or non-numbered rows
+            // Instruction text: prefer ingCol column, fall back to first non-empty cell after col A
+            let instr=String(row[ingCol>=0?ingCol:1]||"").trim();
+            if(!instr){for(let c=1;c<row.length;c++){const v=String(row[c]||"").trim();if(v){instr=v;break;}}}
+            if(!instr)continue;
+            steps.push({step_no:stepNo,instruction:instr});
+          }
+        }
+        if(lines.length>0||nameTh||steps.length>0){
+          results.push({sheetName,name_th:nameTh||sheetName,name_en:nameEn,lines,steps});
         }
       }
       onParsed(results);
@@ -801,7 +826,7 @@ function EditMenuModal({open,onClose,menu,onSave}){
 }
 
 /* ── MenusPage ── */
-function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredients,updateRecipeLines}){
+function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredients,updateRecipeLines,updateCookingSteps}){
   const cats=useContext(CatsCtx);
   const[cat,setCat]=useState("All");
   const[search,setSearch]=useState("");
@@ -850,7 +875,7 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
     </div>
     <EditMenuModal open={showAdd||!!editM} onClose={()=>{setShowAdd(false);setEditM(null);}} menu={editM} onSave={saveMenu}/>
     <UploadRecipeBookModal open={showRecipeUpload} onClose={()=>setShowRecipeUpload(false)}
-      menus={menus} ingredients={ingredients} updateIngredients={updateIngredients} updateRecipeLines={updateRecipeLines}/>
+      menus={menus} ingredients={ingredients} updateIngredients={updateIngredients} updateRecipeLines={updateRecipeLines} updateCookingSteps={updateCookingSteps}/>
     {delId&&<div className="ov"><div className="mb" style={{maxWidth:380}}>
       <h3 style={{fontSize:16,fontWeight:700,margin:"0 0 8px"}}>Delete Menu?</h3>
       <p style={{fontSize:13,color:"#6b7280",marginBottom:20}}>This cannot be undone.</p>
@@ -994,7 +1019,7 @@ function UploadIngrModal({open,onClose,existingIngredients,updateIngredients}){
 }
 
 /* ── UploadRecipeBookModal ── */
-function UploadRecipeBookModal({open,onClose,menus,ingredients,updateIngredients,updateRecipeLines}){
+function UploadRecipeBookModal({open,onClose,menus,ingredients,updateIngredients,updateRecipeLines,updateCookingSteps}){
   const[preview,setPreview]=useState(null);
   const[error,setError]=useState("");
   const[addMissing,setAddMissing]=useState(true);
@@ -1076,6 +1101,17 @@ function UploadRecipeBookModal({open,onClose,menus,ingredients,updateIngredients
       }
     }
     updateRecipeLines(prev=>[...prev.filter(l=>!replacedMenuIds.has(String(l.menu_id))),...newLines]);
+    // Import cooking steps
+    const newSteps=[];
+    for(const sheet of preview){
+      if(!sheet.matched)continue;
+      for(const step of(sheet.steps||[])){
+        newSteps.push({id:uid(),menu_id:sheet.matched.id,step_no:step.step_no,instruction:step.instruction});
+      }
+    }
+    if(newSteps.length>0&&updateCookingSteps){
+      updateCookingSteps(prev=>[...prev.filter(s=>!replacedMenuIds.has(String(s.menu_id))),...newSteps]);
+    }
     setImporting(false);
     setPreview(null);
     if(fileRef.current)fileRef.current.value="";
@@ -1086,6 +1122,7 @@ function UploadRecipeBookModal({open,onClose,menus,ingredients,updateIngredients
   const unmatchedCount=preview?preview.filter(s=>!s.matched).length:0;
   const allNewIngr=preview?[...new Map(preview.flatMap(s=>s.newIngr).map(i=>[i.ingredient_name.toLowerCase(),i])).values()]:[];
   const totalLines=preview?preview.filter(s=>s.matched).reduce((n,s)=>n+s.lines.length,0):0;
+  const totalSteps=preview?preview.filter(s=>s.matched).reduce((n,s)=>n+(s.steps||[]).length,0):0;
 
   return <Modal open={open} onClose={()=>{setPreview(null);setError("");if(fileRef.current)fileRef.current.value="";onClose();}} title="Upload Recipe Book (Multi-Sheet Excel)" wide>
     <div style={{display:"flex",gap:12,marginBottom:16,alignItems:"center"}}>
@@ -1103,6 +1140,7 @@ function UploadRecipeBookModal({open,onClose,menus,ingredients,updateIngredients
           {label:"Matched to menus",val:matchedCount,bg:"#dcfce7",tx:"#166534"},
           {label:"Unmatched",val:unmatchedCount,bg:unmatchedCount>0?"#fee2e2":"#f3f4f6",tx:unmatchedCount>0?"#991b1b":"#6b7280"},
           {label:"Recipe lines",val:totalLines,bg:"#fef9c3",tx:"#92400e"},
+          {label:"Cooking steps",val:totalSteps,bg:totalSteps>0?"#dbeafe":"#f3f4f6",tx:totalSteps>0?"#1d4ed8":"#6b7280"},
           {label:"New ingredients",val:allNewIngr.length,bg:allNewIngr.length>0?"#ede9fe":"#f3f4f6",tx:allNewIngr.length>0?"#5b21b6":"#6b7280"},
         ].map(({label,val,bg,tx})=>
           <div key={label} className="card" style={{padding:"10px 16px",flex:1,minWidth:100}}>
@@ -1115,7 +1153,7 @@ function UploadRecipeBookModal({open,onClose,menus,ingredients,updateIngredients
       {/* Sheet match table */}
       <div style={{maxHeight:200,overflowY:"auto",marginBottom:14}}>
         <table style={{width:"100%",borderCollapse:"collapse"}}>
-          <thead><tr><th className="th">Sheet Name</th><th className="th">Thai Name (in file)</th><th className="th">Matched Menu</th><th className="th" style={{textAlign:"right"}}>Lines</th></tr></thead>
+          <thead><tr><th className="th">Sheet Name</th><th className="th">Thai Name (in file)</th><th className="th">Matched Menu</th><th className="th" style={{textAlign:"right"}}>Lines</th><th className="th" style={{textAlign:"right"}}>Steps</th></tr></thead>
           <tbody>{preview.map((s,i)=><tr key={i}>
             <td className="td" style={{fontSize:12,color:"#6b7280"}}>{s.sheetName}</td>
             <td className="td" style={{fontWeight:500}}>{s.name_th}</td>
@@ -1124,6 +1162,7 @@ function UploadRecipeBookModal({open,onClose,menus,ingredients,updateIngredients
               :<span className="badge" style={{background:"#fee2e2",color:"#991b1b"}}>✗ No match</span>}
             </td>
             <td className="td" style={{textAlign:"right"}}>{s.lines.length}</td>
+            <td className="td" style={{textAlign:"right"}}>{(s.steps||[]).length>0?<span className="badge" style={{background:"#dbeafe",color:"#1e40af"}}>{(s.steps||[]).length}</span>:"—"}</td>
           </tr>)}</tbody>
         </table>
       </div>
@@ -1158,7 +1197,7 @@ function UploadRecipeBookModal({open,onClose,menus,ingredients,updateIngredients
       <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:4}}>
         <button onClick={()=>{setPreview(null);if(fileRef.current)fileRef.current.value="";}} className="btn btn-o">Clear</button>
         <button onClick={doImport} disabled={matchedCount===0||importing} className="btn btn-g">
-          {importing?"Importing…":`Import ${totalLines} recipe lines into ${matchedCount} menu(s)`}
+          {importing?"Importing…":`Import ${totalLines} lines + ${totalSteps} steps into ${matchedCount} menu(s)`}
         </button>
       </div>
     </>}
@@ -1753,7 +1792,7 @@ function App(){
           onRefresh={handleRefresh} syncing={syncing}/>
         {page==="dashboard"&&<DashboardPage menus={menus} recipeLines={recipeLines} storePrices={storePrices} setSelectedMenu={setSelectedMenu} setPage={setPage}/>}
         {page==="menus"&&<MenusPage menus={menus} updateMenus={updMenus} setSelectedMenu={navRecipe}
-          ingredients={ingredients} updateIngredients={updIngr} updateRecipeLines={updLines}/>}
+          ingredients={ingredients} updateIngredients={updIngr} updateRecipeLines={updLines} updateCookingSteps={updSteps}/>}
         {page==="ingredients"&&<IngredientsPage ingredients={ingredients} updateIngredients={updIngr} onIngrCatMgr={openIngrCatMgr}/>}
         {page==="recipe"&&<RecipePage menuId={selectedMenu} menus={menus} updateMenus={updMenus}
           recipeLines={recipeLines} updateRecipeLines={updLines}
