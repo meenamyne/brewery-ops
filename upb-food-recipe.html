@@ -1355,13 +1355,15 @@ function IngredientsPage({ingredients,updateIngredients,onIngrCatMgr}){
         <button onClick={()=>setShowAdd(true)} className="btn btn-g">+ Add Ingredient</button>
       </div>
     </div>
-    <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
-      <input className="inp" placeholder="Search ingredients…" value={search} onChange={e=>setSearch(e.target.value)} style={{width:240}}/>
-      <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:".06em",textTransform:"uppercase",marginLeft:4}}>Category:</div>
-      {["All",...ingrCats.map(c=>c.name)].map(c=><button key={c} onClick={()=>setCatFilter(c)} className="btn"
-        style={{fontSize:11,padding:"4px 11px",background:catFilter===c?"#166534":"#f1f5f9",color:catFilter===c?"#fff":"#374151",whiteSpace:"nowrap"}}>
-        {c}
-      </button>)}
+    <div style={{marginBottom:14}}>
+      <input className="inp" placeholder="Search ingredients…" value={search} onChange={e=>setSearch(e.target.value)} style={{width:280,marginBottom:8}}/>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+        <span style={{fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:".06em",textTransform:"uppercase",flexShrink:0}}>Category:</span>
+        {["All",...ingrCats.map(c=>c.name)].map(c=><button key={c} onClick={()=>setCatFilter(c)} className="btn"
+          style={{fontSize:11,padding:"4px 11px",background:catFilter===c?"#166534":"#f1f5f9",color:catFilter===c?"#fff":"#374151",whiteSpace:"nowrap"}}>
+          {c}
+        </button>)}
+      </div>
     </div>
     {filtered.length===0?<div className="card" style={{padding:40,textAlign:"center",color:"#9ca3af"}}>
       <div style={{fontSize:32,marginBottom:12}}>🧂</div>
@@ -1387,8 +1389,11 @@ function IngredientsPage({ingredients,updateIngredients,onIngrCatMgr}){
         <tbody>{filtered.map(i=>{
           const yld=parseFloat(i.yield_pct||1);const cpu=parseFloat(i.cost_per_unit||0);
           return <tr key={i.id}>
-            <td className="td"><div style={{fontWeight:500}}>{i.name}</div>
-              {(i.is_precooked===true||i.is_precooked==="true")&&<span className="badge" style={{background:"#fef3c7",color:"#92400e",marginTop:2}}>🍳 Pre-Cooked</span>}</td>
+            <td className="td">
+              <div style={{fontWeight:500}}>{i.name}</div>
+              {i.name_th&&i.name_th!==i.name&&<div style={{fontSize:11,color:"#9ca3af"}}>{i.name_th}</div>}
+              {(i.is_precooked===true||i.is_precooked==="true")&&<span className="badge" style={{background:"#fef3c7",color:"#92400e",marginTop:2}}>🍳 Pre-Cooked</span>}
+            </td>
             <td className="td" style={{fontSize:12,color:"#6b7280"}}>{i.supplier||"—"}</td>
             <td className="td" style={{fontSize:11}}>{i.ingr_category?<span className="badge" style={{background:"#f3f4f6",color:"#374151"}}>{i.ingr_category}</span>:"—"}</td>
             <td className="td" style={{textAlign:"right"}}>{fmtB(i.purchase_price||0)}</td>
