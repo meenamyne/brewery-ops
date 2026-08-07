@@ -368,6 +368,8 @@ function parseRecipeBook(file,onParsed){
         };
         const nameTh=findVal("ชื่อเมนู (ไทย)")||findVal("ชื่อเมนู(ไทย)");
         const nameEn=findVal("ชื่อเมนู (Eng)")||findVal("ชื่อเมนู(Eng)");
+        const servesRaw=findVal("จำนวนเสิร์ฟต่อสูตร")||findVal("จำนวนเสิร์ฟ");
+        const servesPerRecipe=Math.max(1,parseInt(String(servesRaw).replace(/[^0-9]/g,""))||1);
         // Find column-header row: the row containing exactly "วัตถุดิบ" as one of the cells
         let hdrRow=-1,ingCol=-1,pqCol=-1,puCol=-1,cpuCol=-1,yldCol=-1,uqCol=-1,uuCol=-1,icCol=-1;
         for(let r=5;r<Math.min(rows.length,25);r++){
@@ -438,7 +440,7 @@ function parseRecipeBook(file,onParsed){
           }
         }
         if(lines.length>0||nameTh||steps.length>0){
-          results.push({sheetName,name_th:nameTh||sheetName,name_en:nameEn,lines,steps});
+          results.push({sheetName,name_th:nameTh||sheetName,name_en:nameEn,lines,steps,serves_per_recipe:servesPerRecipe});
         }
       }
       onParsed(results);
@@ -894,7 +896,10 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
   const[showAdd,setShowAdd]=useState(false);
   const[delId,setDelId]=useState(null);
   const[showRecipeUpload,setShowRecipeUpload]=useState(false);
-  const enriched=useMemo(()=>menus.map(m=>({...m,status:menuStatus(m,recipeLines)})),[menus,recipeLines]);
+  const enriched=useMemo(()=>menus.map(m=>{
+    const c=calcMenuCost(m.id,recipeLines,m);
+    return{...m,status:menuStatus(m,recipeLines),...c};
+  }),[menus,recipeLines]);
   const filtered=useMemo(()=>enriched.filter(m=>{
     if(menuCat!=="All"&&m.category!==menuCat)return false;
     if(statusFilter!=="All"&&m.status!==statusFilter)return false;
@@ -935,25 +940,46 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
     </div>
     <div className="card" style={{overflow:"hidden"}}>
       <table style={{width:"100%",borderCollapse:"collapse"}}>
-        <thead><tr><th className="th">ID</th><th className="th">Menu Name</th><th className="th">Category</th>
-          <th className="th" style={{textAlign:"right"}}>Actual Price</th><th className="th">Status</th><th className="th">Actions</th></tr></thead>
-        <tbody>{filtered.map(m=><tr key={m.id}>
-          <td className="td" style={{fontWeight:600,color:"#166534",fontSize:12}}>{m.menu_id}</td>
-          <td className="td"><div style={{fontWeight:500}}>{m.name_en}</div><div style={{fontSize:11,color:"#9ca3af"}}>{m.name_th}</div></td>
-          <td className="td">{m.menu_type==="precooked"?<span className="badge" style={{background:"#fef3c7",color:"#92400e"}}>🍳 Pre-Cooked</span>:<CatBadge cat={m.category}/>}</td>
-          <td className="td" style={{textAlign:"right",fontWeight:600}}>{m.menu_type==="precooked"?<span style={{color:"#9ca3af",fontSize:12}}>auto-calc</span>:m.actual_price!==""&&m.actual_price!==null?fmtB(m.actual_price):"—"}</td>
-          <td className="td"><StatusBadge status={m.status}/></td>
-          <td className="td"><div style={{display:"flex",gap:5}}>
-            <button onClick={()=>setSelectedMenu(m.id)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px"}}>📖 Recipe</button>
-            <button onClick={()=>setEditM(m)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px"}}>Edit</button>
-            <button onClick={()=>setDelId(m.id)} className="btn" style={{fontSize:12,padding:"4px 10px",background:"#fee2e2",color:"#991b1b"}}>Del</button>
-          </div></td>
-        </tr>)}</tbody>
+        <thead><tr>
+          <th className="th">ID</th><th className="th">Menu Name</th><th className="th">Category</th>
+          <th className="th" style={{textAlign:"right"}}>Cost/Batch</th>
+          <th className="th" style={{textAlign:"right"}}>Cost/Serve</th>
+          <th className="th" style={{textAlign:"right"}}>Actual Price</th>
+          <th className="th" style={{textAlign:"right"}}>Suggested (incl. VAT)</th>
+          <th className="th">Status</th><th className="th">Actions</th>
+        </tr></thead>
+        <tbody>{filtered.map(m=>{
+          const isPC=m.menu_type==="precooked";
+          const hasLines=m.lineCount>0;
+          return<tr key={m.id}>
+            <td className="td" style={{fontWeight:600,color:"#166534",fontSize:12}}>{m.menu_id}</td>
+            <td className="td"><div style={{fontWeight:500}}>{m.name_en}</div><div style={{fontSize:11,color:"#9ca3af"}}>{m.name_th}</div></td>
+            <td className="td">{isPC?<span className="badge" style={{background:"#fef3c7",color:"#92400e"}}>🍳 Pre-Cooked</span>:<CatBadge cat={m.category}/>}</td>
+            <td className="td" style={{textAlign:"right",fontWeight:600,color:"#374151"}}>
+              {isPC?(hasLines?fmtB(m.totalCost):"—"):"—"}
+            </td>
+            <td className="td" style={{textAlign:"right",fontWeight:600,color:isPC?"#92400e":"#374151"}}>
+              {hasLines?fmtB(m.costPerServe):"—"}
+            </td>
+            <td className="td" style={{textAlign:"right",fontWeight:600}}>
+              {isPC?<span style={{color:"#9ca3af",fontSize:12}}>auto-calc</span>:m.actual_price!==""&&m.actual_price!==null?fmtB(m.actual_price):"—"}
+            </td>
+            <td className="td" style={{textAlign:"right",fontWeight:600,color:"#166534"}}>
+              {isPC?"—":hasLines?fmtB(m.suggestIncl):"—"}
+            </td>
+            <td className="td"><StatusBadge status={m.status}/></td>
+            <td className="td"><div style={{display:"flex",gap:5}}>
+              <button onClick={()=>setSelectedMenu(m.id)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px"}}>📖 Recipe</button>
+              <button onClick={()=>setEditM(m)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px"}}>Edit</button>
+              <button onClick={()=>setDelId(m.id)} className="btn" style={{fontSize:12,padding:"4px 10px",background:"#fee2e2",color:"#991b1b"}}>Del</button>
+            </div></td>
+          </tr>;
+        })}</tbody>
       </table>
     </div>
     <EditMenuModal open={showAdd||!!editM} onClose={()=>{setShowAdd(false);setEditM(null);}} menu={editM} onSave={saveMenu} menus={menus}/>
     <UploadRecipeBookModal open={showRecipeUpload} onClose={()=>setShowRecipeUpload(false)}
-      menus={menus} ingredients={ingredients} updateIngredients={updateIngredients} updateRecipeLines={updateRecipeLines} updateCookingSteps={updateCookingSteps}/>
+      menus={menus} updateMenus={updateMenus} ingredients={ingredients} updateIngredients={updateIngredients} updateRecipeLines={updateRecipeLines} updateCookingSteps={updateCookingSteps}/>
     {delId&&<div className="ov"><div className="mb" style={{maxWidth:380}}>
       <h3 style={{fontSize:16,fontWeight:700,margin:"0 0 8px"}}>Delete Menu?</h3>
       <p style={{fontSize:13,color:"#6b7280",marginBottom:20}}>This cannot be undone.</p>
@@ -1103,7 +1129,7 @@ function UploadIngrModal({open,onClose,existingIngredients,updateIngredients}){
 }
 
 /* ── UploadRecipeBookModal ── */
-function UploadRecipeBookModal({open,onClose,menus,ingredients,updateIngredients,updateRecipeLines,updateCookingSteps}){
+function UploadRecipeBookModal({open,onClose,menus,updateMenus,ingredients,updateIngredients,updateRecipeLines,updateCookingSteps}){
   const[preview,setPreview]=useState(null);
   const[error,setError]=useState("");
   const[addMissing,setAddMissing]=useState(true);
@@ -1185,6 +1211,14 @@ function UploadRecipeBookModal({open,onClose,menus,ingredients,updateIngredients
       }
     }
     updateRecipeLines(prev=>[...prev.filter(l=>!replacedMenuIds.has(String(l.menu_id))),...newLines]);
+    // Update serves_per_recipe on matched menus
+    if(updateMenus){
+      updateMenus(prev=>prev.map(m=>{
+        const sheet=preview.find(s=>s.matched&&String(s.matched.id)===String(m.id));
+        if(!sheet||!sheet.serves_per_recipe)return m;
+        return{...m,serves_per_recipe:sheet.serves_per_recipe};
+      }));
+    }
     // Import cooking steps
     const newSteps=[];
     for(const sheet of preview){
