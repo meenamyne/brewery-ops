@@ -954,17 +954,21 @@ function EditIngredientModal({open,onClose,ingr,onSave}){
   }
   return <Modal open={open} onClose={onClose} title={ingr?"Edit Ingredient":"Add Ingredient"} wide>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+      {/* Row 1: Supplier | Name */}
       <div><label className="fl">Supplier</label><input className="inp" value={f.supplier} onChange={e=>ch("supplier",e.target.value)} placeholder="Makro, Food Project…"/></div>
       <div><label className="fl">Ingredient Name * (EN / TH)</label><input className="inp" value={f.name} onChange={e=>ch("name",e.target.value)} placeholder="e.g. Chicken Breast / อกไก่"/></div>
+      {/* Row 2: Purchase Price | Purchase Qty */}
+      <div><label className="fl">Purchase Price (฿)</label><input className="inp" type="number" min="0" step="0.01" value={f.purchase_price} onChange={e=>ch("purchase_price",e.target.value)} placeholder="Total price paid"/></div>
+      <div><label className="fl">Purchase Qty</label><input className="inp" type="number" min="0" step="1" value={f.purchase_qty} onChange={e=>ch("purchase_qty",e.target.value)} placeholder="Qty in that purchase"/></div>
+      {/* Row 3: Unit | Category */}
+      <div><label className="fl">Unit</label><input className="inp" value={f.unit} onChange={e=>ch("unit",e.target.value)} placeholder="Gram, ml, pcs, L…"/></div>
       <div><label className="fl">Ingredient Category</label>
         <select className="inp" value={f.ingr_category} onChange={e=>ch("ingr_category",e.target.value)}>
           <option value="">— select —</option>
           {ingrCats.map(c=><option key={c.id} value={c.name}>{c.name}</option>)}
         </select>
       </div>
-      <div><label className="fl">Unit</label><input className="inp" value={f.unit} onChange={e=>ch("unit",e.target.value)} placeholder="Gram, ml, pcs, L…"/></div>
-      <div><label className="fl">Purchase Price (฿)</label><input className="inp" type="number" min="0" step="0.01" value={f.purchase_price} onChange={e=>ch("purchase_price",e.target.value)} placeholder="Total price paid"/></div>
-      <div><label className="fl">Purchase Qty</label><input className="inp" type="number" min="0" step="1" value={f.purchase_qty} onChange={e=>ch("purchase_qty",e.target.value)} placeholder="Qty in that purchase"/></div>
+      {/* Row 4: Cost/Unit + Yield (full width card) */}
       <div className="card" style={{padding:"12px 16px",gridColumn:"1/-1",background:"#f0fdf4",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div>
           <div className="fl" style={{marginBottom:2}}>Cost per Unit (auto-calculated)</div>
@@ -979,11 +983,13 @@ function EditIngredientModal({open,onClose,ingr,onSave}){
           </div>
         </div>
       </div>
+      {/* Row 5: Last Price Update | Has VAT */}
       <div><label className="fl">Last Price Update</label><input className="inp" type="date" value={f.last_price_date} onChange={e=>ch("last_price_date",e.target.value)}/></div>
       <div style={{display:"flex",alignItems:"center",gap:8,paddingTop:20}}>
         <input type="checkbox" id="vatc" checked={!!f.vat} onChange={e=>ch("vat",e.target.checked)}/>
         <label htmlFor="vatc" style={{fontSize:13,color:"#374151",fontWeight:500}}>Has VAT</label>
       </div>
+      {/* Row 6: Notes (full width) */}
       <div style={{gridColumn:"1/-1"}}><label className="fl">Notes</label><input className="inp" value={f.notes} onChange={e=>ch("notes",e.target.value)}/></div>
     </div>
     <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
@@ -1267,7 +1273,12 @@ function IngredientsPage({ingredients,updateIngredients,onIngrCatMgr}){
   const[editI,setEditI]=useState(null);const[showAdd,setShowAdd]=useState(false);
   const[delId,setDelId]=useState(null);const[search,setSearch]=useState("");
   const[showUpload,setShowUpload]=useState(false);
-  const filtered=useMemo(()=>!search?ingredients:ingredients.filter(i=>i.name?.toLowerCase().includes(search.toLowerCase())),[ingredients,search]);
+  const[catFilter,setCatFilter]=useState("All");
+  const filtered=useMemo(()=>ingredients.filter(i=>{
+    if(catFilter!=="All"&&i.ingr_category!==catFilter)return false;
+    if(search){const s=search.toLowerCase();return(i.name||"").toLowerCase().includes(s)||(i.supplier||"").toLowerCase().includes(s);}
+    return true;
+  }),[ingredients,search,catFilter]);
   function save(i){updateIngredients(prev=>{const idx=prev.findIndex(x=>x.id===i.id);if(idx>=0){const n=[...prev];n[idx]=i;return n;}return[...prev,i];});}
   function del(id){updateIngredients(prev=>prev.filter(i=>i.id!==id));setDelId(null);}
   return <div style={{flex:1,padding:"28px 32px",overflowY:"auto"}}>
@@ -1281,8 +1292,13 @@ function IngredientsPage({ingredients,updateIngredients,onIngrCatMgr}){
         <button onClick={()=>setShowAdd(true)} className="btn btn-g">+ Add Ingredient</button>
       </div>
     </div>
-    <div style={{marginBottom:14}}>
-      <input className="inp" placeholder="Search ingredients…" value={search} onChange={e=>setSearch(e.target.value)} style={{maxWidth:280}}/>
+    <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+      <input className="inp" placeholder="Search ingredients…" value={search} onChange={e=>setSearch(e.target.value)} style={{width:240}}/>
+      <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:".06em",textTransform:"uppercase",marginLeft:4}}>Category:</div>
+      {["All",...ingrCats.map(c=>c.name)].map(c=><button key={c} onClick={()=>setCatFilter(c)} className="btn"
+        style={{fontSize:11,padding:"4px 11px",background:catFilter===c?"#166534":"#f1f5f9",color:catFilter===c?"#fff":"#374151",whiteSpace:"nowrap"}}>
+        {c}
+      </button>)}
     </div>
     {filtered.length===0?<div className="card" style={{padding:40,textAlign:"center",color:"#9ca3af"}}>
       <div style={{fontSize:32,marginBottom:12}}>🧂</div>
@@ -1514,12 +1530,14 @@ function RecipePage({menuId,menus,updateMenus,recipeLines,updateRecipeLines,cook
   const[showEdit,setShowEdit]=useState(false);const[showAddStep,setShowAddStep]=useState(false);
   const[stepText,setStepText]=useState("");const[editStep,setEditStep]=useState(null);
   const[localPrice,setLocalPrice]=useState("");
+  const[saved,setSaved]=useState(false);
   const myLines=useMemo(()=>recipeLines.filter(r=>String(r.menu_id)===String(menuId)),[recipeLines,menuId]);
   const mySteps=useMemo(()=>cookingSteps.filter(s=>String(s.menu_id)===String(menuId)).sort((a,b)=>+a.step_no-+b.step_no),[cookingSteps,menuId]);
   const cost=useMemo(()=>menu?calcMenuCost(menuId,recipeLines,menu):{rawCost:0,totalCost:0,costPerServe:0,suggestExcl:0,suggestIncl:0,foodCostPct:null,lineCount:0},[menuId,recipeLines,menu]);
   const isPC=menu?.menu_type==="precooked";
   useEffect(()=>{if(menu)setLocalPrice(menu.actual_price===""?"":String(menu.actual_price));},[menu?.id]);
   function savePrice(){const val=localPrice===""?"":+localPrice;updateMenus(prev=>prev.map(m=>m.id===menuId?{...m,actual_price:val}:m));}
+  function handleSave(){savePrice();setSaved(true);setTimeout(()=>setSaved(false),2500);}
   function updField(k,v){updateMenus(prev=>prev.map(m=>m.id===menuId?{...m,[k]:v}:m));}
   function addStep(){
     if(!stepText.trim())return;
@@ -1531,7 +1549,13 @@ function RecipePage({menuId,menus,updateMenus,recipeLines,updateRecipeLines,cook
   function saveStep(id,txt){updateCookingSteps(prev=>prev.map(s=>s.id===id?{...s,instruction:txt}:s));setEditStep(null);}
   if(!menu)return <div style={{flex:1,padding:32,color:"#9ca3af"}}>Menu not found.</div>;
   return <div style={{flex:1,padding:"28px 32px",overflowY:"auto"}}>
-    <button onClick={onBack} className="btn btn-o" style={{marginBottom:16,fontSize:12}}>← Back</button>
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+      <button onClick={onBack} className="btn btn-o" style={{fontSize:12}}>← Back to All Menus</button>
+      <button onClick={handleSave} className="btn btn-g" style={{fontSize:12}}>
+        {saved?"✓ Saved!":"💾 Save Recipe"}
+      </button>
+      {saved&&<span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>Changes saved to Sheets</span>}
+    </div>
     {isPC&&<div style={{background:"#fef3c7",border:"1px solid #fcd34d",borderRadius:12,padding:"14px 20px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
       <div>
         <div style={{fontSize:13,fontWeight:700,color:"#92400e",marginBottom:4}}>🍳 Pre-Cooked Ingredient Recipe</div>
@@ -1847,7 +1871,7 @@ function App(){
           recipeLines={recipeLines} updateRecipeLines={updLines}
           cookingSteps={cookingSteps} updateCookingSteps={updSteps}
           ingredients={ingredients} storePrices={storePrices} updateStorePrices={updSP}
-          stores={stores} onBack={()=>setPage("dashboard")}/>}
+          stores={stores} onBack={()=>setPage("menus")}/>}
         <ManageCatsModal open={showCatMgr} onClose={()=>setShowCatMgr(false)} cats={cats} updateCats={updCats} menus={menus}/>
         <ManageIngrCatsModal open={showIngrCatMgr} onClose={()=>setShowIngrCatMgr(false)} ingrCats={ingrCats} updateIngrCats={updIngrCats} ingredients={ingredients}/>
         <ManageStoresModal open={showStoreMgr} onClose={()=>setShowStoreMgr(false)} stores={stores} updateStores={updStores} storePrices={storePrices}/>
