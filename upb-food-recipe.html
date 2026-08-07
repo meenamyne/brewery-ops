@@ -762,13 +762,54 @@ function Sidebar({page,setPage,token,gisReady,saveError,onCatMgr,onIngrCatMgr,on
 }
 
 /* ── EditMenuModal ── */
-function EditMenuModal({open,onClose,menu,onSave}){
+const PC_CATEGORY="Sauces & Prep";
+const CAT_PREFIX_MAP={
+  "Appetizer":"AP","Main Dish":"MD","Salad & Yum":"SL","Salad":"SL",
+  "Dessert":"DS","Drink":"DR","Beer":"BR","Soup":"SO","Snack":"SN",
+  "Sauces & Prep":"AS", // regular menus; pre-cooked always uses "PC" via isPC flag
+};
+function catToPrefix(cat){
+  if(CAT_PREFIX_MAP[cat])return CAT_PREFIX_MAP[cat];
+  const words=cat.trim().split(/\s+/);
+  if(words.length>=2)return(words[0][0]+words[1][0]).toUpperCase();
+  return cat.slice(0,2).toUpperCase();
+}
+function genMenuId(cat,menus,isPC){
+  const prefix=isPC?"PC":catToPrefix(cat);
+  const nums=menus.filter(m=>m.menu_id&&m.menu_id.toUpperCase().startsWith(prefix+"_"))
+    .map(m=>parseInt(m.menu_id.split("_")[1])||0);
+  const next=nums.length?Math.max(...nums)+1:1;
+  return`${prefix}_${String(next).padStart(2,"0")}`;
+}
+
+function EditMenuModal({open,onClose,menu,onSave,menus}){
   const cats=useContext(CatsCtx);
-  const blank={menu_id:"",category:cats[0]?.name||"Appetizer",name_th:"",name_en:"",serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:"",checked:false,menu_type:"menu"};
-  const[f,setF]=useState(blank);
-  useEffect(()=>{setF(menu?{...menu,menu_type:menu.menu_type||"menu"}:blank);},[open,menu]);
+  const mkBlank=(type,cat)=>{
+    const isPC=type==="precooked";
+    const category=isPC?PC_CATEGORY:(cat||cats[0]?.name||"Appetizer");
+    return{menu_id:genMenuId(category,menus||[],isPC),category,name_th:"",name_en:"",
+      serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:"",checked:false,menu_type:type||"menu"};
+  };
+  const[f,setF]=useState(()=>mkBlank("menu"));
+  useEffect(()=>{
+    if(menu){setF({...menu,menu_type:menu.menu_type||"menu"});}
+    else{setF(mkBlank("menu"));}
+  },[open,menu]);
   const ch=(k,v)=>setF(p=>({...p,[k]:v}));
   const isPC=f.menu_type==="precooked";
+  const isNew=!menu;
+
+  function handleTypeChange(newType){
+    const pc=newType==="precooked";
+    const cat=pc?PC_CATEGORY:(cats[0]?.name||"Appetizer");
+    setF(p=>({...p,menu_type:newType,category:cat,
+      menu_id:isNew?genMenuId(cat,menus||[],pc):p.menu_id}));
+  }
+  function handleCatChange(cat){
+    setF(p=>({...p,category:cat,
+      menu_id:isNew?genMenuId(cat,menus||[],false):p.menu_id}));
+  }
+
   function save(){
     if(!f.menu_id||!f.name_en)return;
     onSave({...f,id:f.id||f.menu_id,serves_per_recipe:+f.serves_per_recipe||1,spice_pct:+f.spice_pct||0.10,
@@ -780,7 +821,7 @@ function EditMenuModal({open,onClose,menu,onSave}){
   return <Modal open={open} onClose={onClose} title={menu?"Edit Menu":"Add New Menu"} wide>
     <div style={{display:"flex",gap:8,marginBottom:16}}>
       {[["menu","🍽️ Regular Menu"],["precooked","🍳 Pre-Cooked Ingredient"]].map(([val,label])=>
-        <button key={val} onClick={()=>ch("menu_type",val)} className="btn"
+        <button key={val} onClick={()=>handleTypeChange(val)} className="btn"
           style={{flex:1,justifyContent:"center",background:f.menu_type===val?"#166534":"#f1f5f9",color:f.menu_type===val?"#fff":"#374151",fontSize:13}}>
           {label}
         </button>
@@ -790,11 +831,19 @@ function EditMenuModal({open,onClose,menu,onSave}){
       🍳 This recipe produces a batch ingredient. Set <strong>Batch Yield</strong> to how many units/serves one cook produces. Cost per unit is auto-calculated and pushed to the Ingredients master list so other menus can use it.
     </div>}
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-      <div><label className="fl">Menu ID *</label><input className="inp" value={f.menu_id} onChange={e=>ch("menu_id",e.target.value)} placeholder={isPC?"e.g. PC_01":"e.g. AP_31"}/></div>
-      <div><label className="fl">{isPC?"Ingredient Category":"Category *"}</label>
-        {!isPC?<select className="inp" value={f.category} onChange={e=>ch("category",e.target.value)}>
-          {cats.map(c=><option key={c.id}>{c.name}</option>)}
-        </select>:<input className="inp" value={f.category} onChange={e=>ch("category",e.target.value)} placeholder="e.g. Sauces & Dressings"/>}
+      <div><label className="fl">Menu ID *</label>
+        <input className="inp" value={f.menu_id} onChange={e=>ch("menu_id",e.target.value)}
+          style={isNew?{background:"#f0fdf4"}:{}}
+          placeholder={isPC?"e.g. PC_01":"e.g. AP_31"}/>
+        {isNew&&<div style={{fontSize:10,color:"#6b7280",marginTop:2}}>Auto-generated · you can edit if needed</div>}
+      </div>
+      <div><label className="fl">{isPC?"Category (fixed)":"Category *"}</label>
+        {isPC
+          ?<div className="inp" style={{background:"#fef3c7",color:"#92400e",fontWeight:600,cursor:"default"}}>🍳 {PC_CATEGORY}</div>
+          :<select className="inp" value={f.category} onChange={e=>handleCatChange(e.target.value)}>
+            {cats.map(c=><option key={c.id}>{c.name}</option>)}
+          </select>
+        }
       </div>
       <div><label className="fl">EN Name *</label><input className="inp" value={f.name_en} onChange={e=>ch("name_en",e.target.value)} placeholder={isPC?"e.g. Steak Sauce":""}/></div>
       <div><label className="fl">Thai Name</label><input className="inp" value={f.name_th} onChange={e=>ch("name_th",e.target.value)}/></div>
@@ -873,7 +922,7 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
         </tr>)}</tbody>
       </table>
     </div>
-    <EditMenuModal open={showAdd||!!editM} onClose={()=>{setShowAdd(false);setEditM(null);}} menu={editM} onSave={saveMenu}/>
+    <EditMenuModal open={showAdd||!!editM} onClose={()=>{setShowAdd(false);setEditM(null);}} menu={editM} onSave={saveMenu} menus={menus}/>
     <UploadRecipeBookModal open={showRecipeUpload} onClose={()=>setShowRecipeUpload(false)}
       menus={menus} ingredients={ingredients} updateIngredients={updateIngredients} updateRecipeLines={updateRecipeLines} updateCookingSteps={updateCookingSteps}/>
     {delId&&<div className="ov"><div className="mb" style={{maxWidth:380}}>
