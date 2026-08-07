@@ -2002,7 +2002,7 @@ function App(){
       // 1. Create stub ingredient for any precooked menu that has no linked ingredient yet
       for(const m of precookedMenus){
         if(!linkedIds.has(m.id)){
-          additions.push({id:uid(),name:m.name_en||m.name_th||m.menu_id,
+          additions.push({id:uid(),name:m.name_en||m.name_th||m.menu_id,name_th:m.name_th||"",
             supplier:"🍳 Pre-Cooked",ingr_category:m.category||"น้ำยำ/ซอสต่างๆ/อาหาร Pre-Cooked",
             purchase_price:0,purchase_qty:1,unit:"serve",
             cost_per_unit:0,vat:false,yield_pct:1,last_price_date:"",
@@ -2019,9 +2019,10 @@ function App(){
         const c=calcMenuCost(i.precooked_menu_id,recipeLines,m);
         const newCpu=Math.round(c.costPerServe*10000)/10000;
         const newName=m.name_en||m.name_th||i.name;
-        if(Math.abs(parseFloat(i.cost_per_unit||0)-newCpu)>0.0001||i.name!==newName){
+        const newNameTh=m.name_th||i.name_th||"";
+        if(Math.abs(parseFloat(i.cost_per_unit||0)-newCpu)>0.0001||i.name!==newName||i.name_th!==newNameTh){
           changed=true;
-          return{...i,cost_per_unit:newCpu,name:newName};
+          return{...i,cost_per_unit:newCpu,name:newName,name_th:newNameTh};
         }
         return i;
       });
