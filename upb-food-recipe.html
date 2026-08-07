@@ -895,6 +895,8 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
   const[editM,setEditM]=useState(null);
   const[showAdd,setShowAdd]=useState(false);
   const[delId,setDelId]=useState(null);
+  const[dupSrc,setDupSrc]=useState(null); // menu being duplicated
+  const[dupName,setDupName]=useState("");
   const[showRecipeUpload,setShowRecipeUpload]=useState(false);
   const enriched=useMemo(()=>menus.map(m=>{
     const c=calcMenuCost(m.id,recipeLines,m);
@@ -908,6 +910,15 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
   }),[enriched,menuCat,statusFilter,search]);
   function saveMenu(m){updateMenus(prev=>{const i=prev.findIndex(x=>x.id===m.id);if(i>=0){const n=[...prev];n[i]=m;return n;}return[...prev,m];});}
   function delMenu(id){updateMenus(prev=>prev.filter(m=>m.id!==id));setDelId(null);}
+  function startDup(m){setDupSrc(m);setDupName((m.name_en||m.name_th||"")+" (Copy)");}
+  function doDuplicate(){
+    if(!dupSrc||!dupName.trim())return;
+    const isPC=dupSrc.menu_type==="precooked";
+    const newId=genMenuId(dupSrc.category,menus,isPC);
+    const newMenu={...dupSrc,id:uid(),menu_id:newId,name_en:dupName.trim(),checked:false};
+    updateMenus(prev=>[...prev,newMenu]);
+    setDupSrc(null);setDupName("");
+  }
   const statusCounts=useMemo(()=>({
     verified:enriched.filter(m=>m.status==="verified").length,
     has_recipe:enriched.filter(m=>m.status==="has_recipe").length,
@@ -971,6 +982,7 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
             <td className="td"><div style={{display:"flex",gap:5}}>
               <button onClick={()=>setSelectedMenu(m.id)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px"}}>📖 Recipe</button>
               <button onClick={()=>setEditM(m)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px"}}>Edit</button>
+              <button onClick={()=>startDup(m)} className="btn" style={{fontSize:12,padding:"4px 10px",background:"#ede9fe",color:"#6d28d9"}}>⧉ Dup</button>
               <button onClick={()=>setDelId(m.id)} className="btn" style={{fontSize:12,padding:"4px 10px",background:"#fee2e2",color:"#991b1b"}}>Del</button>
             </div></td>
           </tr>;
@@ -980,6 +992,21 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
     <EditMenuModal open={showAdd||!!editM} onClose={()=>{setShowAdd(false);setEditM(null);}} menu={editM} onSave={saveMenu} menus={menus}/>
     <UploadRecipeBookModal open={showRecipeUpload} onClose={()=>setShowRecipeUpload(false)}
       menus={menus} updateMenus={updateMenus} ingredients={ingredients} updateIngredients={updateIngredients} updateRecipeLines={updateRecipeLines} updateCookingSteps={updateCookingSteps}/>
+    {dupSrc&&<div className="ov"><div className="mb" style={{maxWidth:420}}>
+      <h3 style={{fontSize:16,fontWeight:700,margin:"0 0 4px"}}>Duplicate Menu</h3>
+      <p style={{fontSize:13,color:"#6b7280",margin:"0 0 16px"}}>Copying <strong>{dupSrc.menu_id}</strong> · A new ID will be auto-assigned.</p>
+      <label className="fl">New Menu Name (English)</label>
+      <input className="inp" value={dupName} onChange={e=>setDupName(e.target.value)}
+        onKeyDown={e=>e.key==="Enter"&&doDuplicate()} autoFocus style={{marginBottom:16}}/>
+      <div style={{fontSize:12,color:"#9ca3af",marginBottom:16}}>
+        New ID: <strong style={{color:"#166534"}}>{genMenuId(dupSrc.category,menus,dupSrc.menu_type==="precooked")}</strong>
+        · Category: {dupSrc.category} · Same pricing &amp; settings, status reset to Draft
+      </div>
+      <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+        <button onClick={()=>{setDupSrc(null);setDupName("");}} className="btn btn-o">Cancel</button>
+        <button onClick={doDuplicate} disabled={!dupName.trim()} className="btn btn-g">⧉ Duplicate</button>
+      </div>
+    </div></div>}
     {delId&&<div className="ov"><div className="mb" style={{maxWidth:380}}>
       <h3 style={{fontSize:16,fontWeight:700,margin:"0 0 8px"}}>Delete Menu?</h3>
       <p style={{fontSize:13,color:"#6b7280",marginBottom:20}}>This cannot be undone.</p>
