@@ -809,7 +809,7 @@ function EditMenuModal({open,onClose,menu,onSave,menus}){
     const isPC=type==="precooked";
     const category=isPC?PC_CATEGORY:(cat||cats[0]?.name||"Appetizer");
     return{menu_id:genMenuId(category,menus||[],isPC),category,name_th:"",name_en:"",
-      serves_per_recipe:1,spice_pct:0.10,target_food_cost_pct:0.35,actual_price:"",checked:false,menu_type:type||"menu"};
+      serves_per_recipe:1,batch_unit:"Gram",spice_pct:0.10,target_food_cost_pct:0.35,actual_price:"",checked:false,menu_type:type||"menu"};
   };
   const[f,setF]=useState(()=>mkBlank("menu"));
   useEffect(()=>{
@@ -833,7 +833,9 @@ function EditMenuModal({open,onClose,menu,onSave,menus}){
 
   function save(){
     if(!f.menu_id||!f.name_en)return;
-    onSave({...f,id:f.id||f.menu_id,serves_per_recipe:+f.serves_per_recipe||1,spice_pct:+f.spice_pct||0.10,
+    onSave({...f,id:f.id||f.menu_id,serves_per_recipe:+f.serves_per_recipe||1,
+      batch_unit:isPC?(f.batch_unit||"Gram"):undefined,
+      spice_pct:+f.spice_pct||0.10,
       target_food_cost_pct:+f.target_food_cost_pct||0.35,
       actual_price:isPC?"":f.actual_price===""?"":+f.actual_price,
       checked:toBool(f.checked),menu_type:f.menu_type||"menu"});
@@ -849,7 +851,7 @@ function EditMenuModal({open,onClose,menu,onSave,menus}){
       )}
     </div>
     {isPC&&<div style={{background:"#fef3c7",border:"1px solid #fcd34d",borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:13,color:"#92400e",lineHeight:1.6}}>
-      🍳 This recipe produces a batch ingredient. Set <strong>Batch Yield</strong> to how many units/serves one cook produces. Cost per unit is auto-calculated and pushed to the Ingredients master list so other menus can use it.
+      🍳 This recipe produces a batch ingredient. Set <strong>Batch Output</strong> (e.g. 1000 Gram) — the total amount one cook produces. Cost per unit (฿/Gram) is auto-calculated and pushed to the Ingredients master list so other menus can pick it up by weight.
     </div>}
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
       <div><label className="fl">Menu ID *</label>
@@ -868,9 +870,14 @@ function EditMenuModal({open,onClose,menu,onSave,menus}){
       </div>
       <div><label className="fl">EN Name *</label><input className="inp" value={f.name_en} onChange={e=>ch("name_en",e.target.value)} placeholder={isPC?"e.g. Steak Sauce":""}/></div>
       <div><label className="fl">Thai Name</label><input className="inp" value={f.name_th} onChange={e=>ch("name_th",e.target.value)}/></div>
-      <div><label className="fl">{isPC?"Batch Yield (units per cook)":"Serves per Recipe"}</label>
-        <input className="inp" type="number" min="1" value={f.serves_per_recipe} onChange={e=>ch("serves_per_recipe",e.target.value)} placeholder={isPC?"e.g. 25":""}/>
-        {isPC&&<div style={{fontSize:11,color:"#6b7280",marginTop:3}}>1 cook → {f.serves_per_recipe||1} units pushed to ingredient list</div>}
+      <div><label className="fl">{isPC?"Batch Output (ปริมาณต่อสูตร)":"Serves per Recipe"}</label>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <input className="inp" type="number" min="1" value={f.serves_per_recipe} onChange={e=>ch("serves_per_recipe",e.target.value)} placeholder={isPC?"e.g. 1000":""} style={{flex:1}}/>
+          {isPC&&<select className="inp" value={f.batch_unit||"Gram"} onChange={e=>ch("batch_unit",e.target.value)} style={{width:90,flexShrink:0}}>
+            {["Gram","ml","Piece","kg","L","tbsp","tsp","cup"].map(u=><option key={u}>{u}</option>)}
+          </select>}
+        </div>
+        {isPC&&<div style={{fontSize:11,color:"#6b7280",marginTop:3}}>1 batch → {f.serves_per_recipe||1} {f.batch_unit||"Gram"} pushed to Ingredients as cost/{f.batch_unit||"Gram"}</div>}
       </div>
       {!isPC&&<div><label className="fl">Actual Selling Price (฿)</label><input className="inp" type="number" min="0" value={f.actual_price} onChange={e=>ch("actual_price",e.target.value)}/></div>}
       <div><label className="fl">Spice Allowance (%)</label>
@@ -1798,6 +1805,15 @@ function EditRecipeModal({open,onClose,menu,recipeLines,updateRecipeLines,ingred
     setNl({ingredient_id:"",ingredient_name:"",usage_qty:"",usage_unit:""});
   }
   function delLine(id){updateRecipeLines(prev=>prev.filter(l=>l.id!==id));}
+  function updateQty(id,qty){
+    const q=parseFloat(qty)||0;
+    updateRecipeLines(prev=>prev.map(l=>{
+      if(l.id!==id)return l;
+      const ingr=ingredients.find(x=>x.id===l.ingredient_id);
+      const newCost=ingr?calcLineIngCost(ingr,q):Math.round((parseFloat(l.ingredient_cost||0)/parseFloat(l.usage_qty||1))*q*10000)/10000;
+      return{...l,usage_qty:q,ingredient_cost:newCost};
+    }));
+  }
   if(!menu)return null;
   return <Modal open={open} onClose={onClose} title={`Recipe Ingredients — ${menu.menu_id}`} wide>
     {lines.length===0?<div style={{padding:"16px 0",textAlign:"center",color:"#9ca3af",fontSize:13}}>No ingredients added yet.</div>:
@@ -1808,7 +1824,12 @@ function EditRecipeModal({open,onClose,menu,recipeLines,updateRecipeLines,ingred
           <td className="td"><div style={{fontWeight:500}}>{l.ingredient_name}</div>
             {(()=>{const i=ingredients.find(x=>x.id===l.ingredient_id);return i?.name_th?<div style={{fontSize:11,color:"#9ca3af"}}>{i.name_th}</div>:null;})()}
           </td>
-          <td className="td" style={{textAlign:"right"}}>{l.usage_qty}</td>
+          <td className="td" style={{textAlign:"right"}}>
+            <input type="number" min="0" step="0.001" value={l.usage_qty}
+              onChange={e=>updateQty(l.id,e.target.value)}
+              style={{width:72,textAlign:"right",border:"1px solid #d1fae5",borderRadius:6,padding:"3px 6px",fontSize:13,fontWeight:600,background:"#f0fdf4",color:"#166534",outline:"none"}}
+              onFocus={e=>e.target.style.borderColor="#16a34a"} onBlur={e=>e.target.style.borderColor="#d1fae5"}/>
+          </td>
           <td className="td" style={{color:"#6b7280"}}>{l.usage_unit||"—"}</td>
           <td className="td" style={{textAlign:"right",fontWeight:600}}>{fmtB(l.ingredient_cost)}</td>
           <td className="td"><button onClick={()=>delLine(l.id)} className="btn" style={{fontSize:11,padding:"3px 8px",background:"#fee2e2",color:"#991b1b"}}>✕</button></td>
@@ -1928,9 +1949,10 @@ function RecipePage({menuId,menus,updateMenus,recipeLines,updateRecipeLines,cook
       <div>
         <div style={{fontSize:13,fontWeight:700,color:"#92400e",marginBottom:4}}>🍳 Pre-Cooked Ingredient Recipe</div>
         <div style={{fontSize:13,color:"#78350f"}}>
-          1 batch → <strong>{menu.serves_per_recipe||1} units/serves</strong> · Cost per unit: <strong style={{color:"#166534"}}>{fmtB(cost.costPerServe)}</strong>
+          1 batch → <strong>{menu.serves_per_recipe||1} {menu.batch_unit||"Gram"}</strong> at <strong>{fmtB(cost.totalCost)}</strong>
+          &nbsp;·&nbsp; Cost: <strong style={{color:"#166534"}}>{fmtB(cost.costPerServe)}/{menu.batch_unit||"Gram"}</strong>
         </div>
-        <div style={{fontSize:12,color:"#92400e",marginTop:2}}>This cost is automatically pushed to the Ingredients master list so other menus can use it.</div>
+        <div style={{fontSize:12,color:"#92400e",marginTop:2}}>Cost per {menu.batch_unit||"Gram"} is automatically pushed to Ingredients — other menus can use it by weight.</div>
       </div>
       <div style={{textAlign:"right"}}>
         <div style={{fontSize:11,color:"#78350f",marginBottom:2}}>Ingredient name in master list:</div>
@@ -1952,7 +1974,14 @@ function RecipePage({menuId,menus,updateMenus,recipeLines,updateRecipeLines,cook
         <button onClick={()=>setShowEdit(true)} className="btn btn-a">✏️ Edit Ingredients</button>
       </div>
       <div style={{display:"flex",gap:20,marginTop:18,flexWrap:"wrap"}}>
-        <div><div className="fl">{isPC?"Batch Yield (units)":"Serves/Recipe"}</div><input className="inp" type="number" min="1" value={menu.serves_per_recipe||1} onChange={e=>updField("serves_per_recipe",+e.target.value)} style={{width:80,marginTop:4}}/></div>
+        <div><div className="fl">{isPC?"Batch Output (ปริมาณต่อสูตร)":"Serves/Recipe"}</div>
+          <div style={{display:"flex",gap:6,alignItems:"center",marginTop:4}}>
+            <input className="inp" type="number" min="1" value={menu.serves_per_recipe||1} onChange={e=>updField("serves_per_recipe",+e.target.value)} style={{width:80}}/>
+            {isPC&&<select className="inp" value={menu.batch_unit||"Gram"} onChange={e=>updField("batch_unit",e.target.value)} style={{width:90}}>
+              {["Gram","ml","Piece","kg","L","tbsp","tsp","cup"].map(u=><option key={u}>{u}</option>)}
+            </select>}
+          </div>
+        </div>
         <div><div className="fl">Spice Allowance</div>
           <div style={{display:"flex",alignItems:"center",gap:5,marginTop:4}}>
             <input className="inp" type="number" step="1" min="0" max="100" value={Math.round((+menu.spice_pct||0.10)*100)} onChange={e=>updField("spice_pct",+e.target.value/100)} style={{width:65}}/><span style={{fontSize:13}}>%</span>
@@ -1976,8 +2005,8 @@ function RecipePage({menuId,menus,updateMenus,recipeLines,updateRecipeLines,cook
         <div style={{fontSize:13,fontWeight:700,color:"#374151",marginBottom:12}}>📊 Cost Breakdown</div>
         {[["Raw ingredient cost",fmtB(cost.rawCost)],
           [`Spice (${Math.round((+menu.spice_pct||0.10)*100)}%)`,fmtB(cost.rawCost*(+menu.spice_pct||0.10))],
-          isPC?[`Total batch cost (${menu.serves_per_recipe||1} units)`,fmtB(cost.totalCost)]:null,
-          [isPC?"Cost per unit":"Cost per serve",fmtB(cost.costPerServe)]
+          isPC?[`Total batch cost (${menu.serves_per_recipe||1} ${menu.batch_unit||"Gram"})`,fmtB(cost.totalCost)]:null,
+          [isPC?`Cost per ${menu.batch_unit||"Gram"}`:"Cost per serve",fmtB(cost.costPerServe)]
         ].filter(Boolean).map(([k,v])=><div key={k} style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
           <span style={{fontSize:13,color:"#6b7280"}}>{k}</span><span style={{fontSize:13,fontWeight:600}}>{v}</span>
         </div>)}
@@ -2309,7 +2338,7 @@ function App(){
         if(!linkedIds.has(m.id)){
           additions.push({id:uid(),name:m.name_en||m.name_th||m.menu_id,name_th:m.name_th||"",
             supplier:"🍳 Pre-Cooked",ingr_category:m.category||"น้ำยำ/ซอสต่างๆ/อาหาร Pre-Cooked",
-            purchase_price:0,purchase_qty:1,unit:"serve",
+            purchase_price:0,purchase_qty:1,unit:m.batch_unit||"Gram",
             cost_per_unit:0,vat:false,yield_pct:1,last_price_date:"",
             notes:`Auto-generated from pre-cooked menu ${m.menu_id}`,
             is_precooked:true,precooked_menu_id:m.id});
@@ -2325,9 +2354,10 @@ function App(){
         const newCpu=Math.round(c.costPerServe*10000)/10000;
         const newName=m.name_en||m.name_th||i.name;
         const newNameTh=m.name_th||i.name_th||"";
-        if(Math.abs(parseFloat(i.cost_per_unit||0)-newCpu)>0.0001||i.name!==newName||i.name_th!==newNameTh){
+        const newUnit=m.batch_unit||"Gram";
+        if(Math.abs(parseFloat(i.cost_per_unit||0)-newCpu)>0.0001||i.name!==newName||i.name_th!==newNameTh||i.unit!==newUnit){
           changed=true;
-          return{...i,cost_per_unit:newCpu,name:newName,name_th:newNameTh};
+          return{...i,cost_per_unit:newCpu,name:newName,name_th:newNameTh,unit:newUnit};
         }
         return i;
       });
