@@ -1699,7 +1699,7 @@ function IngredientsPage({ingredients,updateIngredients,onIngrCatMgr}){
             <td className="td">
               <div style={{fontWeight:500}}>{i.name}</div>
               {i.name_th&&i.name_th!==i.name&&<div style={{fontSize:11,color:"#9ca3af"}}>{i.name_th}</div>}
-              {(i.is_precooked===true||i.is_precooked==="true")&&<span className="badge" style={{background:"#fef3c7",color:"#92400e",marginTop:2}}>🍳 Pre-Cooked</span>}
+              {toBool(i.is_precooked)&&<span className="badge" style={{background:"#fef3c7",color:"#92400e",marginTop:2}}>🍳 Pre-Cooked</span>}
             </td>
             <td className="td" style={{fontSize:12,color:"#6b7280"}}>{i.supplier||"—"}</td>
             <td className="td" style={{fontSize:11}}>{i.ingr_category?<span className="badge" style={{background:"#f3f4f6",color:"#374151"}}>{i.ingr_category}</span>:"—"}</td>
@@ -1752,7 +1752,7 @@ function IngrSearchDropdown({ingredients,value,onChange}){
     function handler(e){if(ref.current&&!ref.current.contains(e.target))setOpen(false);}
     document.addEventListener("mousedown",handler);return()=>document.removeEventListener("mousedown",handler);
   },[]);
-  const isPC=(i)=>i.is_precooked===true||i.is_precooked==="true";
+  const isPC=(i)=>toBool(i.is_precooked);
   return <div ref={ref} style={{position:"relative"}}>
     {sel&&!open&&<div style={{background:"#f0fdf4",border:"1.5px solid #16a34a",borderRadius:8,padding:"7px 12px",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between"}}
       onClick={()=>{setQ("");setOpen(true);}}>
@@ -2332,38 +2332,59 @@ function App(){
     if(!precookedMenus.length)return;
     updIngr(prev=>{
       let changed=false;
-      const linkedIds=new Set(prev.filter(i=>i.is_precooked===true||i.is_precooked==="true").map(i=>i.precooked_menu_id));
-      const additions=[];
-      // 1. Create stub ingredient for any precooked menu that has no linked ingredient yet
+      // Use toBool for consistent is_precooked detection regardless of source (gviz / Sheets API / in-memory)
+      const linkedIds=new Set(prev.filter(i=>toBool(i.is_precooked)&&i.precooked_menu_id).map(i=>i.precooked_menu_id));
+      let working=[...prev];
+
+      // 1. For any pre-cooked menu with no linked stub, first try to adopt an existing ingredient by name, else create a new stub
       for(const m of precookedMenus){
-        if(!linkedIds.has(m.id)){
-          additions.push({id:uid(),name:m.name_en||m.name_th||m.menu_id,name_th:m.name_th||"",
+        if(linkedIds.has(m.id))continue;
+        const mName=m.name_en||m.name_th||m.menu_id;
+        const mNameTh=m.name_th||"";
+        // Try to find an unlinked ingredient with matching name (Thai or English)
+        const idx=working.findIndex(i=>
+          !toBool(i.is_precooked)&&
+          ((mNameTh&&(i.name_th===mNameTh||i.name===mNameTh))||(i.name===mName))
+        );
+        if(idx>=0){
+          // Adopt existing ingredient — link it and recalculate
+          const c=calcMenuCost(m.id,recipeLines,m);
+          const newCpu=Math.round(c.costPerServe*10000)/10000;
+          working[idx]={...working[idx],is_precooked:true,precooked_menu_id:m.id,
+            name:mName,name_th:mNameTh,unit:m.batch_unit||working[idx].unit||"Gram",
+            cost_per_unit:newCpu,supplier:"🍳 Pre-Cooked"};
+          linkedIds.add(m.id);
+          changed=true;
+        }else{
+          // No match — create a fresh stub
+          const c=calcMenuCost(m.id,recipeLines,m);
+          const newCpu=Math.round(c.costPerServe*10000)/10000;
+          working.push({id:uid(),name:mName,name_th:mNameTh,
             supplier:"🍳 Pre-Cooked",ingr_category:m.category||"น้ำยำ/ซอสต่างๆ/อาหาร Pre-Cooked",
             purchase_price:0,purchase_qty:1,unit:m.batch_unit||"Gram",
-            cost_per_unit:0,vat:false,yield_pct:1,last_price_date:"",
+            cost_per_unit:newCpu,vat:false,yield_pct:1,last_price_date:"",
             notes:`Auto-generated from pre-cooked menu ${m.menu_id}`,
             is_precooked:true,precooked_menu_id:m.id});
           changed=true;
         }
       }
-      // 2. Sync cost_per_unit and name for all linked ingredients
-      const updated=prev.map(i=>{
-        if(!(i.is_precooked===true||i.is_precooked==="true")||!i.precooked_menu_id)return i;
+      // 2. Sync cost_per_unit, name, and unit for all already-linked stubs
+      working=working.map(i=>{
+        if(!toBool(i.is_precooked)||!i.precooked_menu_id)return i;
         const m=menus.find(x=>x.id===i.precooked_menu_id);
         if(!m)return i;
         const c=calcMenuCost(i.precooked_menu_id,recipeLines,m);
         const newCpu=Math.round(c.costPerServe*10000)/10000;
         const newName=m.name_en||m.name_th||i.name;
         const newNameTh=m.name_th||i.name_th||"";
-        const newUnit=m.batch_unit||"Gram";
+        const newUnit=m.batch_unit||i.unit||"Gram";
         if(Math.abs(parseFloat(i.cost_per_unit||0)-newCpu)>0.0001||i.name!==newName||i.name_th!==newNameTh||i.unit!==newUnit){
           changed=true;
           return{...i,cost_per_unit:newCpu,name:newName,name_th:newNameTh,unit:newUnit};
         }
         return i;
       });
-      if(!changed)return prev;
-      return[...updated,...additions];
+      return changed?working:prev;
     });
   },[menus,recipeLines,ingrLoaded]); // intentionally excludes updIngr and ingredients to avoid loops
 
