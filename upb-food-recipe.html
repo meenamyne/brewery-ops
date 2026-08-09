@@ -1286,16 +1286,23 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
               {isPC?"—":hasLines?fmtB(m.suggestIncl):"—"}
             </td>
             <td className="td" style={{whiteSpace:"nowrap"}}>
-              <StatusBadge status={m.status}/>
-              {m.hasMissingIngr&&<span title="Some ingredients in this recipe were deleted from the master list" style={{marginLeft:5,cursor:"default"}}>⚠️</span>}
+              <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"nowrap"}}>
+                <StatusBadge status={m.status}/>
+                {m.hasMissingIngr&&<span title="Some ingredients in this recipe were deleted from the master list" style={{cursor:"default"}}>⚠️</span>}
+                {!isPC&&m.lineCount>0&&<button onClick={()=>toggleVerify(m.id)}
+                  title={m.status==="verified"?"Click to unverify":"Click to mark as verified"}
+                  style={{border:"none",cursor:"pointer",borderRadius:6,padding:"2px 7px",fontSize:11,fontWeight:700,flexShrink:0,
+                    background:m.status==="verified"?"#dcfce7":"#f1f5f9",
+                    color:m.status==="verified"?"#166534":"#9ca3af",
+                    transition:"all .15s"}}
+                  onMouseEnter={e=>{e.currentTarget.style.background="#dcfce7";e.currentTarget.style.color="#166534";}}
+                  onMouseLeave={e=>{e.currentTarget.style.background=m.status==="verified"?"#dcfce7":"#f1f5f9";e.currentTarget.style.color=m.status==="verified"?"#166534":"#9ca3af";}}>
+                  {m.status==="verified"?"✓ Verified":"✓ Verify"}
+                </button>}
+              </div>
             </td>
             <td className="td"><div style={{display:"flex",gap:6,alignItems:"center",position:"relative"}}>
               <button onClick={()=>setSelectedMenu(m.id)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px",whiteSpace:"nowrap"}}>📖 Recipe</button>
-              {!isPC&&m.lineCount>0&&<button onClick={()=>toggleVerify(m.id)} title={m.status==="verified"?"Unmark verified":"Mark as verified"}
-                style={{border:"none",background:"none",cursor:"pointer",fontSize:18,padding:"0 2px",opacity:m.status==="verified"?1:0.3,transition:"opacity .15s"}}
-                onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=m.status==="verified"?1:0.3}>
-                ✅
-              </button>}
               <div style={{position:"relative"}}>
                 <button onClick={e=>{e.stopPropagation();const r=e.currentTarget.getBoundingClientRect();const estH=240;const top=r.bottom+estH>window.innerHeight?r.top-estH-4:r.bottom+4;setDropPos({top,right:window.innerWidth-r.right});setActionOpen(actionOpen===m.id?null:m.id);}}
                   className="btn btn-o" style={{fontSize:13,padding:"4px 10px",minWidth:32}} title="Actions">✏️</button>
@@ -2014,6 +2021,8 @@ function RecipePage({menuId,menus,updateMenus,recipeLines,updateRecipeLines,cook
   function savePrice(){const val=localPrice===""?"":+localPrice;updateMenus(prev=>prev.map(m=>m.id===menuId?{...m,actual_price:val}:m));}
   function handleSave(){savePrice();setSaved(true);setTimeout(()=>setSaved(false),2500);}
   function updField(k,v){updateMenus(prev=>prev.map(m=>m.id===menuId?{...m,[k]:v}:m));}
+  const isVerified=useMemo(()=>toBool(menu?.checked),[menu?.checked]);
+  function toggleVerifyRecipe(){if(myLines.length>0)updField("checked",!isVerified);}
   function addStep(){
     if(!stepText.trim())return;
     const mx=mySteps.length>0?Math.max(...mySteps.map(s=>+s.step_no)):0;
@@ -2024,11 +2033,17 @@ function RecipePage({menuId,menus,updateMenus,recipeLines,updateRecipeLines,cook
   function saveStep(id,txt){updateCookingSteps(prev=>prev.map(s=>s.id===id?{...s,instruction:txt}:s));setEditStep(null);}
   if(!menu)return <div style={{flex:1,padding:32,color:"#9ca3af"}}>Menu not found.</div>;
   return <div style={{flex:1,padding:"28px 32px",overflowY:"auto"}}>
-    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
       <button onClick={onBack} className="btn btn-o" style={{fontSize:12}}>← Back to All Menus</button>
       <button onClick={handleSave} className="btn btn-g" style={{fontSize:12}}>
         {saved?"✓ Saved!":"💾 Save Recipe"}
       </button>
+      {!isPC&&myLines.length>0&&<button onClick={toggleVerifyRecipe}
+        style={{fontSize:12,padding:"6px 16px",border:"none",borderRadius:8,cursor:"pointer",fontWeight:700,
+          background:isVerified?"#166534":"#f1f5f9",color:isVerified?"#fff":"#6b7280",
+          display:"flex",alignItems:"center",gap:6,transition:"all .2s"}}>
+        {isVerified?"✓ Verified — Click to Unverify":"✓ Mark as Verified"}
+      </button>}
       {saved&&<span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>Changes saved to Sheets</span>}
     </div>
     {isPC&&<div style={{background:"#fef3c7",border:"1px solid #fcd34d",borderRadius:12,padding:"14px 20px",marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
