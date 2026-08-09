@@ -1039,7 +1039,7 @@ function PrintRecipesModal({open,onClose,menus,recipeLines,ingredients,cookingSt
   const[selIds,setSelIds]=useState(new Set());
   const[printing,setPrinting]=useState(false);
   const selectedMenus=useMemo(()=>{
-    if(mode==="category")return menus.filter(m=>selCat==="All"||(m.category===selCat&&m.menu_type!=="precooked"));
+    if(mode==="category")return menus.filter(m=>selCat==="All"||m.category===selCat);
     return menus.filter(m=>selIds.has(m.id));
   },[mode,menus,selCat,selIds]);
   function toggleId(id){setSelIds(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});}
@@ -1058,12 +1058,12 @@ function PrintRecipesModal({open,onClose,menus,recipeLines,ingredients,cookingSt
     win.focus();
     setTimeout(()=>{win.print();setPrinting(false);},900);
   }
-  const foodMenus=useMemo(()=>menus.filter(m=>m.menu_type!=="precooked"),[menus]);
+  const allPrintMenus=useMemo(()=>menus,[menus]);
   const catGroups=useMemo(()=>{
     const map={};
-    foodMenus.forEach(m=>{if(!map[m.category])map[m.category]=[];map[m.category].push(m);});
+    allPrintMenus.forEach(m=>{if(!map[m.category])map[m.category]=[];map[m.category].push(m);});
     return map;
-  },[foodMenus]);
+  },[allPrintMenus]);
   if(!open)return null;
   return<div className="ov"><div className="mb" style={{maxWidth:640,maxHeight:"80vh",display:"flex",flexDirection:"column"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
@@ -1080,11 +1080,11 @@ function PrintRecipesModal({open,onClose,menus,recipeLines,ingredients,cookingSt
       )}
     </div>
     {mode==="category"&&<div>
-      <div style={{fontSize:12,color:"#6b7280",marginBottom:8}}>Select a category — all its food menus will be included:</div>
+      <div style={{fontSize:12,color:"#6b7280",marginBottom:8}}>Select a category — all menus in that category will be included:</div>
       <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
         {["All",...cats.map(c=>c.name)].map(c=><button key={c} onClick={()=>setSelCat(c)} className="btn"
           style={{fontSize:12,padding:"5px 12px",background:selCat===c?"#166534":"#f1f5f9",color:selCat===c?"#fff":"#374151"}}>
-          {c} {c==="All"?`(${foodMenus.length})`:catGroups[c]?`(${catGroups[c].length})`:"(0)"}
+          {c} {c==="All"?`(${allPrintMenus.length})`:catGroups[c]?`(${catGroups[c].length})`:"(0)"}
         </button>)}
       </div>
     </div>}
@@ -1989,6 +1989,14 @@ function RecipePage({menuId,menus,updateMenus,recipeLines,updateRecipeLines,cook
   const mySteps=useMemo(()=>cookingSteps.filter(s=>String(s.menu_id)===String(menuId)).sort((a,b)=>+a.step_no-+b.step_no),[cookingSteps,menuId]);
   const cost=useMemo(()=>menu?calcMenuCost(menuId,recipeLines,menu):{rawCost:0,totalCost:0,costPerServe:0,suggestExcl:0,suggestIncl:0,foodCostPct:null,lineCount:0},[menuId,recipeLines,menu]);
   const isPC=menu?.menu_type==="precooked";
+  const autoTotal=useMemo(()=>Math.round(myLines.reduce((s,l)=>s+(parseFloat(l.usage_qty)||0),0)*100)/100,[myLines]);
+  // Keep serves_per_recipe in sync with ingredient total for pre-cooked menus
+  useEffect(()=>{
+    if(!isPC||!menu)return;
+    if(autoTotal>0&&autoTotal!==parseFloat(menu.serves_per_recipe||0)){
+      updField("serves_per_recipe",autoTotal);
+    }
+  },[autoTotal,isPC]);
   useEffect(()=>{if(menu)setLocalPrice(menu.actual_price===""?"":String(menu.actual_price));},[menu?.id]);
   function savePrice(){const val=localPrice===""?"":+localPrice;updateMenus(prev=>prev.map(m=>m.id===menuId?{...m,actual_price:val}:m));}
   function handleSave(){savePrice();setSaved(true);setTimeout(()=>setSaved(false),2500);}
@@ -2041,11 +2049,16 @@ function RecipePage({menuId,menus,updateMenus,recipeLines,updateRecipeLines,cook
       <div style={{display:"flex",gap:20,marginTop:18,flexWrap:"wrap"}}>
         <div><div className="fl">{isPC?"Batch Output (ปริมาณต่อสูตร)":"Serves/Recipe"}</div>
           <div style={{display:"flex",gap:6,alignItems:"center",marginTop:4}}>
-            <input className="inp" type="number" min="1" value={menu.serves_per_recipe||1} onChange={e=>updField("serves_per_recipe",+e.target.value)} style={{width:80}}/>
+            {isPC
+              ? <div className="inp" style={{width:80,background:"#f0fdf4",color:"#166534",fontWeight:700,cursor:"default",border:"1px solid #bbf7d0",textAlign:"right"}}
+                  title="Auto-calculated from total ingredient QTY">{autoTotal||0}</div>
+              : <input className="inp" type="number" min="1" value={menu.serves_per_recipe||1} onChange={e=>updField("serves_per_recipe",+e.target.value)} style={{width:80}}/>
+            }
             {isPC&&<select className="inp" value={menu.batch_unit||"Gram"} onChange={e=>updField("batch_unit",e.target.value)} style={{width:90}}>
               {["Gram","ml","Piece","kg","L","tbsp","tsp","cup","Serve"].map(u=><option key={u}>{u}</option>)}
             </select>}
           </div>
+          {isPC&&<div style={{fontSize:11,color:"#6b7280",marginTop:3}}>Auto-sum of all ingredient QTYs</div>}
         </div>
         <div><div className="fl">Spice Allowance</div>
           <div style={{display:"flex",alignItems:"center",gap:5,marginTop:4}}>
