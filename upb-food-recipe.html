@@ -185,7 +185,7 @@ const GOOGLE_CLIENT_ID="787778307584-v1bfnkpnfgu9j1ueni9mi97chlpdu2ec.apps.googl
 const SCOPES="https://www.googleapis.com/auth/spreadsheets";
 
 const SHEETS={
-  Menus:       ["id","menu_id","category","name_th","name_en","serves_per_recipe","spice_pct","target_food_cost_pct","actual_price","checked","menu_type"],
+  Menus:       ["id","menu_id","category","name_th","name_en","serves_per_recipe","batch_unit","spice_pct","target_food_cost_pct","actual_price","checked","menu_type","active"],
   Ingredients: ["id","name","supplier","ingr_category","purchase_price","purchase_qty","unit","cost_per_unit","vat","yield_pct","last_price_date","notes","is_precooked","precooked_menu_id"],
   IngrCats:    ["id","name"],
   RecipeLines: ["id","menu_id","ingredient_id","ingredient_name","usage_qty","usage_unit","ingredient_cost"],
@@ -1130,10 +1130,12 @@ function StatusBadge({status}){
   if(status==="has_recipe")return<span className="badge" style={{background:"#dbeafe",color:"#1e40af",whiteSpace:"nowrap"}}>📖 Has Recipe</span>;
   return<span className="badge" style={{background:"#f3f4f6",color:"#6b7280",whiteSpace:"nowrap"}}>⬜ Draft</span>;
 }
-function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredients,updateRecipeLines,updateCookingSteps,recipeLines,cookingSteps,menuCat,setMenuCat}){
+function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredients,updateRecipeLines,updateCookingSteps,recipeLines,cookingSteps,menuCat,setMenuCat,stores,storePrices}){
   const cats=useContext(CatsCtx);
   const[search,setSearch]=useState("");
   const[statusFilter,setStatusFilter]=useState("All");
+  const[activeTab,setActiveTab]=useState("active"); // "active" | "inactive" | "all"
+  const[storeFilter,setStoreFilter]=useState("All");
   const[editM,setEditM]=useState(null);
   const[showAdd,setShowAdd]=useState(false);
   const[delId,setDelId]=useState(null);
@@ -1145,20 +1147,29 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
   const[showRecipeUpload,setShowRecipeUpload]=useState(false);
   const[showPrint,setShowPrint]=useState(false);
   const ingrIds=useMemo(()=>new Set(ingredients.map(i=>i.id)),[ingredients]);
+  const storeNames=useMemo(()=>(stores||[]).map(s=>s.name),[stores]);
   const enriched=useMemo(()=>menus.map(m=>{
     const c=calcMenuCost(m.id,recipeLines,m);
     const myLines=recipeLines.filter(r=>String(r.menu_id)===String(m.id));
     const hasMissingIngr=myLines.some(l=>l.ingredient_id&&!ingrIds.has(l.ingredient_id));
-    return{...m,status:menuStatus(m,recipeLines),...c,hasMissingIngr};
-  }),[menus,recipeLines,ingrIds]);
+    const soldAt=(storePrices||[]).filter(p=>String(p.menu_id)===String(m.id)).map(p=>p.store_name).filter(Boolean);
+    const isActive=m.active===undefined||m.active===null||m.active===""||toBool(m.active===false?false:m.active!==false);
+    // default active=true if field is absent
+    const activeVal=m.active===false||m.active==="false"||m.active==="FALSE"?false:true;
+    return{...m,status:menuStatus(m,recipeLines),...c,hasMissingIngr,soldAt,activeVal};
+  }),[menus,recipeLines,ingrIds,storePrices]);
   const filtered=useMemo(()=>enriched.filter(m=>{
+    if(activeTab==="active"&&!m.activeVal)return false;
+    if(activeTab==="inactive"&&m.activeVal)return false;
     if(menuCat!=="All"&&m.category!==menuCat)return false;
     if(statusFilter!=="All"&&m.status!==statusFilter)return false;
+    if(storeFilter!=="All"&&!m.soldAt.includes(storeFilter))return false;
     if(search){const s=search.toLowerCase();return m.name_en?.toLowerCase().includes(s)||m.name_th?.includes(search)||m.menu_id?.toLowerCase().includes(s);}
     return true;
-  }),[enriched,menuCat,statusFilter,search]);
+  }),[enriched,menuCat,statusFilter,search,activeTab,storeFilter]);
   function saveMenu(m){updateMenus(prev=>{const i=prev.findIndex(x=>x.id===m.id);if(i>=0){const n=[...prev];n[i]=m;return n;}return[...prev,m];});}
   function delMenu(id){updateMenus(prev=>prev.filter(m=>m.id!==id));setDelId(null);}
+  function toggleActive(id){updateMenus(prev=>prev.map(m=>{if(m.id!==id)return m;const cur=m.active===false||m.active==="false"||m.active==="FALSE"?false:true;return{...m,active:!cur};}));}
   function startDup(m){setDupSrc(m);setDupName((m.name_en||m.name_th||"")+" (Copy)");}
   function doDuplicate(){
     if(!dupSrc||!dupName.trim())return;
@@ -1168,11 +1179,14 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
     updateMenus(prev=>[...prev,newMenu]);
     setDupSrc(null);setDupName("");
   }
+  const activeCount=useMemo(()=>enriched.filter(m=>m.activeVal).length,[enriched]);
+  const inactiveCount=useMemo(()=>enriched.filter(m=>!m.activeVal).length,[enriched]);
+  const tabBase=useMemo(()=>enriched.filter(m=>activeTab==="all"||( activeTab==="active"?m.activeVal:!m.activeVal)),[enriched,activeTab]);
   const statusCounts=useMemo(()=>({
-    verified:enriched.filter(m=>m.status==="verified").length,
-    has_recipe:enriched.filter(m=>m.status==="has_recipe").length,
-    draft:enriched.filter(m=>m.status==="draft").length,
-  }),[enriched]);
+    verified:tabBase.filter(m=>m.status==="verified").length,
+    has_recipe:tabBase.filter(m=>m.status==="has_recipe").length,
+    draft:tabBase.filter(m=>m.status==="draft").length,
+  }),[tabBase]);
   return <div style={{flex:1,padding:"28px 32px",overflowY:"auto"}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
       <div><h2 style={{fontSize:22,fontWeight:700,margin:0}}>All Menus</h2>
@@ -1183,20 +1197,34 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
         <button onClick={()=>setShowAdd(true)} className="btn btn-g">+ Add Menu</button>
       </div>
     </div>
+    {/* Active / Inactive tabs */}
+    <div style={{display:"flex",gap:0,marginBottom:12,borderBottom:"2px solid #e5e7eb"}}>
+      {[["active","✅ Active",activeCount],["inactive","🔴 Inactive",inactiveCount],["all","All",enriched.length]].map(([k,label,cnt])=>
+        <button key={k} onClick={()=>setActiveTab(k)} style={{padding:"8px 20px",fontSize:13,fontWeight:600,border:"none",borderBottom:activeTab===k?"3px solid #166534":"3px solid transparent",background:"none",cursor:"pointer",color:activeTab===k?"#166534":"#6b7280",marginBottom:-2}}>
+          {label} <span style={{fontWeight:400,opacity:.7}}>({cnt})</span>
+        </button>
+      )}
+    </div>
     {/* Category filter */}
     <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
       {["All",...cats.map(c=>c.name)].map(c=><button key={c} onClick={()=>setMenuCat(c)} className="btn"
         style={{fontSize:12,padding:"5px 12px",background:menuCat===c?"#166534":"#f1f5f9",color:menuCat===c?"#fff":"#374151"}}>{c}</button>)}
     </div>
-    {/* Status filter + search */}
+    {/* Status filter + store filter + search */}
     <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
       {[["All","All"],["draft","⬜ Draft"],["has_recipe","📖 Has Recipe"],["verified","✓ Verified"]].map(([k,label])=>{
-        const count=k==="All"?enriched.length:statusCounts[k];
+        const count=k==="All"?tabBase.length:statusCounts[k];
         return<button key={k} onClick={()=>setStatusFilter(k)} className="btn"
           style={{fontSize:12,padding:"5px 12px",background:statusFilter===k?"#1d4ed8":"#f1f5f9",color:statusFilter===k?"#fff":"#374151"}}>
           {label} <span style={{opacity:.7,marginLeft:3}}>({count})</span>
         </button>;
       })}
+      {storeNames.length>0&&<>
+        <div style={{width:1,height:20,background:"#e5e7eb",margin:"0 4px"}}/>
+        <span style={{fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:".06em"}}>Store:</span>
+        {["All",...storeNames].map(s=><button key={s} onClick={()=>setStoreFilter(s)} className="btn"
+          style={{fontSize:12,padding:"5px 12px",background:storeFilter===s?"#0369a1":"#f1f5f9",color:storeFilter===s?"#fff":"#374151"}}>{s}</button>)}
+      </>}
       <input className="inp" placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)} style={{width:190,marginLeft:"auto"}}/>
     </div>
     <div className="card" style={{overflow:"hidden"}}>
@@ -1225,7 +1253,13 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
           const hasLines=m.lineCount>0;
           return<tr key={m.id} style={m.hasMissingIngr?{background:"#fff7ed"}:{}}>
             <td className="td" style={{fontWeight:600,color:"#166534",fontSize:12}}>{m.menu_id}</td>
-            <td className="td"><div style={{fontWeight:500}}>{m.name_en}</div><div style={{fontSize:11,color:"#9ca3af"}}>{m.name_th}</div></td>
+            <td className="td">
+              <div style={{fontWeight:500}}>{m.name_en}</div>
+              <div style={{fontSize:11,color:"#9ca3af"}}>{m.name_th}</div>
+              {m.soldAt&&m.soldAt.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:3}}>
+                {m.soldAt.map(s=><span key={s} style={{fontSize:10,fontWeight:600,padding:"1px 6px",borderRadius:99,background:"#e0f2fe",color:"#0369a1",letterSpacing:".03em"}}>{s}</span>)}
+              </div>}
+            </td>
             <td className="td">{isPC?<span className="badge" style={{background:"#fef3c7",color:"#92400e",whiteSpace:"nowrap"}}>🍳 Pre-Cooked</span>:<CatBadge cat={m.category}/>}</td>
             <td className="td" style={{textAlign:"right",fontWeight:600,color:"#374151"}}>
               {isPC?(hasLines?fmtB(m.totalCost):"—"):"—"}
@@ -1296,6 +1330,12 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
           style={{display:"block",width:"100%",textAlign:"left",padding:"10px 16px",border:"none",background:"none",fontSize:13,cursor:"pointer",color:"#6d28d9"}}
           onMouseEnter={e=>e.currentTarget.style.background="#f5f3ff"} onMouseLeave={e=>e.currentTarget.style.background="none"}>
           ⧉ Duplicate
+        </button>
+        <div style={{borderTop:"1px solid #f1f5f9"}}/>
+        <button onClick={()=>{toggleActive(m.id);setActionOpen(null);}}
+          style={{display:"block",width:"100%",textAlign:"left",padding:"10px 16px",border:"none",background:"none",fontSize:13,cursor:"pointer",color:m.activeVal?"#b45309":"#166534"}}
+          onMouseEnter={e=>e.currentTarget.style.background=m.activeVal?"#fef3c7":"#f0fdf4"} onMouseLeave={e=>e.currentTarget.style.background="none"}>
+          {m.activeVal?"🔴 Set Inactive":"✅ Set Active"}
         </button>
         <div style={{borderTop:"1px solid #f1f5f9"}}/>
         <button onClick={()=>{setDelId(m.id);setActionOpen(null);}}
@@ -2439,7 +2479,8 @@ function App(){
         {page==="dashboard"&&<DashboardPage menus={menus} recipeLines={recipeLines} storePrices={storePrices} setSelectedMenu={setSelectedMenu} setPage={setPage}/>}
         {page==="menus"&&<MenusPage menus={menus} updateMenus={updMenus} setSelectedMenu={navRecipe}
           ingredients={ingredients} updateIngredients={updIngr} updateRecipeLines={updLines} updateCookingSteps={updSteps}
-          recipeLines={recipeLines} cookingSteps={cookingSteps} menuCat={menuCat} setMenuCat={setMenuCat}/>}
+          recipeLines={recipeLines} cookingSteps={cookingSteps} menuCat={menuCat} setMenuCat={setMenuCat}
+          stores={stores} storePrices={storePrices}/>}
         {page==="ingredients"&&<IngredientsPage ingredients={ingredients} updateIngredients={updIngr} onIngrCatMgr={openIngrCatMgr}/>}
         {page==="recipe"&&<RecipePage menuId={selectedMenu} menus={menus} updateMenus={updMenus}
           recipeLines={recipeLines} updateRecipeLines={updLines}
