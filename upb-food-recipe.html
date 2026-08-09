@@ -874,7 +874,7 @@ function EditMenuModal({open,onClose,menu,onSave,menus}){
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
           <input className="inp" type="number" min="1" value={f.serves_per_recipe} onChange={e=>ch("serves_per_recipe",e.target.value)} placeholder={isPC?"e.g. 1000":""} style={{flex:1}}/>
           {isPC&&<select className="inp" value={f.batch_unit||"Gram"} onChange={e=>ch("batch_unit",e.target.value)} style={{width:90,flexShrink:0}}>
-            {["Gram","ml","Piece","kg","L","tbsp","tsp","cup"].map(u=><option key={u}>{u}</option>)}
+            {["Gram","ml","Piece","kg","L","tbsp","tsp","cup","Serve"].map(u=><option key={u}>{u}</option>)}
           </select>}
         </div>
         {isPC&&<div style={{fontSize:11,color:"#6b7280",marginTop:3}}>1 batch → {f.serves_per_recipe||1} {f.batch_unit||"Gram"} pushed to Ingredients as cost/{f.batch_unit||"Gram"}</div>}
@@ -1144,10 +1144,13 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
   useEffect(()=>{if(!actionOpen)return;const h=()=>setActionOpen(null);document.addEventListener("click",h);return()=>document.removeEventListener("click",h);},[actionOpen]);
   const[showRecipeUpload,setShowRecipeUpload]=useState(false);
   const[showPrint,setShowPrint]=useState(false);
+  const ingrIds=useMemo(()=>new Set(ingredients.map(i=>i.id)),[ingredients]);
   const enriched=useMemo(()=>menus.map(m=>{
     const c=calcMenuCost(m.id,recipeLines,m);
-    return{...m,status:menuStatus(m,recipeLines),...c};
-  }),[menus,recipeLines]);
+    const myLines=recipeLines.filter(r=>String(r.menu_id)===String(m.id));
+    const hasMissingIngr=myLines.some(l=>l.ingredient_id&&!ingrIds.has(l.ingredient_id));
+    return{...m,status:menuStatus(m,recipeLines),...c,hasMissingIngr};
+  }),[menus,recipeLines,ingrIds]);
   const filtered=useMemo(()=>enriched.filter(m=>{
     if(menuCat!=="All"&&m.category!==menuCat)return false;
     if(statusFilter!=="All"&&m.status!==statusFilter)return false;
@@ -1220,7 +1223,7 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
         <tbody>{filtered.map(m=>{
           const isPC=m.menu_type==="precooked";
           const hasLines=m.lineCount>0;
-          return<tr key={m.id}>
+          return<tr key={m.id} style={m.hasMissingIngr?{background:"#fff7ed"}:{}}>
             <td className="td" style={{fontWeight:600,color:"#166534",fontSize:12}}>{m.menu_id}</td>
             <td className="td"><div style={{fontWeight:500}}>{m.name_en}</div><div style={{fontSize:11,color:"#9ca3af"}}>{m.name_th}</div></td>
             <td className="td">{isPC?<span className="badge" style={{background:"#fef3c7",color:"#92400e",whiteSpace:"nowrap"}}>🍳 Pre-Cooked</span>:<CatBadge cat={m.category}/>}</td>
@@ -1236,7 +1239,10 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
             <td className="td" style={{textAlign:"right",fontWeight:600,color:"#166534"}}>
               {isPC?"—":hasLines?fmtB(m.suggestIncl):"—"}
             </td>
-            <td className="td"><StatusBadge status={m.status}/></td>
+            <td className="td" style={{whiteSpace:"nowrap"}}>
+              <StatusBadge status={m.status}/>
+              {m.hasMissingIngr&&<span title="Some ingredients in this recipe were deleted from the master list" style={{marginLeft:5,cursor:"default"}}>⚠️</span>}
+            </td>
             <td className="td"><div style={{display:"flex",gap:6,alignItems:"center",position:"relative"}}>
               <button onClick={()=>setSelectedMenu(m.id)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px",whiteSpace:"nowrap"}}>📖 Recipe</button>
               <div style={{position:"relative"}}>
@@ -1825,21 +1831,27 @@ function EditRecipeModal({open,onClose,menu,recipeLines,updateRecipeLines,ingred
     <div className="card" style={{overflow:"hidden",marginBottom:18}}>
       <table style={{width:"100%",borderCollapse:"collapse"}}>
         <thead><tr><th className="th">Ingredient</th><th className="th" style={{textAlign:"right"}}>Qty</th><th className="th">Unit</th><th className="th" style={{textAlign:"right"}}>Cost</th><th className="th"/></tr></thead>
-        <tbody>{lines.map(l=><tr key={l.id}>
-          <td className="td"><div style={{fontWeight:500}}>{l.ingredient_name}</div>
-            {(()=>{const i=ingredients.find(x=>x.id===l.ingredient_id);return i?.name_th?<div style={{fontSize:11,color:"#9ca3af"}}>{i.name_th}</div>:null;})()}
+        <tbody>{lines.map(l=>{
+          const ingr=ingredients.find(x=>x.id===l.ingredient_id);
+          const missing=l.ingredient_id&&!ingr;
+          return <tr key={l.id} style={missing?{background:"#fff1f2"}:{}}>
+          <td className="td">
+            <div style={{fontWeight:500,color:missing?"#b91c1c":undefined}}>{l.ingredient_name}
+              {missing&&<span style={{marginLeft:6,fontSize:10,background:"#fee2e2",color:"#991b1b",padding:"1px 6px",borderRadius:9999,fontWeight:700}}>⚠️ Deleted</span>}
+            </div>
+            {ingr?.name_th&&<div style={{fontSize:11,color:"#9ca3af"}}>{ingr.name_th}</div>}
           </td>
           <td className="td" style={{textAlign:"right"}}>
             <input type="number" min="0" step="0.001" value={l.usage_qty}
               onChange={e=>updateQty(l.id,e.target.value)}
-              style={{width:72,textAlign:"right",border:"1px solid #d1fae5",borderRadius:6,padding:"3px 6px",fontSize:13,fontWeight:600,background:"#f0fdf4",color:"#166534",outline:"none"}}
-              onFocus={e=>{e.target.select();e.target.style.borderColor="#16a34a";}}
-              onBlur={e=>e.target.style.borderColor="#d1fae5"}/>
+              style={{width:72,textAlign:"right",border:`1px solid ${missing?"#fca5a5":"#d1fae5"}`,borderRadius:6,padding:"3px 6px",fontSize:13,fontWeight:600,background:missing?"#fff1f2":"#f0fdf4",color:missing?"#b91c1c":"#166534",outline:"none"}}
+              onFocus={e=>{e.target.select();e.target.style.borderColor=missing?"#ef4444":"#16a34a";}}
+              onBlur={e=>e.target.style.borderColor=missing?"#fca5a5":"#d1fae5"}/>
           </td>
           <td className="td" style={{color:"#6b7280"}}>{l.usage_unit||"—"}</td>
           <td className="td" style={{textAlign:"right",fontWeight:600}}>{fmtB(l.ingredient_cost)}</td>
           <td className="td"><button onClick={()=>delLine(l.id)} className="btn" style={{fontSize:11,padding:"3px 8px",background:"#fee2e2",color:"#991b1b"}}>✕</button></td>
-        </tr>)}
+        </tr>;})}
         <tr><td colSpan={3} className="td" style={{fontWeight:700,textAlign:"right"}}>Raw total:</td>
           <td className="td" style={{fontWeight:700,color:"#166534"}}>{fmtB(lines.reduce((s,l)=>s+parseFloat(l.ingredient_cost||0),0))}</td><td className="td"/></tr>
         </tbody>
@@ -1984,7 +1996,7 @@ function RecipePage({menuId,menus,updateMenus,recipeLines,updateRecipeLines,cook
           <div style={{display:"flex",gap:6,alignItems:"center",marginTop:4}}>
             <input className="inp" type="number" min="1" value={menu.serves_per_recipe||1} onChange={e=>updField("serves_per_recipe",+e.target.value)} style={{width:80}}/>
             {isPC&&<select className="inp" value={menu.batch_unit||"Gram"} onChange={e=>updField("batch_unit",e.target.value)} style={{width:90}}>
-              {["Gram","ml","Piece","kg","L","tbsp","tsp","cup"].map(u=><option key={u}>{u}</option>)}
+              {["Gram","ml","Piece","kg","L","tbsp","tsp","cup","Serve"].map(u=><option key={u}>{u}</option>)}
             </select>}
           </div>
         </div>
