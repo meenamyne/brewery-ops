@@ -1169,7 +1169,8 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
     if(activeTab==="active"&&!m.activeVal)return false;
     if(activeTab==="inactive"&&m.activeVal)return false;
     if(menuCat!=="All"&&m.category!==menuCat)return false;
-    if(statusFilter!=="All"&&m.status!==statusFilter)return false;
+    if(statusFilter==="unverified"&&m.status==="verified")return false;
+    else if(statusFilter!=="All"&&statusFilter!=="unverified"&&m.status!==statusFilter)return false;
     if(storeFilter!=="All"&&!m.soldAt.includes(storeFilter))return false;
     if(search){const s=search.toLowerCase();return m.name_en?.toLowerCase().includes(s)||m.name_th?.includes(search)||m.menu_id?.toLowerCase().includes(s);}
     return true;
@@ -1177,6 +1178,7 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
   function saveMenu(m){updateMenus(prev=>{const i=prev.findIndex(x=>x.id===m.id);if(i>=0){const n=[...prev];n[i]=m;return n;}return[...prev,m];});}
   function delMenu(id){updateMenus(prev=>prev.filter(m=>m.id!==id));setDelId(null);}
   function toggleActive(id){updateMenus(prev=>prev.map(m=>{if(m.id!==id)return m;const cur=m.active===false||m.active==="false"||m.active==="FALSE"?false:true;return{...m,active:!cur};}));}
+  function toggleVerify(id){updateMenus(prev=>prev.map(m=>{if(m.id!==id)return m;return{...m,checked:!toBool(m.checked)};}));}
   function startDup(m){setDupSrc(m);setDupName((m.name_en||m.name_th||"")+" (Copy)");}
   function doDuplicate(){
     if(!dupSrc||!dupName.trim())return;
@@ -1191,6 +1193,7 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
   const tabBase=useMemo(()=>enriched.filter(m=>activeTab==="all"||( activeTab==="active"?m.activeVal:!m.activeVal)),[enriched,activeTab]);
   const statusCounts=useMemo(()=>({
     verified:tabBase.filter(m=>m.status==="verified").length,
+    unverified:tabBase.filter(m=>m.status!=="verified").length,
     has_recipe:tabBase.filter(m=>m.status==="has_recipe").length,
     draft:tabBase.filter(m=>m.status==="draft").length,
   }),[tabBase]);
@@ -1219,11 +1222,13 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
     </div>
     {/* Status filter + store filter + search */}
     <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
-      {[["All","All"],["draft","⬜ Draft"],["has_recipe","📖 Has Recipe"],["verified","✓ Verified"]].map(([k,label])=>{
+      {[["All","All"],["unverified","❌ Unverified"],["verified","✓ Verified"],["has_recipe","📖 Has Recipe"],["draft","⬜ Draft"]].map(([k,label])=>{
         const count=k==="All"?tabBase.length:statusCounts[k];
+        const isVer=k==="verified"; const isUnver=k==="unverified";
+        const activeBg=isVer?"#166534":isUnver?"#dc2626":"#1d4ed8";
         return<button key={k} onClick={()=>setStatusFilter(k)} className="btn"
-          style={{fontSize:12,padding:"5px 12px",background:statusFilter===k?"#1d4ed8":"#f1f5f9",color:statusFilter===k?"#fff":"#374151"}}>
-          {label} <span style={{opacity:.7,marginLeft:3}}>({count})</span>
+          style={{fontSize:12,padding:"5px 12px",background:statusFilter===k?activeBg:"#f1f5f9",color:statusFilter===k?"#fff":"#374151"}}>
+          {label} <span style={{opacity:.7,marginLeft:3}}>({count??0})</span>
         </button>;
       })}
       {storeNames.length>0&&<>
@@ -1286,6 +1291,11 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
             </td>
             <td className="td"><div style={{display:"flex",gap:6,alignItems:"center",position:"relative"}}>
               <button onClick={()=>setSelectedMenu(m.id)} className="btn btn-o" style={{fontSize:12,padding:"4px 10px",whiteSpace:"nowrap"}}>📖 Recipe</button>
+              {!isPC&&m.lineCount>0&&<button onClick={()=>toggleVerify(m.id)} title={m.status==="verified"?"Unmark verified":"Mark as verified"}
+                style={{border:"none",background:"none",cursor:"pointer",fontSize:18,padding:"0 2px",opacity:m.status==="verified"?1:0.3,transition:"opacity .15s"}}
+                onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=m.status==="verified"?1:0.3}>
+                ✅
+              </button>}
               <div style={{position:"relative"}}>
                 <button onClick={e=>{e.stopPropagation();const r=e.currentTarget.getBoundingClientRect();const estH=240;const top=r.bottom+estH>window.innerHeight?r.top-estH-4:r.bottom+4;setDropPos({top,right:window.innerWidth-r.right});setActionOpen(actionOpen===m.id?null:m.id);}}
                   className="btn btn-o" style={{fontSize:13,padding:"4px 10px",minWidth:32}} title="Actions">✏️</button>
