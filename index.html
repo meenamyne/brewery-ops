@@ -189,7 +189,23 @@
       { id:2, name:"Gunn",  dept:"Brewery" },
       { id:3, name:"Meena", dept:"Brewery" },
     ];
-    const DESTINATIONS = ["UPB", "UPB Lake Club", "Beer Pradith", "Yod Beer", "Client", "Event", "Group B"];
+    const DESTINATION_CONFIG = [
+      // ── Internal storage locations ──────────────────────────────────────
+      { name:"UPB",             type:"internal" },
+      { name:"UPB Lake Club",   type:"internal" },
+      { name:"Group B Bond",    type:"internal", isBond:true }, // reserved / unpaid — move to Group B on payment
+      { name:"Group B",         type:"internal" },
+      // ── External (sold / event / client) ────────────────────────────────
+      { name:"Beer Pradith",    type:"external" },
+      { name:"Yod Beer",        type:"external" },
+      { name:"Client",          type:"external" },
+      { name:"Event",           type:"external" },
+    ];
+    const DESTINATIONS      = DESTINATION_CONFIG.map(d => d.name);
+    const INTERNAL_DESTS    = new Set(DESTINATION_CONFIG.filter(d=>d.type==="internal").map(d=>d.name));
+    const BOND_DEST         = "Group B Bond";
+    const BOND_RELEASE_DEST = "Group B";
+    function destType(name){ return INTERNAL_DESTS.has(name) ? "internal" : "external"; }
     const KEG_SIZES = ["6 L", "12 L", "14 L", "20 L", "30 L", "50 L"];
 
     const INITIAL_KEG_STATUS = [
@@ -1876,6 +1892,12 @@
         ));
       }
 
+      function handleMoveBond(row) {
+        if (!window.confirm(`Move ${row.keg_id} from Group B Bond → Group B (payment confirmed)?`)) return;
+        setStockOut(prev => prev.map(r => r.id === row.id ? {...r, destination: BOND_RELEASE_DEST} : r));
+        setKegStatus(prev => prev.map(k => k.keg_id === row.keg_id ? {...k, location: BOND_RELEASE_DEST} : k));
+      }
+
       function handleBatchReturn(e) {
         e.preventDefault();
         const ids = selectedIds;
@@ -2040,19 +2062,35 @@
                             <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(r.date_out)}</td>
                             <td className="px-4 py-3 font-mono text-xs font-medium text-gray-700 whitespace-nowrap">{r.keg_id}</td>
                             <td className="px-4 py-3 text-gray-700 max-w-40 truncate">{r.beer_name || "—"}</td>
-                            <td className="px-4 py-3 text-gray-600">{r.destination}</td>
+                            <td className="px-4 py-3">
+                              <div className="flex flex-col gap-1">
+                                <span className={`font-medium text-sm ${r.destination===BOND_DEST?"text-purple-700":"text-gray-700"}`}>{r.destination}</span>
+                                <span className={`text-xs px-1.5 py-0.5 rounded w-fit font-medium ${destType(r.destination)==="internal"?"bg-blue-50 text-blue-500":"bg-orange-50 text-orange-500"}`}>
+                                  {destType(r.destination)==="internal"?"Internal":"External"}
+                                  {r.destination===BOND_DEST&&" · Bond"}
+                                </span>
+                              </div>
+                            </td>
                             <td className="px-4 py-3 text-gray-600">{r.recorded_by}</td>
                             <td className="px-4 py-3 text-gray-400 text-xs max-w-40 truncate" title={r.remark||""}>{r.remark || "—"}</td>
                             <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(r.date_returned)}</td>
                             <td className="px-4 py-3">
                               {r.date_returned
                                 ? <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-sky-50 text-sky-600"><span className="w-1.5 h-1.5 rounded-full bg-sky-400"></span>Returned</span>
-                                : <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-600"><span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>Out</span>
+                                : r.destination===BOND_DEST
+                                  ? <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-purple-50 text-purple-600"><span className="w-1.5 h-1.5 rounded-full bg-purple-400"></span>Bonded</span>
+                                  : <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-600"><span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>Out</span>
                               }
                             </td>
                             <td className="px-4 py-3 text-right">
                               <div className="flex items-center justify-end gap-2">
-                                {!r.date_returned && (
+                                {!r.date_returned && r.destination===BOND_DEST && (
+                                  <button onClick={() => handleMoveBond(r)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors whitespace-nowrap">
+                                    ✓ Move to Group B
+                                  </button>
+                                )}
+                                {!r.date_returned && r.destination!==BOND_DEST && (
                                   <button onClick={() => openReturn(r)}
                                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-sky-600 bg-sky-50 hover:bg-sky-100 rounded-lg transition-colors whitespace-nowrap">
                                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
@@ -2169,9 +2207,24 @@
                 {/* Destination */}
                 <Field label="Destination">
                   <select value={form.destination} onChange={e => setForm(f=>({...f,destination:e.target.value}))} className={inputCls}>
-                    {DESTINATIONS.map(d => <option key={d}>{d}</option>)}
+                    <optgroup label="── Internal Storage">
+                      {DESTINATION_CONFIG.filter(d=>d.type==="internal").map(d =>
+                        <option key={d.name} value={d.name}>{d.name}{d.isBond?" (Bond — unpaid reserved)":""}</option>
+                      )}
+                    </optgroup>
+                    <optgroup label="── External">
+                      {DESTINATION_CONFIG.filter(d=>d.type==="external").map(d =>
+                        <option key={d.name} value={d.name}>{d.name}</option>
+                      )}
+                    </optgroup>
                   </select>
                 </Field>
+                {form.destination === BOND_DEST && (
+                  <div className="flex items-start gap-2 px-3 py-2.5 bg-purple-50 border border-purple-100 rounded-xl text-xs text-purple-700">
+                    <svg className="w-4 h-4 mt-0.5 shrink-0 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span><strong>Group B Bond</strong> — kegs are reserved but unpaid. Use <em>Move to Group B</em> in the stock list once payment is confirmed.</span>
+                  </div>
+                )}
 
                 {/* Multi-select keg list — Filled kegs only */}
                 <div className="flex flex-col gap-1.5">
