@@ -1090,7 +1090,7 @@ function PrintRecipesModal({open,onClose,menus,recipeLines,ingredients,cookingSt
     </div>}
     {mode==="select"&&<div style={{overflowY:"auto",flex:1,marginBottom:12,border:"1px solid #e5e7eb",borderRadius:8}}>
       {cats.map(cat=>{
-        const catMenus=foodMenus.filter(m=>m.category===cat.name);
+        const catMenus=allPrintMenus.filter(m=>m.category===cat.name);
         if(!catMenus.length)return null;
         const catIds=catMenus.map(m=>m.id);
         const allChk=catIds.every(id=>selIds.has(id));
@@ -1175,7 +1175,11 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
     if(search){const s=search.toLowerCase();return m.name_en?.toLowerCase().includes(s)||m.name_th?.includes(search)||m.menu_id?.toLowerCase().includes(s);}
     return true;
   }),[enriched,menuCat,statusFilter,search,activeTab,storeFilter]);
-  function saveMenu(m){updateMenus(prev=>{const i=prev.findIndex(x=>x.id===m.id);if(i>=0){const n=[...prev];n[i]=m;return n;}return[...prev,m];});}
+  function saveMenu(m){
+    const isNew=!menus.find(x=>x.id===m.id);
+    updateMenus(prev=>{const i=prev.findIndex(x=>x.id===m.id);if(i>=0){const n=[...prev];n[i]=m;return n;}return[...prev,m];});
+    if(isNew)setSelectedMenu(m.id); // navigate straight to recipe page after creating
+  }
   function delMenu(id){updateMenus(prev=>prev.filter(m=>m.id!==id));setDelId(null);}
   function toggleActive(id){updateMenus(prev=>prev.map(m=>{if(m.id!==id)return m;const cur=m.active===false||m.active==="false"||m.active==="FALSE"?false:true;return{...m,active:!cur};}));}
   function toggleVerify(id){updateMenus(prev=>prev.map(m=>{if(m.id!==id)return m;return{...m,checked:!toBool(m.checked)};}));}
@@ -2448,8 +2452,19 @@ function App(){
     updIngr(prev=>{
       let changed=false;
       // Use toBool for consistent is_precooked detection regardless of source (gviz / Sheets API / in-memory)
-      const linkedIds=new Set(prev.filter(i=>toBool(i.is_precooked)&&i.precooked_menu_id).map(i=>i.precooked_menu_id));
+      const pcMenuIds=new Set(precookedMenus.map(m=>m.id));
       let working=[...prev];
+
+      // 0. Release orphaned stubs — stubs whose menu was deleted; clear is_precooked so they can be re-adopted or replaced
+      working=working.map(i=>{
+        if(toBool(i.is_precooked)&&i.precooked_menu_id&&!pcMenuIds.has(i.precooked_menu_id)){
+          changed=true;
+          return{...i,is_precooked:false,precooked_menu_id:"",supplier:"",cost_per_unit:0};
+        }
+        return i;
+      });
+
+      const linkedIds=new Set(working.filter(i=>toBool(i.is_precooked)&&i.precooked_menu_id).map(i=>i.precooked_menu_id));
 
       // 1. For any pre-cooked menu with no linked stub, first try to adopt an existing ingredient by name, else create a new stub
       for(const m of precookedMenus){
