@@ -840,7 +840,7 @@ function EditMenuModal({open,onClose,menu,onSave,menus}){
 
   function save(){
     if(!f.menu_id||!f.name_en)return;
-    onSave({...f,id:f.id||f.menu_id,serves_per_recipe:+f.serves_per_recipe||1,
+    onSave({...f,id:f.id||uid(),serves_per_recipe:+f.serves_per_recipe||1,
       batch_unit:isPC?(f.batch_unit||"Gram"):undefined,
       spice_pct:+f.spice_pct||0.10,
       target_food_cost_pct:+f.target_food_cost_pct||0.35,
@@ -1180,7 +1180,12 @@ function MenusPage({menus,updateMenus,setSelectedMenu,ingredients,updateIngredie
     updateMenus(prev=>{const i=prev.findIndex(x=>x.id===m.id);if(i>=0){const n=[...prev];n[i]=m;return n;}return[...prev,m];});
     if(isNew)setSelectedMenu(m.id); // navigate straight to recipe page after creating
   }
-  function delMenu(id){updateMenus(prev=>prev.filter(m=>m.id!==id));setDelId(null);}
+  function delMenu(id){
+    updateMenus(prev=>prev.filter(m=>m.id!==id));
+    updateRecipeLines(prev=>prev.filter(r=>String(r.menu_id)!==String(id)));
+    updateCookingSteps(prev=>prev.filter(s=>String(s.menu_id)!==String(id)));
+    setDelId(null);
+  }
   function toggleActive(id){updateMenus(prev=>prev.map(m=>{if(m.id!==id)return m;const cur=m.active===false||m.active==="false"||m.active==="FALSE"?false:true;return{...m,active:!cur};}));}
   function toggleVerify(id){updateMenus(prev=>prev.map(m=>{if(m.id!==id)return m;return{...m,checked:!toBool(m.checked)};}));}
   function startDup(m){setDupSrc(m);setDupName((m.name_en||m.name_th||"")+" (Copy)");}
