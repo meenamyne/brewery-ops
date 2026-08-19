@@ -2796,8 +2796,8 @@
       );
     }
 
-    // ─── KEG OUT TAB ─────────────────────────────────────────────────────────
-    function KegOutTab({ monthlyStockOut, activeMonth }) {
+    // ─── KEG OUT TAB (REPORT) ────────────────────────────────────────────────
+    function RptKegOutTab({ monthlyStockOut, activeMonth }) {
       const [filterDest,setFilterDest]=useState("All");
       const locOpts=useMemo(()=>{const s=new Set(monthlyStockOut.map(r=>r.destination).filter(Boolean));return DESTINATIONS.filter(d=>s.has(d)).concat([...s].filter(d=>!DESTINATIONS.includes(d)));},[monthlyStockOut]);
       const filteredRows=useMemo(()=>filterDest==="All"?monthlyStockOut:monthlyStockOut.filter(r=>r.destination===filterDest),[monthlyStockOut,filterDest]);
@@ -3118,7 +3118,7 @@
           {activeTab==="overview"    &&<OverviewTab monthlyBatches={monthlyBatches} monthlyFillLog={monthlyFillLog} monthlyStockOut={monthlyStockOut} monthlyBrokenLog={monthlyBrokenLog} kegsReturnedInMonth={kegsReturnedInMonth} activeMonth={activeMonth}/>}
           {activeTab==="production"  &&<ProductionTab monthlyBatches={monthlyBatches} fillLog={fillLog} activeMonth={activeMonth}/>}
           {activeTab==="filling"     &&<FillingTab monthlyFillLog={monthlyFillLog} activeMonth={activeMonth}/>}
-          {activeTab==="keg-out"     &&<KegOutTab monthlyStockOut={monthlyStockOut} activeMonth={activeMonth}/>}
+          {activeTab==="keg-out"     &&<RptKegOutTab monthlyStockOut={monthlyStockOut} activeMonth={activeMonth}/>}
           {activeTab==="keg-movement"&&<KegMovementTab monthlyStockOut={monthlyStockOut} monthlyBrokenLog={monthlyBrokenLog} activeMonth={activeMonth}/>}
         </div>
       );
