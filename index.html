@@ -115,6 +115,10 @@
             }
             obj[h] = v;
           });
+          // Normalize legacy BrokenLog: old schema used 'date', new uses 'date_reported'
+          if (name === "BrokenLog") {
+            obj.date_reported = obj.date_reported || obj.date || "";
+          }
           return obj;
         });
       });
@@ -322,7 +326,7 @@
       { id:15, batch_id:"209", brew_day:"2026-02-18", beer_name:"Dolcita Hazy IPA",                       fermenter:"F03", volume:400, filled_litres:385, fermentation_days:14, condition_days:7,  release_date:"2026-03-09", status:"Done"  },
       { id:16, batch_id:"210", brew_day:"2026-02-22", beer_name:"Pheebok Rice Lager",                     fermenter:"F01", volume:400, filled_litres:380, fermentation_days:14, condition_days:7,  release_date:"2026-03-15", status:"Done"  },
       { id:17, batch_id:"211", brew_day:"2026-03-01", beer_name:"UPB Oatmeal Stout",                      fermenter:"F09", volume:397, filled_litres:403, fermentation_days:14, condition_days:7,  release_date:"2026-03-22", status:"Ready" },
-      { id:18, batch_id:"212", brew_day:"2026-03-05", beer_name:"UPB Chatuchak Lager",                    fermenter:"F05", volume:400, filled_litres:0,   fermentation_days:14, condition_days:14, release_date:"2026-03-33", status:"Fermenting" },
+      { id:18, batch_id:"212", brew_day:"2026-03-05", beer_name:"UPB Chatuchak Lager",                    fermenter:"F05", volume:400, filled_litres:0,   fermentation_days:14, condition_days:14, release_date:"2026-04-02", status:"Fermenting" },
       { id:19, batch_id:"213", brew_day:"2026-03-08", beer_name:"Sandport Tha-Sai",                       fermenter:"F02", volume:390, filled_litres:0,   fermentation_days:14, condition_days:7,  release_date:"2026-03-29", status:"Fermenting" },
       { id:20, batch_id:"214", brew_day:"2026-03-12", beer_name:"Yod Beer XPA",                           fermenter:"F11", volume:393, filled_litres:0,   fermentation_days:14, condition_days:7,  release_date:"2026-04-02", status:"Brewing"    },
     ];
@@ -2513,6 +2517,14 @@
       try { return new Date(m+'-01T00:00:00').toLocaleString('en-US',{month:'long',year:'numeric'}); }
       catch(e) { return m; }
     }
+    function getStockOutKegSize(stockRow, kegStatus) {
+      if (stockRow.keg_size) return stockRow.keg_size;
+      const keg = (kegStatus||[]).find(k => String(k.keg_id) === String(stockRow.keg_id));
+      return keg?.size || "";
+    }
+    function getStockOutLitres(stockRow, kegStatus) {
+      return parseKegLitres(getStockOutKegSize(stockRow, kegStatus));
+    }
     function downloadCSV(rows, filename) {
       if (!rows || !rows.length) return;
       const keys = Object.keys(rows[0]);
@@ -2589,7 +2601,7 @@
             <ReportKPICard accent="violet" label="Kegs Out" value={fmtNum(monthlyStockOut.length)} sub="kegs" />
             <ReportKPICard accent="violet" label="Kegs Returned" value={fmtNum(kegsReturnedInMonth)} sub="returned this month" />
             <ReportKPICard accent="rose" label="Keg Issues" value={fmtNum(monthlyBrokenLog.length)} sub="issues" />
-            <ReportKPICard accent="amber" label="Packaging Yield" value={yieldPct!=null ? yieldPct.toFixed(1)+'%' : '—'} sub="Filled ÷ brewed volume" />
+            <ReportKPICard accent="amber" label="Monthly Fill-to-Brew Ratio" value={yieldPct!=null ? yieldPct.toFixed(1)+'%' : '—'} sub="Filled litres this month ÷ brewed volume this month" />
           </div>
           {beerSummary.length>0&&(
             <RptSectionCard title="Production by Beer">
@@ -2797,12 +2809,12 @@
     }
 
     // ─── KEG OUT TAB (REPORT) ────────────────────────────────────────────────
-    function RptKegOutTab({ monthlyStockOut, activeMonth }) {
+    function RptKegOutTab({ monthlyStockOut, kegStatus, activeMonth }) {
       const [filterDest,setFilterDest]=useState("All");
       const locOpts=useMemo(()=>{const s=new Set(monthlyStockOut.map(r=>r.destination).filter(Boolean));return DESTINATIONS.filter(d=>s.has(d)).concat([...s].filter(d=>!DESTINATIONS.includes(d)));},[monthlyStockOut]);
       const filteredRows=useMemo(()=>filterDest==="All"?monthlyStockOut:monthlyStockOut.filter(r=>r.destination===filterDest),[monthlyStockOut,filterDest]);
       const kegsOut=filteredRows.length;
-      const estLitres=filteredRows.reduce((s,r)=>s+parseKegLitres(r.keg_size),0);
+      const estLitres=filteredRows.reduce((s,r)=>s+getStockOutLitres(r,kegStatus),0);
       const uniqueDests=new Set(filteredRows.map(r=>r.destination).filter(Boolean)).size;
       const returnedCount=filteredRows.filter(r=>r.date_returned).length;
       const dests=useMemo(()=>filterDest==="All"?locOpts:[filterDest],[locOpts,filterDest]);
@@ -2814,14 +2826,17 @@
       const destTotals=useMemo(()=>{const t={};dests.forEach(d=>{t[d]=filteredRows.filter(r=>r.destination===d).length;});return t;},[filteredRows,dests]);
       const destSummary=useMemo(()=>{
         const map={};
-        monthlyStockOut.forEach(r=>{const d=r.destination||'Unknown';if(!map[d])map[d]={dest:d,kegs:0,estL:0,returned:0,stillOut:0};map[d].kegs++;map[d].estL+=parseKegLitres(r.keg_size);if(r.date_returned)map[d].returned++;else map[d].stillOut++;});
+        filteredRows.forEach(r=>{const d=r.destination||'Unknown';if(!map[d])map[d]={dest:d,kegs:0,estL:0,returned:0,stillOut:0};map[d].kegs++;map[d].estL+=getStockOutLitres(r,kegStatus);if(r.date_returned)map[d].returned++;else map[d].stillOut++;});
         return Object.values(map).sort((a,b)=>b.kegs-a.kegs);
-      },[monthlyStockOut]);
-      function exportCSV(){downloadCSV(filteredRows.map(r=>({date_out:r.date_out,keg_id:r.keg_id||'',beer_name:r.beer_name||'',keg_size:r.keg_size||'',destination:r.destination||'',recorded_by:r.recorded_by||'',date_returned:r.date_returned||'',remark:r.remark||''})),`brewery-keg-out-${activeMonth}.csv`);}
+      },[filteredRows,kegStatus]);
+      // Data quality: records missing keg size from both StockOut and KegStatus
+      const missingSizeCount=useMemo(()=>filteredRows.filter(r=>!getStockOutKegSize(r,kegStatus)).length,[filteredRows,kegStatus]);
+      function exportCSV(){downloadCSV(filteredRows.map(r=>({date_out:r.date_out,keg_id:r.keg_id||'',beer_name:r.beer_name||'',keg_size:getStockOutKegSize(r,kegStatus)||'',destination:r.destination||'',recorded_by:r.recorded_by||'',date_returned:r.date_returned||'',remark:r.remark||''})),`brewery-keg-out-${activeMonth}.csv`);}
       const sCls="px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-400 bg-white shadow-sm";
       if(monthlyStockOut.length===0)return <ReportEmptyState msg={`No keg-out records found for ${rptMonthLabel(activeMonth)}.`}/>;
       return(
         <div className="space-y-4">
+          {missingSizeCount>0&&<div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2">⚠ {missingSizeCount} stock-out record{missingSizeCount>1?'s':''} have no keg size — estimated litres may be understated.</div>}
           <div className="flex items-center justify-between flex-wrap gap-3">
             <p className="text-sm text-gray-500">Kegs out by beer and destination for {rptMonthLabel(activeMonth)}</p>
             <div className="flex items-center gap-2">
@@ -2896,7 +2911,7 @@
     }
 
     // ─── KEG MOVEMENT & MAINTENANCE TAB ──────────────────────────────────────
-    function KegMovementTab({ monthlyStockOut, monthlyBrokenLog, activeMonth }) {
+    function KegMovementTab({ monthlyStockOut, monthlyBrokenLog, kegStatus, activeMonth }) {
       const today=new Date().toISOString().split('T')[0];
       const sent=monthlyStockOut.length;
       const returnedFromCohort=monthlyStockOut.filter(r=>r.date_returned).length;
@@ -2912,14 +2927,14 @@
           return{...r,stillOut:r.sent-r.returned,returnRate:r.sent>0?Math.round((r.returned/r.sent)*1000)/10:0,avgDays};
         }).sort((a,b)=>b.sent-a.sent);
       },[monthlyStockOut]);
-      const outstanding=useMemo(()=>monthlyStockOut.filter(r=>!r.date_returned).map(r=>({...r,daysOut:rptDaysBetween(r.date_out,today)})).sort((a,b)=>(b.daysOut||0)-(a.daysOut||0)),[monthlyStockOut,today]);
+      const outstanding=useMemo(()=>monthlyStockOut.filter(r=>!r.date_returned).map(r=>{const d=rptDaysBetween(r.date_out,today);return{...r,daysOut:(d!=null&&d>=0)?d:null};}).sort((a,b)=>(b.daysOut??-1)-(a.daysOut??-1)),[monthlyStockOut,today]);
       const issues=monthlyBrokenLog.length;
       const resolvedCount=monthlyBrokenLog.filter(r=>r.resolution&&r.resolution.trim()).length;
       const outstandingIssues=issues-resolvedCount;
       const lostKegs=monthlyBrokenLog.filter(r=>(r.reason||'').toLowerCase()==='lost').length;
       const byReason=useMemo(()=>{const map={};monthlyBrokenLog.forEach(r=>{const k=r.reason||'Unknown';if(!map[k])map[k]={reason:k,count:0,resolved:0};map[k].count++;if(r.resolution&&r.resolution.trim())map[k].resolved++;});return Object.values(map).map(r=>({...r,outstanding:r.count-r.resolved})).sort((a,b)=>b.count-a.count);},[monthlyBrokenLog]);
       const byLoc=useMemo(()=>{const map={};monthlyBrokenLog.forEach(r=>{const k=r.where||'Unknown';if(!map[k])map[k]={loc:k,count:0,resolved:0};map[k].count++;if(r.resolution&&r.resolution.trim())map[k].resolved++;});return Object.values(map).map(r=>({...r,outstanding:r.count-r.resolved})).sort((a,b)=>b.count-a.count);},[monthlyBrokenLog]);
-      function exportMovementCSV(){downloadCSV(monthlyStockOut.map(r=>({date_out:r.date_out,keg_id:r.keg_id||'',beer_name:r.beer_name||'',keg_size:r.keg_size||'',destination:r.destination||'',date_returned:r.date_returned||'',days_out:r.date_returned?rptDaysBetween(r.date_out,r.date_returned):rptDaysBetween(r.date_out,today)})),`brewery-keg-movement-${activeMonth}.csv`);}
+      function exportMovementCSV(){downloadCSV(monthlyStockOut.map(r=>{const d=r.date_returned?rptDaysBetween(r.date_out,r.date_returned):rptDaysBetween(r.date_out,today);return{date_out:r.date_out,keg_id:r.keg_id||'',beer_name:r.beer_name||'',keg_size:getStockOutKegSize(r,kegStatus)||'',destination:r.destination||'',date_returned:r.date_returned||'',days_out:d!=null&&d>=0?d:''};}),`brewery-keg-movement-${activeMonth}.csv`);}
       function exportMaintenanceCSV(){downloadCSV(monthlyBrokenLog.map(r=>({date_reported:r.date_reported||r.date||'',keg_id:r.keg_id||'',beer_name:r.beer_name||'',where:r.where||'',reason:r.reason||'',severity:r.severity||'',reported_by:r.reported_by||'',resolution:r.resolution||'',resolution_date:r.resolution_date||'',returned_date:r.returned_date||''})),`brewery-maintenance-${activeMonth}.csv`);}
       return(
         <div className="space-y-6">
@@ -2954,7 +2969,7 @@
               </table>
             </RptSectionCard>
             {outstanding.length>0&&(
-              <RptSectionCard title="Outstanding Kegs">
+              <RptSectionCard title="Outstanding from Selected Month — As of Today" action={<span className="text-xs text-gray-400">Kegs sent during the selected month that remain unreturned as of today</span>}>
                 <table className="w-full text-sm" style={{borderCollapse:'collapse'}}>
                   <thead><tr className="bg-gray-50 border-b-2 border-gray-200">
                     {rptTh('Keg ID')}{rptTh('Beer')}{rptTh('Size')}{rptTh('Destination')}{rptTh('Date Out')}{rptTh('Days Out',true)}
@@ -2967,7 +2982,7 @@
                         <tr key={(r.id||'')+r.keg_id+r.date_out} className={`border-b border-gray-50 ${rowCls}`}>
                           <td className="px-4 py-2.5 font-mono text-xs text-gray-600">{r.keg_id||'—'}</td>
                           <td className="px-4 py-2.5 text-gray-700">{r.beer_name||'—'}</td>
-                          <td className="px-4 py-2.5 text-gray-500">{r.keg_size||'—'}</td>
+                          <td className="px-4 py-2.5 text-gray-500">{getStockOutKegSize(r,kegStatus)||'—'}</td>
                           <td className="px-4 py-2.5 text-gray-700">{r.destination||'—'}</td>
                           <td className="px-4 py-2.5 text-gray-500">{r.date_out}</td>
                           <td className={`px-4 py-2.5 text-right ${numCls}`}>{r.daysOut!=null?r.daysOut:'—'}</td>
@@ -3079,7 +3094,7 @@
       const monthlyBatches=useMemo(()=>(batches||[]).filter(b=>isInMonth(b.brew_day,activeMonth)&&(selectedBeer==="All"||b.beer_name===selectedBeer)),[batches,activeMonth,selectedBeer]);
       const monthlyFillLog=useMemo(()=>(fillLog||[]).filter(r=>isInMonth(r.date_filled,activeMonth)&&(selectedBeer==="All"||r.beer_name===selectedBeer)),[fillLog,activeMonth,selectedBeer]);
       const monthlyStockOut=useMemo(()=>(stockOut||[]).filter(r=>isInMonth(r.date_out,activeMonth)&&(selectedBeer==="All"||r.beer_name===selectedBeer)),[stockOut,activeMonth,selectedBeer]);
-      const monthlyBrokenLog=useMemo(()=>(brokenLog||[]).filter(r=>{const date=r.date_reported||r.date;if(!isInMonth(date,activeMonth))return false;if(selectedBeer!=="All"&&r.beer_name&&r.beer_name!==selectedBeer)return false;return true;}),[brokenLog,activeMonth,selectedBeer]);
+      const monthlyBrokenLog=useMemo(()=>(brokenLog||[]).filter(r=>{const date=r.date_reported||r.date;if(!isInMonth(date,activeMonth))return false;if(selectedBeer!=="All"&&r.beer_name!==selectedBeer)return false;return true;}),[brokenLog,activeMonth,selectedBeer]);
       const kegsReturnedInMonth=useMemo(()=>(stockOut||[]).filter(r=>isInMonth(r.date_returned,activeMonth)&&(selectedBeer==="All"||r.beer_name===selectedBeer)).length,[stockOut,activeMonth,selectedBeer]);
       const sCls="px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white shadow-sm";
       const TABS=[{id:"overview",label:"Overview"},{id:"production",label:"Production"},{id:"filling",label:"Filling"},{id:"keg-out",label:"Keg Out"},{id:"keg-movement",label:"Keg Movement & Maintenance"}];
@@ -3118,8 +3133,8 @@
           {activeTab==="overview"    &&<OverviewTab monthlyBatches={monthlyBatches} monthlyFillLog={monthlyFillLog} monthlyStockOut={monthlyStockOut} monthlyBrokenLog={monthlyBrokenLog} kegsReturnedInMonth={kegsReturnedInMonth} activeMonth={activeMonth}/>}
           {activeTab==="production"  &&<ProductionTab monthlyBatches={monthlyBatches} fillLog={fillLog} activeMonth={activeMonth}/>}
           {activeTab==="filling"     &&<FillingTab monthlyFillLog={monthlyFillLog} activeMonth={activeMonth}/>}
-          {activeTab==="keg-out"     &&<RptKegOutTab monthlyStockOut={monthlyStockOut} activeMonth={activeMonth}/>}
-          {activeTab==="keg-movement"&&<KegMovementTab monthlyStockOut={monthlyStockOut} monthlyBrokenLog={monthlyBrokenLog} activeMonth={activeMonth}/>}
+          {activeTab==="keg-out"     &&<RptKegOutTab monthlyStockOut={monthlyStockOut} kegStatus={kegStatus} activeMonth={activeMonth}/>}
+          {activeTab==="keg-movement"&&<KegMovementTab monthlyStockOut={monthlyStockOut} monthlyBrokenLog={monthlyBrokenLog} kegStatus={kegStatus} activeMonth={activeMonth}/>}
         </div>
       );
     }
