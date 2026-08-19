@@ -32,7 +32,7 @@
       KegStatus:  ["keg_id","size","status","beer_name","fill_date","date_out","return_date","location","last_updated_by"],
       FillLog:    ["id","date_filled","beer_name","keg_size","keg_id","filled_by","batch_no","litres","remark"],
       StockOut:   ["id","date_out","destination","keg_id","beer_name","keg_size","recorded_by","remark","date_returned"],
-      BrokenLog:  ["id","date","keg_id","beer_name","reason","reported_by"],
+      BrokenLog:  ["id","date_reported","keg_id","beer_name","where","reason","severity","reported_by","resolution","resolution_date","returned_date"],
       Batches:    ["id","batch_id","brew_day","beer_name","fermenter","volume","filled_litres","fermentation_days","condition_days","release_date","status"],
       BeerList:   ["brand","name","style","abv","contract"],
       BatchTasks:    ["id","batch_id","task","day","assigned_to","start_date","end_date","status","is_ot","ot_hours","remark","fermenter"],
@@ -477,8 +477,8 @@
       { id:"dashboard",  label:"Dashboard",
         icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>,
         dividerAfter: false },
-      { id:"stock-out-summary", label:"Keg Out Report",
-        icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>,
+      { id:"brewery-reports", label:"Brewery Reports",
+        icon:<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>,
         dividerAfter: true },
       // ── Brewing process (in order) ─────────────────────────────────────────
       { id:"batches",    label:"Batches",
@@ -2464,6 +2464,662 @@
               </div>
             </div>
           )}
+        </div>
+      );
+    }
+
+    // ─── BREWERY REPORT HELPERS ───────────────────────────────────────────────
+    function getRecordMonth(date) {
+      if (!date || typeof date !== 'string') return null;
+      const m = date.slice(0,7);
+      return /^\d{4}-\d{2}$/.test(m) ? m : null;
+    }
+    function isInMonth(date, month) {
+      if (!date || !month) return false;
+      return String(date).startsWith(month);
+    }
+    function parseKegLitres(s) {
+      if (!s) return 0;
+      const m = String(s).match(/(\d+(?:\.\d+)?)/);
+      return m ? parseFloat(m[1]) : 0;
+    }
+    function fmtNum(v) {
+      const n = Number(v);
+      if (!isFinite(n)) return '0';
+      return Math.round(n).toLocaleString();
+    }
+    function fmtL(v) {
+      const n = Number(v);
+      if (!isFinite(n)) return '0 L';
+      return Math.round(n).toLocaleString() + ' L';
+    }
+    function rptCalcPct(part, total) {
+      if (!total || !isFinite(total) || total === 0) return null;
+      return Math.round((part/total)*1000)/10;
+    }
+    function rptCalcAvg(arr) {
+      const valid = arr.filter(v => isFinite(v) && v > 0);
+      if (!valid.length) return null;
+      return valid.reduce((s,v) => s+v, 0) / valid.length;
+    }
+    function rptDaysBetween(d1, d2) {
+      if (!d1 || !d2) return null;
+      const t1 = new Date(d1).getTime(), t2 = new Date(d2).getTime();
+      if (isNaN(t1) || isNaN(t2)) return null;
+      return Math.round((t2 - t1) / 86400000);
+    }
+    function rptMonthLabel(m) {
+      if (!m) return '';
+      try { return new Date(m+'-01T00:00:00').toLocaleString('en-US',{month:'long',year:'numeric'}); }
+      catch(e) { return m; }
+    }
+    function downloadCSV(rows, filename) {
+      if (!rows || !rows.length) return;
+      const keys = Object.keys(rows[0]);
+      const esc = v => { const s = v==null?'':String(v); return s.includes(',')||s.includes('"')||s.includes('\n')?`"${s.replace(/"/g,'""')}"`:s; };
+      const csv = [keys.join(','), ...rows.map(r=>keys.map(k=>esc(r[k])).join(','))].join('\n');
+      const blob = new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href=url; a.download=filename; a.click();
+      setTimeout(()=>URL.revokeObjectURL(url),1500);
+    }
+
+    // ─── SHARED REPORT UI COMPONENTS ─────────────────────────────────────────
+    function ReportKPICard({ label, value, sub, accent }) {
+      const accentMap = {
+        amber:   'bg-amber-50 border-amber-100 text-amber-700',
+        emerald: 'bg-emerald-50 border-emerald-100 text-emerald-700',
+        violet:  'bg-violet-50 border-violet-100 text-violet-700',
+        sky:     'bg-sky-50 border-sky-100 text-sky-700',
+        rose:    'bg-rose-50 border-rose-100 text-rose-700',
+      };
+      const cls = accentMap[accent] || 'bg-white border-gray-100 text-gray-700';
+      return (
+        <div className={`rounded-2xl border px-4 py-4 ${cls}`}>
+          <p className="text-xs font-semibold uppercase tracking-wide opacity-60 mb-1">{label}</p>
+          <p className="text-2xl font-bold">{value}</p>
+          {sub && <p className="text-xs opacity-50 mt-0.5">{sub}</p>}
+        </div>
+      );
+    }
+    function ReportEmptyState({ msg }) {
+      return <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-sm text-gray-400">{msg}</div>;
+    }
+    function RptSectionCard({ title, children, action }) {
+      return (
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-100 bg-gray-50/60 flex items-center justify-between">
+            <span className="text-sm font-semibold text-gray-700">{title}</span>
+            {action}
+          </div>
+          <div className="table-scroll">{children}</div>
+        </div>
+      );
+    }
+    function rptTh(label, right) {
+      return <th className={`px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap ${right?'text-right':'text-left'}`}>{label}</th>;
+    }
+
+    // ─── OVERVIEW TAB ─────────────────────────────────────────────────────────
+    function OverviewTab({ monthlyBatches, monthlyFillLog, monthlyStockOut, monthlyBrokenLog, kegsReturnedInMonth, activeMonth }) {
+      const brewedL = useMemo(()=>monthlyBatches.reduce((s,b)=>s+(parseFloat(b.volume)||0),0),[monthlyBatches]);
+      const filledL = useMemo(()=>monthlyFillLog.reduce((s,r)=>s+(parseFloat(r.litres)||0),0),[monthlyFillLog]);
+      const beerSummary = useMemo(()=>{
+        const map={};
+        monthlyBatches.forEach(b=>{const k=b.beer_name||'Unknown';if(!map[k])map[k]={beer:k,batches:0,brewedL:0,filledL:0,kegsFilled:0,kegsOut:0};map[k].batches++;map[k].brewedL+=parseFloat(b.volume)||0;});
+        monthlyFillLog.forEach(r=>{const k=r.beer_name||'Unknown';if(!map[k])map[k]={beer:k,batches:0,brewedL:0,filledL:0,kegsFilled:0,kegsOut:0};map[k].filledL+=parseFloat(r.litres)||0;map[k].kegsFilled++;});
+        monthlyStockOut.forEach(r=>{const k=r.beer_name||'Unknown';if(!map[k])map[k]={beer:k,batches:0,brewedL:0,filledL:0,kegsFilled:0,kegsOut:0};map[k].kegsOut++;});
+        return Object.values(map).sort((a,b)=>b.brewedL-a.brewedL);
+      },[monthlyBatches,monthlyFillLog,monthlyStockOut]);
+      const totRow = useMemo(()=>({
+        batches:beerSummary.reduce((s,r)=>s+r.batches,0), brewedL:beerSummary.reduce((s,r)=>s+r.brewedL,0),
+        filledL:beerSummary.reduce((s,r)=>s+r.filledL,0), kegsFilled:beerSummary.reduce((s,r)=>s+r.kegsFilled,0), kegsOut:beerSummary.reduce((s,r)=>s+r.kegsOut,0),
+      }),[beerSummary]);
+      const yieldPct = brewedL>0 ? rptCalcPct(filledL,brewedL) : null;
+      const isEmpty = monthlyBatches.length===0&&monthlyFillLog.length===0&&monthlyStockOut.length===0;
+      return (
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500">Overview of brewery activity for {rptMonthLabel(activeMonth)}</p>
+          {isEmpty ? <ReportEmptyState msg={`No brewery activity found for ${rptMonthLabel(activeMonth)}.`} /> : (<>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <ReportKPICard accent="amber" label="Batches Brewed" value={fmtNum(monthlyBatches.length)} sub="batches" />
+            <ReportKPICard accent="amber" label="Volume Brewed" value={fmtL(brewedL)} />
+            <ReportKPICard accent="emerald" label="Volume Filled" value={fmtL(filledL)} />
+            <ReportKPICard accent="emerald" label="Kegs Filled" value={fmtNum(monthlyFillLog.length)} sub="kegs" />
+            <ReportKPICard accent="violet" label="Kegs Out" value={fmtNum(monthlyStockOut.length)} sub="kegs" />
+            <ReportKPICard accent="violet" label="Kegs Returned" value={fmtNum(kegsReturnedInMonth)} sub="returned this month" />
+            <ReportKPICard accent="rose" label="Keg Issues" value={fmtNum(monthlyBrokenLog.length)} sub="issues" />
+            <ReportKPICard accent="amber" label="Packaging Yield" value={yieldPct!=null ? yieldPct.toFixed(1)+'%' : '—'} sub="Filled ÷ brewed volume" />
+          </div>
+          {beerSummary.length>0&&(
+            <RptSectionCard title="Production by Beer">
+              <table className="w-full text-sm" style={{borderCollapse:'collapse'}}>
+                <thead><tr className="bg-gray-50 border-b-2 border-gray-200">
+                  {rptTh('Beer')}{rptTh('Batches',true)}{rptTh('Brewed L',true)}{rptTh('Filled L',true)}{rptTh('Kegs Filled',true)}{rptTh('Kegs Out',true)}
+                </tr></thead>
+                <tbody>
+                  {beerSummary.map((r,i)=>(
+                    <tr key={r.beer} className={`border-b border-gray-50 ${i%2===0?'bg-white':'bg-gray-50/40'}`}>
+                      <td className="px-4 py-2.5 font-medium text-gray-700 whitespace-nowrap">{r.beer}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-600">{r.batches||'—'}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-600">{r.brewedL?fmtNum(r.brewedL):'—'}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-600">{r.filledL?fmtNum(r.filledL):'—'}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-600">{r.kegsFilled||'—'}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-600">{r.kegsOut||'—'}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-gray-100 border-t-2 border-gray-300 font-semibold">
+                    <td className="px-4 py-3 text-gray-700">Total</td>
+                    <td className="px-4 py-3 text-right text-gray-800">{totRow.batches}</td>
+                    <td className="px-4 py-3 text-right text-gray-800">{fmtNum(totRow.brewedL)}</td>
+                    <td className="px-4 py-3 text-right text-gray-800">{fmtNum(totRow.filledL)}</td>
+                    <td className="px-4 py-3 text-right text-gray-800">{totRow.kegsFilled}</td>
+                    <td className="px-4 py-3 text-right text-gray-800">{totRow.kegsOut}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </RptSectionCard>
+          )}
+          </>)}
+        </div>
+      );
+    }
+
+    // ─── PRODUCTION TAB ───────────────────────────────────────────────────────
+    function ProductionTab({ monthlyBatches, fillLog, activeMonth }) {
+      const batchRows = useMemo(()=>monthlyBatches.map(b=>{
+        const linked=(fillLog||[]).filter(r=>String(r.batch_no)===String(b.batch_id));
+        const filledL=linked.length>0?linked.reduce((s,r)=>s+(parseFloat(r.litres)||0),0):(parseFloat(b.filled_litres)||0);
+        const vol=parseFloat(b.volume)||0;
+        const yieldPct=vol>0?Math.round((filledL/vol)*1000)/10:null;
+        return{...b,filledL,vol,yieldPct};
+      }).sort((a,b)=>((b.brew_day||'')>(a.brew_day||'')?1:-1)),[monthlyBatches,fillLog]);
+
+      const totalBrewed=batchRows.reduce((s,r)=>s+r.vol,0);
+      const totalFilled=batchRows.reduce((s,r)=>s+r.filledL,0);
+      const avgBatch=batchRows.length>0?Math.round(totalBrewed/batchRows.length):0;
+      const avgFerm=rptCalcAvg(batchRows.map(b=>parseFloat(b.fermentation_days)||0));
+      const avgCond=rptCalcAvg(batchRows.map(b=>parseFloat(b.condition_days)||0));
+
+      const beerMap=useMemo(()=>{
+        const map={};
+        batchRows.forEach(r=>{const k=r.beer_name||'Unknown';if(!map[k])map[k]={beer:k,batches:0,brewedL:0,filledL:0};map[k].batches++;map[k].brewedL+=r.vol;map[k].filledL+=r.filledL;});
+        return Object.values(map).sort((a,b)=>b.brewedL-a.brewedL);
+      },[batchRows]);
+
+      const BATCH_STATUS_COLORS={Conditioning:'bg-amber-100 text-amber-700',Fermenting:'bg-blue-100 text-blue-700',Released:'bg-green-100 text-green-700',Planned:'bg-gray-100 text-gray-600'};
+
+      function exportCSV(){downloadCSV(batchRows.map(r=>({batch_id:r.batch_id,beer_name:r.beer_name,brew_day:r.brew_day,fermenter:r.fermenter||'',volume_L:r.vol,filled_L:r.filledL,yield_pct:r.yieldPct!=null?r.yieldPct.toFixed(1)+'%':'',release_date:r.release_date||'',status:r.status||''})),`brewery-production-${activeMonth}.csv`);}
+
+      if(batchRows.length===0)return <ReportEmptyState msg={`No production records found for ${rptMonthLabel(activeMonth)}.`}/>;
+      return(
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500">Brewing activity and output by batch</p>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <ReportKPICard accent="amber" label="Total Batches" value={fmtNum(batchRows.length)}/>
+            <ReportKPICard accent="amber" label="Total Brewed" value={fmtL(totalBrewed)}/>
+            <ReportKPICard accent="amber" label="Avg Batch Size" value={fmtL(avgBatch)}/>
+            <ReportKPICard accent="amber" label="Avg Fermentation" value={avgFerm!=null?avgFerm.toFixed(1)+' days':'—'}/>
+            <ReportKPICard accent="amber" label="Avg Conditioning" value={avgCond!=null?avgCond.toFixed(1)+' days':'—'}/>
+          </div>
+          <RptSectionCard title="Batch Detail" action={<button onClick={exportCSV} className="text-xs px-3 py-1 rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-50">Export CSV</button>}>
+            <table className="w-full text-sm" style={{borderCollapse:'collapse',minWidth:720}}>
+              <thead><tr className="bg-gray-50 border-b-2 border-gray-200">
+                {rptTh('Batch')}{rptTh('Beer')}{rptTh('Brew Date')}{rptTh('Fermenter')}{rptTh('Brewed L',true)}{rptTh('Filled L',true)}{rptTh('Yield',true)}{rptTh('Release Date')}{rptTh('Status')}
+              </tr></thead>
+              <tbody>
+                {batchRows.map((r,i)=>(
+                  <tr key={r.id||r.batch_id} className={`border-b border-gray-50 ${i%2===0?'bg-white':'bg-gray-50/40'}`}>
+                    <td className="px-4 py-2.5 font-mono text-xs text-gray-600 whitespace-nowrap">{r.batch_id}</td>
+                    <td className="px-4 py-2.5 font-medium text-gray-700 whitespace-nowrap">{r.beer_name}</td>
+                    <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{r.brew_day||'—'}</td>
+                    <td className="px-4 py-2.5 text-gray-500">{r.fermenter||'—'}</td>
+                    <td className="px-4 py-2.5 text-right text-gray-600">{fmtNum(r.vol)}</td>
+                    <td className="px-4 py-2.5 text-right text-gray-600">{r.filledL>0?fmtNum(r.filledL):'—'}</td>
+                    <td className="px-4 py-2.5 text-right text-gray-500">{r.yieldPct!=null&&r.filledL>0?r.yieldPct.toFixed(1)+'%':'—'}</td>
+                    <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{r.release_date||'—'}</td>
+                    <td className="px-4 py-2.5">{r.status?<span className={`text-xs px-2 py-0.5 rounded-full font-medium ${BATCH_STATUS_COLORS[r.status]||'bg-gray-100 text-gray-600'}`}>{r.status}</span>:'—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </RptSectionCard>
+          {beerMap.length>0&&(
+            <RptSectionCard title="Production by Beer">
+              <table className="w-full text-sm" style={{borderCollapse:'collapse'}}>
+                <thead><tr className="bg-gray-50 border-b-2 border-gray-200">
+                  {rptTh('Beer')}{rptTh('Batches',true)}{rptTh('Total Brewed L',true)}{rptTh('Total Filled L',true)}{rptTh('Avg Batch L',true)}{rptTh('Yield',true)}
+                </tr></thead>
+                <tbody>
+                  {beerMap.map((r,i)=>(
+                    <tr key={r.beer} className={`border-b border-gray-50 ${i%2===0?'bg-white':'bg-gray-50/40'}`}>
+                      <td className="px-4 py-2.5 font-medium text-gray-700">{r.beer}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-600">{r.batches}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-600">{fmtNum(r.brewedL)}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-600">{r.filledL>0?fmtNum(r.filledL):'—'}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-600">{fmtNum(r.batches>0?r.brewedL/r.batches:0)}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-500">{r.brewedL>0&&r.filledL>0?(Math.round((r.filledL/r.brewedL)*1000)/10).toFixed(1)+'%':'—'}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-gray-100 border-t-2 border-gray-300 font-semibold">
+                    <td className="px-4 py-3 text-gray-700">Total</td>
+                    <td className="px-4 py-3 text-right text-gray-800">{beerMap.reduce((s,r)=>s+r.batches,0)}</td>
+                    <td className="px-4 py-3 text-right text-gray-800">{fmtNum(totalBrewed)}</td>
+                    <td className="px-4 py-3 text-right text-gray-800">{fmtNum(totalFilled)}</td>
+                    <td className="px-4 py-3 text-right text-gray-500">—</td>
+                    <td className="px-4 py-3 text-right text-gray-800">{totalBrewed>0&&totalFilled>0?(Math.round((totalFilled/totalBrewed)*1000)/10).toFixed(1)+'%':'—'}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </RptSectionCard>
+          )}
+        </div>
+      );
+    }
+
+    // ─── FILLING TAB ──────────────────────────────────────────────────────────
+    function FillingTab({ monthlyFillLog, activeMonth }) {
+      const totalL=monthlyFillLog.reduce((s,r)=>s+(parseFloat(r.litres)||0),0);
+      const uniqueDays=new Set(monthlyFillLog.map(r=>r.date_filled).filter(Boolean)).size;
+      const avgPerDay=uniqueDays>0?totalL/uniqueDays:0;
+      const beerLitres=useMemo(()=>{const map={};monthlyFillLog.forEach(r=>{const k=r.beer_name||'Unknown';map[k]=(map[k]||0)+(parseFloat(r.litres)||0);});return Object.entries(map).sort((a,b)=>b[1]-a[1]);},[monthlyFillLog]);
+      const topBeer=beerLitres[0];
+      const kegSizes=useMemo(()=>{const s=new Set(monthlyFillLog.map(r=>r.keg_size).filter(Boolean));return[...s].sort((a,b)=>parseKegLitres(a)-parseKegLitres(b));},[monthlyFillLog]);
+      const beerTable=useMemo(()=>{
+        const map={};
+        monthlyFillLog.forEach(r=>{const k=r.beer_name||'Unknown';if(!map[k]){map[k]={beer:k,kegs:0,totalL:0,sizes:{}};kegSizes.forEach(sz=>map[k].sizes[sz]=0);}map[k].kegs++;map[k].totalL+=parseFloat(r.litres)||0;if(r.keg_size)map[k].sizes[r.keg_size]=(map[k].sizes[r.keg_size]||0)+1;});
+        return Object.values(map).sort((a,b)=>b.totalL-a.totalL);
+      },[monthlyFillLog,kegSizes]);
+      const staffTable=useMemo(()=>{
+        const map={};
+        monthlyFillLog.forEach(r=>{const k=r.filled_by||'Unknown';if(!map[k])map[k]={name:k,kegs:0,litres:0,days:new Set()};map[k].kegs++;map[k].litres+=parseFloat(r.litres)||0;if(r.date_filled)map[k].days.add(r.date_filled);});
+        return Object.values(map).map(r=>({...r,days:r.days.size})).sort((a,b)=>b.litres-a.litres);
+      },[monthlyFillLog]);
+      function exportCSV(){downloadCSV(monthlyFillLog.map(r=>({date_filled:r.date_filled,beer_name:r.beer_name,keg_size:r.keg_size||'',keg_id:r.keg_id||'',litres:r.litres,filled_by:r.filled_by||'',batch_no:r.batch_no||'',remark:r.remark||''})),`brewery-filling-${activeMonth}.csv`);}
+      if(monthlyFillLog.length===0)return <ReportEmptyState msg={`No filling records found for ${rptMonthLabel(activeMonth)}.`}/>;
+      return(
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500">Monthly packaging and keg filling activity</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <ReportKPICard accent="emerald" label="Total Filled" value={fmtL(totalL)}/>
+            <ReportKPICard accent="emerald" label="Kegs Filled" value={fmtNum(monthlyFillLog.length)} sub="kegs"/>
+            <ReportKPICard accent="emerald" label="Filling Days" value={uniqueDays} sub="days"/>
+            <ReportKPICard accent="emerald" label="Avg per Filling Day" value={fmtL(Math.round(avgPerDay))} sub="L/day"/>
+            {topBeer&&<ReportKPICard accent="emerald" label="Top Filled Beer" value={topBeer[0]} sub={fmtL(topBeer[1])}/>}
+          </div>
+          <RptSectionCard title="Filling by Beer" action={<button onClick={exportCSV} className="text-xs px-3 py-1 rounded-lg border border-emerald-300 text-emerald-700 hover:bg-emerald-50">Export CSV</button>}>
+            <table className="w-full text-sm" style={{borderCollapse:'collapse',minWidth:500}}>
+              <thead><tr className="bg-gray-50 border-b-2 border-gray-200">
+                {rptTh('Beer')}{rptTh('Kegs',true)}
+                {kegSizes.map(sz=>rptTh(sz,true))}
+                {rptTh('Total L',true)}
+              </tr></thead>
+              <tbody>
+                {beerTable.map((r,i)=>(
+                  <tr key={r.beer} className={`border-b border-gray-50 ${i%2===0?'bg-white':'bg-gray-50/40'}`}>
+                    <td className="px-4 py-2.5 font-medium text-gray-700 whitespace-nowrap">{r.beer}</td>
+                    <td className="px-4 py-2.5 text-right text-gray-600">{r.kegs}</td>
+                    {kegSizes.map(sz=><td key={sz} className="px-4 py-2.5 text-right text-gray-500">{r.sizes[sz]||'—'}</td>)}
+                    <td className="px-4 py-2.5 text-right font-medium text-emerald-700">{fmtNum(r.totalL)}</td>
+                  </tr>
+                ))}
+                <tr className="bg-gray-100 border-t-2 border-gray-300 font-semibold">
+                  <td className="px-4 py-3 text-gray-700">Total</td>
+                  <td className="px-4 py-3 text-right text-gray-800">{beerTable.reduce((s,r)=>s+r.kegs,0)}</td>
+                  {kegSizes.map(sz=><td key={sz} className="px-4 py-3 text-right text-gray-700">{beerTable.reduce((s,r)=>s+(r.sizes[sz]||0),0)}</td>)}
+                  <td className="px-4 py-3 text-right text-emerald-800">{fmtNum(totalL)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </RptSectionCard>
+          {staffTable.length>0&&(
+            <RptSectionCard title="Filling by Staff">
+              <table className="w-full text-sm" style={{borderCollapse:'collapse'}}>
+                <thead><tr className="bg-gray-50 border-b-2 border-gray-200">
+                  {rptTh('Staff')}{rptTh('Kegs Filled',true)}{rptTh('Litres Filled',true)}{rptTh('Filling Days',true)}{rptTh('Share',true)}
+                </tr></thead>
+                <tbody>
+                  {staffTable.map((r,i)=>(
+                    <tr key={r.name} className={`border-b border-gray-50 ${i%2===0?'bg-white':'bg-gray-50/40'}`}>
+                      <td className="px-4 py-2.5 font-medium text-gray-700">{r.name}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-600">{r.kegs}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-600">{fmtNum(r.litres)}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-600">{r.days}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-500">{totalL>0?(Math.round((r.litres/totalL)*1000)/10).toFixed(1)+'%':'—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </RptSectionCard>
+          )}
+        </div>
+      );
+    }
+
+    // ─── KEG OUT TAB ─────────────────────────────────────────────────────────
+    function KegOutTab({ monthlyStockOut, activeMonth }) {
+      const [filterDest,setFilterDest]=useState("All");
+      const locOpts=useMemo(()=>{const s=new Set(monthlyStockOut.map(r=>r.destination).filter(Boolean));return DESTINATIONS.filter(d=>s.has(d)).concat([...s].filter(d=>!DESTINATIONS.includes(d)));},[monthlyStockOut]);
+      const filteredRows=useMemo(()=>filterDest==="All"?monthlyStockOut:monthlyStockOut.filter(r=>r.destination===filterDest),[monthlyStockOut,filterDest]);
+      const kegsOut=filteredRows.length;
+      const estLitres=filteredRows.reduce((s,r)=>s+parseKegLitres(r.keg_size),0);
+      const uniqueDests=new Set(filteredRows.map(r=>r.destination).filter(Boolean)).size;
+      const returnedCount=filteredRows.filter(r=>r.date_returned).length;
+      const dests=useMemo(()=>filterDest==="All"?locOpts:[filterDest],[locOpts,filterDest]);
+      const {pivot,beerNames}=useMemo(()=>{
+        const p={};
+        filteredRows.forEach(r=>{const beer=r.beer_name||'Unknown';const date=r.date_out;const dest=r.destination||'—';if(!p[beer])p[beer]={};if(!p[beer][date])p[beer][date]={};p[beer][date][dest]=(p[beer][date][dest]||0)+1;});
+        return{pivot:p,beerNames:Object.keys(p).sort()};
+      },[filteredRows]);
+      const destTotals=useMemo(()=>{const t={};dests.forEach(d=>{t[d]=filteredRows.filter(r=>r.destination===d).length;});return t;},[filteredRows,dests]);
+      const destSummary=useMemo(()=>{
+        const map={};
+        monthlyStockOut.forEach(r=>{const d=r.destination||'Unknown';if(!map[d])map[d]={dest:d,kegs:0,estL:0,returned:0,stillOut:0};map[d].kegs++;map[d].estL+=parseKegLitres(r.keg_size);if(r.date_returned)map[d].returned++;else map[d].stillOut++;});
+        return Object.values(map).sort((a,b)=>b.kegs-a.kegs);
+      },[monthlyStockOut]);
+      function exportCSV(){downloadCSV(filteredRows.map(r=>({date_out:r.date_out,keg_id:r.keg_id||'',beer_name:r.beer_name||'',keg_size:r.keg_size||'',destination:r.destination||'',recorded_by:r.recorded_by||'',date_returned:r.date_returned||'',remark:r.remark||''})),`brewery-keg-out-${activeMonth}.csv`);}
+      const sCls="px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-violet-400 bg-white shadow-sm";
+      if(monthlyStockOut.length===0)return <ReportEmptyState msg={`No keg-out records found for ${rptMonthLabel(activeMonth)}.`}/>;
+      return(
+        <div className="space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <p className="text-sm text-gray-500">Kegs out by beer and destination for {rptMonthLabel(activeMonth)}</p>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-500 font-medium uppercase tracking-wide">Location</label>
+              <select value={filterDest} onChange={e=>setFilterDest(e.target.value)} className={sCls}>
+                <option value="All">All Locations</option>
+                {locOpts.map(d=><option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <ReportKPICard accent="violet" label="Kegs Out" value={fmtNum(kegsOut)} sub="kegs"/>
+            <ReportKPICard accent="violet" label="Est. Litres Out" value={fmtL(estLitres)} sub="Based on keg size (full keg)"/>
+            <ReportKPICard accent="violet" label="Destinations" value={uniqueDests}/>
+            <ReportKPICard accent="violet" label="Returned" value={`${returnedCount} / ${kegsOut}`} sub="from this month's cohort"/>
+          </div>
+          <RptSectionCard title="Keg Out by Destination" action={<button onClick={exportCSV} className="text-xs px-3 py-1 rounded-lg border border-violet-300 text-violet-700 hover:bg-violet-50">Export CSV</button>}>
+            <table className="w-full text-sm" style={{borderCollapse:'collapse'}}>
+              <thead><tr className="bg-gray-50 border-b-2 border-gray-200">
+                {rptTh('Destination')}{rptTh('Kegs',true)}{rptTh('Est. Litres',true)}{rptTh('Returned',true)}{rptTh('Still Out',true)}
+              </tr></thead>
+              <tbody>
+                {destSummary.map((r,i)=>(
+                  <tr key={r.dest} className={`border-b border-gray-50 ${i%2===0?'bg-white':'bg-gray-50/40'}`}>
+                    <td className="px-4 py-2.5 font-medium text-gray-700">{r.dest}</td>
+                    <td className="px-4 py-2.5 text-right text-gray-600">{r.kegs}</td>
+                    <td className="px-4 py-2.5 text-right text-gray-500">{fmtNum(r.estL)}</td>
+                    <td className="px-4 py-2.5 text-right text-emerald-700">{r.returned}</td>
+                    <td className="px-4 py-2.5 text-right text-amber-700">{r.stillOut}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </RptSectionCard>
+          {kegsOut>0&&(
+            <RptSectionCard title={`${rptMonthLabel(activeMonth)} · Kegs Out by Location`}>
+              <table className="w-full text-sm" style={{borderCollapse:'collapse',minWidth:500}}>
+                <thead><tr className="bg-gray-50 border-b-2 border-gray-200">
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap" style={{minWidth:160}}>Beer Name</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Date Out</th>
+                  {dests.map(d=><th key={d} className="text-center px-4 py-3 text-xs font-semibold text-violet-600 uppercase tracking-wide whitespace-nowrap">{d}</th>)}
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Total</th>
+                </tr></thead>
+                <tbody>
+                  {beerNames.map((beer,bi)=>{
+                    const dates=Object.keys(pivot[beer]).sort();
+                    return dates.map((date,di)=>{
+                      const cells=pivot[beer][date];
+                      const rowTotal=dests.reduce((s,d)=>s+(cells[d]||0),0);
+                      return(
+                        <tr key={`${beer}-${date}`} style={{borderBottom:di===dates.length-1&&bi<beerNames.length-1?'2px solid #e5e7eb':'1px solid #f3f4f6'}}
+                          className={bi%2===0?'bg-white':'bg-gray-50/40'}>
+                          <td className="px-4 py-2.5 font-medium text-gray-700 whitespace-nowrap" style={{verticalAlign:'top'}}>{di===0?beer:''}</td>
+                          <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{date}</td>
+                          {dests.map(d=><td key={d} className="px-4 py-2.5 text-center text-gray-600">{cells[d]||'—'}</td>)}
+                          <td className="px-4 py-2.5 text-center font-semibold text-gray-600">{rowTotal}</td>
+                        </tr>
+                      );
+                    });
+                  })}
+                  <tr className="bg-gray-100 border-t-2 border-gray-300 font-semibold">
+                    <td className="px-4 py-3 text-gray-700" colSpan={2}>Total</td>
+                    {dests.map(d=><td key={d} className="px-4 py-3 text-center text-violet-700">{destTotals[d]||0}</td>)}
+                    <td className="px-4 py-3 text-center text-gray-800">{kegsOut}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </RptSectionCard>
+          )}
+        </div>
+      );
+    }
+
+    // ─── KEG MOVEMENT & MAINTENANCE TAB ──────────────────────────────────────
+    function KegMovementTab({ monthlyStockOut, monthlyBrokenLog, activeMonth }) {
+      const today=new Date().toISOString().split('T')[0];
+      const sent=monthlyStockOut.length;
+      const returnedFromCohort=monthlyStockOut.filter(r=>r.date_returned).length;
+      const stillOutTotal=sent-returnedFromCohort;
+      const returnRate=sent>0?Math.round((returnedFromCohort/sent)*1000)/10:0;
+      const avgDaysOut=useMemo(()=>{const vals=monthlyStockOut.filter(r=>r.date_returned).map(r=>rptDaysBetween(r.date_out,r.date_returned)).filter(v=>v!=null&&v>=0);return vals.length>0?(vals.reduce((s,v)=>s+v,0)/vals.length):null;},[monthlyStockOut]);
+      const byDest=useMemo(()=>{
+        const map={};
+        monthlyStockOut.forEach(r=>{const d=r.destination||'Unknown';if(!map[d])map[d]={dest:d,sent:0,returned:0};map[d].sent++;if(r.date_returned)map[d].returned++;});
+        return Object.values(map).map(r=>{
+          const daysVals=monthlyStockOut.filter(s=>(s.destination||'Unknown')===r.dest&&s.date_returned).map(s=>rptDaysBetween(s.date_out,s.date_returned)).filter(v=>v!=null&&v>=0);
+          const avgDays=daysVals.length>0?daysVals.reduce((s,v)=>s+v,0)/daysVals.length:null;
+          return{...r,stillOut:r.sent-r.returned,returnRate:r.sent>0?Math.round((r.returned/r.sent)*1000)/10:0,avgDays};
+        }).sort((a,b)=>b.sent-a.sent);
+      },[monthlyStockOut]);
+      const outstanding=useMemo(()=>monthlyStockOut.filter(r=>!r.date_returned).map(r=>({...r,daysOut:rptDaysBetween(r.date_out,today)})).sort((a,b)=>(b.daysOut||0)-(a.daysOut||0)),[monthlyStockOut,today]);
+      const issues=monthlyBrokenLog.length;
+      const resolvedCount=monthlyBrokenLog.filter(r=>r.resolution&&r.resolution.trim()).length;
+      const outstandingIssues=issues-resolvedCount;
+      const lostKegs=monthlyBrokenLog.filter(r=>(r.reason||'').toLowerCase()==='lost').length;
+      const byReason=useMemo(()=>{const map={};monthlyBrokenLog.forEach(r=>{const k=r.reason||'Unknown';if(!map[k])map[k]={reason:k,count:0,resolved:0};map[k].count++;if(r.resolution&&r.resolution.trim())map[k].resolved++;});return Object.values(map).map(r=>({...r,outstanding:r.count-r.resolved})).sort((a,b)=>b.count-a.count);},[monthlyBrokenLog]);
+      const byLoc=useMemo(()=>{const map={};monthlyBrokenLog.forEach(r=>{const k=r.where||'Unknown';if(!map[k])map[k]={loc:k,count:0,resolved:0};map[k].count++;if(r.resolution&&r.resolution.trim())map[k].resolved++;});return Object.values(map).map(r=>({...r,outstanding:r.count-r.resolved})).sort((a,b)=>b.count-a.count);},[monthlyBrokenLog]);
+      function exportMovementCSV(){downloadCSV(monthlyStockOut.map(r=>({date_out:r.date_out,keg_id:r.keg_id||'',beer_name:r.beer_name||'',keg_size:r.keg_size||'',destination:r.destination||'',date_returned:r.date_returned||'',days_out:r.date_returned?rptDaysBetween(r.date_out,r.date_returned):rptDaysBetween(r.date_out,today)})),`brewery-keg-movement-${activeMonth}.csv`);}
+      function exportMaintenanceCSV(){downloadCSV(monthlyBrokenLog.map(r=>({date_reported:r.date_reported||r.date||'',keg_id:r.keg_id||'',beer_name:r.beer_name||'',where:r.where||'',reason:r.reason||'',severity:r.severity||'',reported_by:r.reported_by||'',resolution:r.resolution||'',resolution_date:r.resolution_date||'',returned_date:r.returned_date||''})),`brewery-maintenance-${activeMonth}.csv`);}
+      return(
+        <div className="space-y-6">
+          {/* Keg Movement */}
+          <div className="space-y-4">
+            <div><h2 className="text-base font-semibold text-gray-800">Keg Movement</h2><p className="text-sm text-gray-500">Keg circulation and return performance for {rptMonthLabel(activeMonth)}</p></div>
+            {sent===0?<ReportEmptyState msg={`No keg movement records for ${rptMonthLabel(activeMonth)}.`}/>:(<>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <ReportKPICard accent="sky" label="Kegs Sent" value={fmtNum(sent)}/>
+              <ReportKPICard accent="sky" label="Returned (Cohort)" value={fmtNum(returnedFromCohort)}/>
+              <ReportKPICard accent="sky" label="Return Rate" value={returnRate.toFixed(1)+'%'}/>
+              <ReportKPICard accent="sky" label="Still Outstanding" value={fmtNum(stillOutTotal)}/>
+              <ReportKPICard accent="sky" label="Avg Days Out" value={avgDaysOut!=null?avgDaysOut.toFixed(1)+' days':'—'} sub="returned kegs only"/>
+            </div>
+            <RptSectionCard title="By Destination" action={<button onClick={exportMovementCSV} className="text-xs px-3 py-1 rounded-lg border border-sky-300 text-sky-700 hover:bg-sky-50">Export CSV</button>}>
+              <table className="w-full text-sm" style={{borderCollapse:'collapse'}}>
+                <thead><tr className="bg-gray-50 border-b-2 border-gray-200">
+                  {rptTh('Destination')}{rptTh('Sent',true)}{rptTh('Returned',true)}{rptTh('Still Out',true)}{rptTh('Return Rate',true)}{rptTh('Avg Days Out',true)}
+                </tr></thead>
+                <tbody>
+                  {byDest.map((r,i)=>(
+                    <tr key={r.dest} className={`border-b border-gray-50 ${i%2===0?'bg-white':'bg-gray-50/40'}`}>
+                      <td className="px-4 py-2.5 font-medium text-gray-700">{r.dest}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-600">{r.sent}</td>
+                      <td className="px-4 py-2.5 text-right text-emerald-700">{r.returned}</td>
+                      <td className="px-4 py-2.5 text-right text-amber-700">{r.stillOut}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-500">{r.returnRate.toFixed(1)}%</td>
+                      <td className="px-4 py-2.5 text-right text-gray-500">{r.avgDays!=null?r.avgDays.toFixed(1)+' d':'—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </RptSectionCard>
+            {outstanding.length>0&&(
+              <RptSectionCard title="Outstanding Kegs">
+                <table className="w-full text-sm" style={{borderCollapse:'collapse'}}>
+                  <thead><tr className="bg-gray-50 border-b-2 border-gray-200">
+                    {rptTh('Keg ID')}{rptTh('Beer')}{rptTh('Size')}{rptTh('Destination')}{rptTh('Date Out')}{rptTh('Days Out',true)}
+                  </tr></thead>
+                  <tbody>
+                    {outstanding.map((r,i)=>{
+                      const rowCls=r.daysOut>60?'bg-rose-50':r.daysOut>30?'bg-amber-50':i%2===0?'bg-white':'bg-gray-50/40';
+                      const numCls=r.daysOut>60?'text-rose-700 font-semibold':r.daysOut>30?'text-amber-700 font-semibold':'text-gray-600';
+                      return(
+                        <tr key={(r.id||'')+r.keg_id+r.date_out} className={`border-b border-gray-50 ${rowCls}`}>
+                          <td className="px-4 py-2.5 font-mono text-xs text-gray-600">{r.keg_id||'—'}</td>
+                          <td className="px-4 py-2.5 text-gray-700">{r.beer_name||'—'}</td>
+                          <td className="px-4 py-2.5 text-gray-500">{r.keg_size||'—'}</td>
+                          <td className="px-4 py-2.5 text-gray-700">{r.destination||'—'}</td>
+                          <td className="px-4 py-2.5 text-gray-500">{r.date_out}</td>
+                          <td className={`px-4 py-2.5 text-right ${numCls}`}>{r.daysOut!=null?r.daysOut:'—'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </RptSectionCard>
+            )}
+            </>)}
+          </div>
+          {/* Maintenance */}
+          <div className="space-y-4">
+            <div><h2 className="text-base font-semibold text-gray-800">Maintenance</h2><p className="text-sm text-gray-500">Keg issues and resolution tracking for {rptMonthLabel(activeMonth)}</p></div>
+            {monthlyBrokenLog.length===0?<ReportEmptyState msg={`No maintenance records for ${rptMonthLabel(activeMonth)}.`}/>:(<>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <ReportKPICard accent="rose" label="Issues Reported" value={fmtNum(issues)}/>
+              <ReportKPICard accent="rose" label="Resolved" value={fmtNum(resolvedCount)}/>
+              <ReportKPICard accent="rose" label="Outstanding" value={fmtNum(outstandingIssues)}/>
+              <ReportKPICard accent="rose" label="Lost Kegs" value={fmtNum(lostKegs)}/>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <RptSectionCard title="Issues by Reason">
+                <table className="w-full text-sm" style={{borderCollapse:'collapse'}}>
+                  <thead><tr className="bg-gray-50 border-b-2 border-gray-200">{rptTh('Reason')}{rptTh('Count',true)}{rptTh('Resolved',true)}{rptTh('Outstanding',true)}</tr></thead>
+                  <tbody>{byReason.map((r,i)=>(
+                    <tr key={r.reason} className={`border-b border-gray-50 ${i%2===0?'bg-white':'bg-gray-50/40'}`}>
+                      <td className="px-4 py-2.5 text-gray-700">{r.reason}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-600">{r.count}</td>
+                      <td className="px-4 py-2.5 text-right text-emerald-700">{r.resolved}</td>
+                      <td className="px-4 py-2.5 text-right text-amber-700">{r.outstanding}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </RptSectionCard>
+              <RptSectionCard title="Issues by Location">
+                <table className="w-full text-sm" style={{borderCollapse:'collapse'}}>
+                  <thead><tr className="bg-gray-50 border-b-2 border-gray-200">{rptTh('Location')}{rptTh('Issues',true)}{rptTh('Resolved',true)}{rptTh('Outstanding',true)}</tr></thead>
+                  <tbody>{byLoc.map((r,i)=>(
+                    <tr key={r.loc} className={`border-b border-gray-50 ${i%2===0?'bg-white':'bg-gray-50/40'}`}>
+                      <td className="px-4 py-2.5 text-gray-700">{r.loc}</td>
+                      <td className="px-4 py-2.5 text-right text-gray-600">{r.count}</td>
+                      <td className="px-4 py-2.5 text-right text-emerald-700">{r.resolved}</td>
+                      <td className="px-4 py-2.5 text-right text-amber-700">{r.outstanding}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </RptSectionCard>
+            </div>
+            <RptSectionCard title="Maintenance Records" action={<button onClick={exportMaintenanceCSV} className="text-xs px-3 py-1 rounded-lg border border-rose-300 text-rose-700 hover:bg-rose-50">Export CSV</button>}>
+              <table className="w-full text-sm" style={{borderCollapse:'collapse',minWidth:800}}>
+                <thead><tr className="bg-gray-50 border-b-2 border-gray-200">
+                  {rptTh('Date')}{rptTh('Keg ID')}{rptTh('Beer')}{rptTh('Location')}{rptTh('Reason')}{rptTh('Severity')}{rptTh('Reported By')}{rptTh('Resolution')}{rptTh('Status')}
+                </tr></thead>
+                <tbody>
+                  {[...monthlyBrokenLog].sort((a,b)=>((b.date_reported||b.date||'')>(a.date_reported||a.date||'')?1:-1)).map((r,i)=>{
+                    const isResolved=r.resolution&&r.resolution.trim();
+                    return(
+                      <tr key={(r.id||'')+i} className={`border-b border-gray-50 ${i%2===0?'bg-white':'bg-gray-50/40'}`}>
+                        <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{r.date_reported||r.date||'—'}</td>
+                        <td className="px-4 py-2.5 font-mono text-xs text-gray-600">{r.keg_id||'—'}</td>
+                        <td className="px-4 py-2.5 text-gray-700">{r.beer_name||'—'}</td>
+                        <td className="px-4 py-2.5 text-gray-500">{r.where||'—'}</td>
+                        <td className="px-4 py-2.5 text-gray-700">{r.reason||'—'}</td>
+                        <td className="px-4 py-2.5 text-gray-500">{r.severity||'—'}</td>
+                        <td className="px-4 py-2.5 text-gray-500">{r.reported_by||'—'}</td>
+                        <td className="px-4 py-2.5 text-gray-500 max-w-xs" style={{maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.resolution||'—'}</td>
+                        <td className="px-4 py-2.5">
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${isResolved?'bg-emerald-100 text-emerald-700':'bg-amber-100 text-amber-700'}`}>
+                            {isResolved?'Resolved':'Outstanding'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </RptSectionCard>
+            </>)}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── BREWERY REPORTS PAGE ─────────────────────────────────────────────────
+    function BreweryReportsPage({ batches, fillLog, stockOut, kegStatus, brokenLog, beerList }) {
+      const nowM=(()=>{const n=new Date();return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`;})();
+      const [selectedMonth,setSelectedMonth]=useState(nowM);
+      const [selectedBeer,setSelectedBeer]=useState("All");
+      const [activeTab,setActiveTab]=useState("overview");
+      const monthOpts=useMemo(()=>{
+        const set=new Set();
+        (batches||[]).forEach(b=>{const m=getRecordMonth(b.brew_day);if(m)set.add(m);});
+        (fillLog||[]).forEach(r=>{const m=getRecordMonth(r.date_filled);if(m)set.add(m);});
+        (stockOut||[]).forEach(r=>{const m=getRecordMonth(r.date_out);if(m)set.add(m);const m2=getRecordMonth(r.date_returned);if(m2)set.add(m2);});
+        (brokenLog||[]).forEach(r=>{const m=getRecordMonth(r.date_reported||r.date);if(m)set.add(m);});
+        return[...set].sort().reverse();
+      },[batches,fillLog,stockOut,brokenLog]);
+      const activeMonth=monthOpts.includes(selectedMonth)?selectedMonth:(monthOpts[0]||selectedMonth);
+      const beerOpts=useMemo(()=>{
+        const set=new Set();
+        (beerList||[]).forEach(b=>{if(b.name)set.add(b.name);});
+        (batches||[]).forEach(b=>{if(b.beer_name)set.add(b.beer_name);});
+        (fillLog||[]).forEach(r=>{if(r.beer_name)set.add(r.beer_name);});
+        (stockOut||[]).forEach(r=>{if(r.beer_name)set.add(r.beer_name);});
+        return[...set].sort();
+      },[beerList,batches,fillLog,stockOut]);
+      const monthlyBatches=useMemo(()=>(batches||[]).filter(b=>isInMonth(b.brew_day,activeMonth)&&(selectedBeer==="All"||b.beer_name===selectedBeer)),[batches,activeMonth,selectedBeer]);
+      const monthlyFillLog=useMemo(()=>(fillLog||[]).filter(r=>isInMonth(r.date_filled,activeMonth)&&(selectedBeer==="All"||r.beer_name===selectedBeer)),[fillLog,activeMonth,selectedBeer]);
+      const monthlyStockOut=useMemo(()=>(stockOut||[]).filter(r=>isInMonth(r.date_out,activeMonth)&&(selectedBeer==="All"||r.beer_name===selectedBeer)),[stockOut,activeMonth,selectedBeer]);
+      const monthlyBrokenLog=useMemo(()=>(brokenLog||[]).filter(r=>{const date=r.date_reported||r.date;if(!isInMonth(date,activeMonth))return false;if(selectedBeer!=="All"&&r.beer_name&&r.beer_name!==selectedBeer)return false;return true;}),[brokenLog,activeMonth,selectedBeer]);
+      const kegsReturnedInMonth=useMemo(()=>(stockOut||[]).filter(r=>isInMonth(r.date_returned,activeMonth)&&(selectedBeer==="All"||r.beer_name===selectedBeer)).length,[stockOut,activeMonth,selectedBeer]);
+      const sCls="px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white shadow-sm";
+      const TABS=[{id:"overview",label:"Overview"},{id:"production",label:"Production"},{id:"filling",label:"Filling"},{id:"keg-out",label:"Keg Out"},{id:"keg-movement",label:"Keg Movement & Maintenance"}];
+      return(
+        <div className="space-y-5">
+          <div className="flex items-start justify-between flex-wrap gap-4">
+            <div>
+              <h1 className="text-xl font-semibold text-gray-800">Brewery Reports</h1>
+              <p className="text-sm text-gray-400 mt-0.5">Monthly brewery performance and operational summary</p>
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-500 font-medium uppercase tracking-wide whitespace-nowrap">Month</label>
+                <select value={activeMonth} onChange={e=>setSelectedMonth(e.target.value)} className={sCls}>
+                  {monthOpts.length===0&&<option value={activeMonth}>{rptMonthLabel(activeMonth)}</option>}
+                  {monthOpts.map(m=><option key={m} value={m}>{rptMonthLabel(m)}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-500 font-medium uppercase tracking-wide whitespace-nowrap">Beer</label>
+                <select value={selectedBeer} onChange={e=>setSelectedBeer(e.target.value)} className={sCls}>
+                  <option value="All">All Beer</option>
+                  {beerOpts.map(b=><option key={b} value={b}>{b}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+          <div className="flex border-b border-gray-200 overflow-x-auto">
+            {TABS.map(t=>(
+              <button key={t.id} onClick={()=>setActiveTab(t.id)}
+                className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${activeTab===t.id?"border-amber-500 text-amber-700":"border-transparent text-gray-500 hover:text-gray-700"}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {activeTab==="overview"    &&<OverviewTab monthlyBatches={monthlyBatches} monthlyFillLog={monthlyFillLog} monthlyStockOut={monthlyStockOut} monthlyBrokenLog={monthlyBrokenLog} kegsReturnedInMonth={kegsReturnedInMonth} activeMonth={activeMonth}/>}
+          {activeTab==="production"  &&<ProductionTab monthlyBatches={monthlyBatches} fillLog={fillLog} activeMonth={activeMonth}/>}
+          {activeTab==="filling"     &&<FillingTab monthlyFillLog={monthlyFillLog} activeMonth={activeMonth}/>}
+          {activeTab==="keg-out"     &&<KegOutTab monthlyStockOut={monthlyStockOut} activeMonth={activeMonth}/>}
+          {activeTab==="keg-movement"&&<KegMovementTab monthlyStockOut={monthlyStockOut} monthlyBrokenLog={monthlyBrokenLog} activeMonth={activeMonth}/>}
         </div>
       );
     }
@@ -6546,7 +7202,7 @@
               {page === "keg-status" && <KegStatusPage kegStatus={kegStatus} setKegStatus={setKegStatus} />}
               {page === "fill-log"   && <FillLogPage   fillLog={fillLog} setFillLog={setFillLog} beerList={beerList} kegStatus={kegStatus} setKegStatus={setKegStatus} batches={batches} />}
               {page === "stock-out"         && <StockOutPage        stockOut={stockOut} setStockOut={setStockOut} kegStatus={kegStatus} setKegStatus={setKegStatus} />}
-              {page === "stock-out-summary" && <StockOutSummaryPage  stockOut={stockOut} />}
+              {page === "brewery-reports"   && <BreweryReportsPage batches={batches} fillLog={fillLog} stockOut={stockOut} kegStatus={kegStatus} brokenLog={brokenLog} beerList={beerList} />}
               {page === "keg-cleaning"  && <KegCleaningPage  kegStatus={kegStatus} setKegStatus={setKegStatus} brokenLog={brokenLog} setBrokenLog={setBrokenLog} stockOut={stockOut} />}
               {page === "broken-log"    && <BrokenLogPage    brokenLog={brokenLog} setBrokenLog={setBrokenLog} kegStatus={kegStatus} setKegStatus={setKegStatus} />}
               {page === "batches"     && <BatchesPage    batches={batches} setBatches={setBatches} beerList={beerList} setBeerList={setBeerList} fillLog={fillLog} batchTasks={batchTasks} setBatchTasks={setBatchTasks} onOpenBrewsheet={openBrewsheet} onRenameBeer={renameBeer} />}
